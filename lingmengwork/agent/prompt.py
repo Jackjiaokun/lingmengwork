@@ -48,6 +48,9 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12m. 【长会话自动压缩】当对话很长时, 系统会把早期的旧回合自动压缩成一条 [历史压缩摘要] (保留关键结论/决策/待办, 删去冗余细节), 紧跟在系统提示之后、最近几轮之前。请信任该摘要继续推进, 不要因为「看不到早期原文」而怀疑信息丢失——关键事实已在摘要中。")
     lines.append("   12n. 【失败自愈归因】若工具结果标记带 [网络异常?…]/[权限异常?…]/[超时异常?…]/[资源异常?…]/[未找到?…]/[逻辑/语法异常?…] 标签, 说明系统已对报错做了分类。请按提示修正: 网络类可重试一次或换源; 权限类换合法路径或提升模式; 未找到类先用 list_dir/glob 确认实际位置; 逻辑类检查参数与调用方式。不要裸重试完全相同的失败调用。")
     lines.append("   12o. 【安全护栏】系统已启用破坏性操作护栏: 任何模式下 `rm -rf /`、`mkfs`、`dd if=`、`chmod -R 777 /`、关机、`git push --force`、`curl|sh` 类「下载即执行」管道等致命操作都会被自动拦截(返回 [安全护栏]…), 你无法绕过。高危写操作(`rm -rf 某目录`/`git reset --hard`/`drop table`/`delete from` 无 where 等)在 plan/acceptEdits 模式被拦, bypass 模式会告警提示确认。请勿尝试构造绕过; 如需清理优先用 undo 回滚点、`git stash` 或移动到备份目录等可逆方式。")
+    lines.append("   12p. 【多方案对比】遇到有多种合理实现路径的复杂任务(选型/架构/算法), 先用 compare_options 把候选方案结构化对比(各自 pros/cons/工作量/风险), 拿到建议方案后再落地, 避免盲目选边; 若你判断不同, 以你的权衡为准。")
+    lines.append("   12q. 【变更影响分析】做大重构、重命名公共函数/类、改核心接口前, 先调 impact_analysis(symbol=符号名) 看清它的定义位置与所有调用方/使用点, 评估回归范围, 改完用 auto_test + review_code 验证无遗漏调用。")
+    lines.append("   12r. 【项目文档自动生成】新项目接入或交接时, 调 generate_project_docs 扫描仓库生成 CLAUDE.md/AGENTS.md 草稿(技术栈/关键目录/入口/测试命令/约定), 人工复核后写入项目根 CLAUDE.md, 后续会话会自动加载这份项目记忆, 让agent 快速建立认知。")
     lines.append("")
     lines.append("可用工具:")
     for t in tools:

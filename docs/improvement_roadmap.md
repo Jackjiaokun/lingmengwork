@@ -68,6 +68,14 @@
 - [done] **项目记忆文档自动读取注入 system**: `loop._load_project_docs` 启动时读项目根 `CLAUDE.md`/`AGENTS.md`/`README.md` 注入 `project_context`(仿 Claude Code 自动上下文), 让 agent 自动获得项目约定/技术栈。受 `agent.security.read_project_docs`(默认 True) 开关。
 - [done] **prompt 引导**: 新增 12o(安全护栏: 致命被拦/高危需确认/优先可逆操作)。
 
+## 批次 8 — 结构化决策与项目记忆补全 ✅ (2026-08-26 完成)
+- [done] **多方案对比 `compare_options`**: 输入任务 + 2~N 个候选方案(标题/描述/优点/缺点/工作量/风险), 输出结构化对比表 + 建议方案(评分=优点数-缺点数-0.5×(工作量+风险)), 复杂决策先比后落(主题 B 多方案对比)。
+- [done] **变更影响分析 `impact_analysis`**: 输入符号名, 扫描仓库定位定义位置 + 所有调用方/使用点, 按文件聚合调用数量并列出调用点明细; 大重构/重命名前看清回归范围(主题 C 变更影响分析)。
+- [done] **项目文档自动生成 `generate_project_docs`**: 扫描仓库生成 CLAUDE.md/AGENTS.md 草稿(技术栈按文件数/关键目录/入口点/测试命令/已有约定), 直接补全批次7「项目记忆文档自动读取」的「自动生成工具待补」项, 让后续会话自动获得项目认知。
+- [done] **Web 端点 `POST /api/docs/generate`**: 一键生成项目文档草稿并回显, 供「项目文档」按钮使用(WEB 优先)。
+- [done] **prompt 引导**: 新增 12p(多方案对比)/12q(变更影响分析)/12r(项目文档自动生成)。
+- [done] 单测 `tests/test_decision_tools.py`(11 例) 覆盖三工具; 全量 pytest **234 passed**。
+
 ---
 
 ## 主题 A — 工具体系纵深（约 15 轮）
@@ -103,7 +111,7 @@
 - [done] 上下文压缩：旧轮 `tool_result` 滚动摘要，支撑超长会话（批次6 Auto Context Compaction）。
 - [ ] 工具选择学习：基于历史高成功率路径，优先推荐工具组合。
 - [ ] 失败归因：工具报错后分类（网络/权限/逻辑），针对性重试或换工具。
-- [ ] 多方案对比：复杂任务并行探索 2-3 方案，给出权衡建议再落地。
+- [done] 多方案对比：复杂任务并行探索 2-3 方案，给出权衡建议再落地（批次8 compare_options）。
 - [ ] 安全护栏强化：写入前 diff 预览强制（12e 闭环已含），加「破坏性操作二次确认」。
 - [ ] 目标可达性判断：任务不可行时尽早返回，而非空转。
 
@@ -112,7 +120,7 @@
 - [ ] 自动上下文裁剪：按当前任务动态选 relevant 文件注入 system。
 - [ ] 文档库接入：把 `docs/` 纳入可被 `grep/语义` 检索的知识源。
 - [ ] 依赖图：`repo_map` 升级为调用/导入关系图，辅助大重构。
-- [ ] 变更影响分析：改某函数自动列出调用方，提示回归范围。
+- [done] 变更影响分析：改某函数自动列出调用方，提示回归范围（批次8 impact_analysis）。
 - [done] 项目记忆文档自动读取注入 system（`CLAUDE.md`/`AGENTS.md`/`README.md`，仿 Claude Code，批次7）；自动生成工具待补。
 - [ ] 跨会话记忆：把高价值结论写入 `memory`，新会话自动召回。
 - [ ] 代码注释覆盖率检查：低覆盖模块提示补注释。
@@ -192,3 +200,4 @@
 - 2026-08-26 批次5：语义检索（主题C开篇，零依赖 TF-IDF+余弦 semantic_search，中英召回/增量持久化/readonly+cacheable+prompt 12l），202 单测全绿，已重打包(03:21)+e2e 验证(8318 PID 33784)。
 - 2026-08-26 批次6：全球领先运行时三件套（自动上下文压缩 context_compact_threshold=120000/失败自愈归因 _classify_failure/证据链 #seq + prompt 12m/12n），214 单测全绿，待重打包+端到端验证。
 - 2026-08-26 批次7：全球领先安全与项目记忆双引擎（破坏性操作全局硬护栏 destructive_guard/写操作审计日志 .lmw_audit.log/CLAUDE.md 自动读取注入 system + prompt 12o），223 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次8：结构化决策与项目记忆补全（多方案对比 compare_options/变更影响分析 impact_analysis/项目文档自动生成 generate_project_docs + Web 端点 /api/docs/generate + prompt 12p/12q/12r），234 单测全绿，已重打包(04:25)+e2e 验证(8318 工具总数 42 含三新工具 + /api/docs/generate 生成 CLAUDE.md 草稿)。

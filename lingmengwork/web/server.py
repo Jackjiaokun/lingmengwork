@@ -770,6 +770,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 多文件评审聚合报告 (供编辑器「评审报告」按钮) ----
         if p == "/api/review/report":
             return self._review_report()
+        # ---- 项目文档自动生成 (批次8: 生成 CLAUDE.md/AGENTS.md 草稿) ----
+        if p == "/api/docs/generate":
+            return self._docs_generate()
         # ---- 文件编辑: 保存 (供 Web 代码编辑器) ----
         if p.startswith("/api/fs"):
             return self._fs_save()
@@ -1584,6 +1587,35 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.flush()
         except Exception:
             pass
+
+    def _docs_generate(self):
+        """POST /api/docs/generate {root?, format?} -> 生成 CLAUDE.md/AGENTS.md 草稿。
+
+        直接调用 decision.generate_project_docs, 返回 {ok, draft, root, format},
+        供 Web「项目文档」按钮一键生成并预览, 用户复核后可保存为项目根 CLAUDE.md。
+        """
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        cfg = _get_cfg()
+        root = body.get("root") or None
+        fmt = body.get("format") or "claude_md"
+        try:
+            reg = build_registry(cfg)
+            base = root or str(reg.roots[0])
+        except Exception:
+            base = root or "."
+        try:
+            from ..tools import decision as _decision
+            out = _decision.generate_project_docs(
+                {"root": base, "format": fmt}, {"cwd": base, "roots": [base]}
+            )
+        except Exception as e:
+            return self._send_json({"ok": False, "error": str(e)}, status=500)
+        return self._send_json({"ok": True, "root": base, "format": fmt, "draft": out})
 
     def do_DELETE(self):
         p = urlparse(self.path).path

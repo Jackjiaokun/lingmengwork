@@ -6,7 +6,7 @@ import time
 import datetime
 
 from .common import ToolError
-from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic
+from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision
 from .undo import get_default_stack, SnapshotStack
 
 # 主题 A — 工具结果缓存 (批次4): 只读搜索类工具同查询的内存缓存 (进程级共享)
@@ -14,6 +14,7 @@ _CACHEABLE_TOOLS = {
     "web_search", "code_search", "db_query", "db_list_tables",
     "symbol_search", "grep", "glob", "repo_map", "read_file",
     "fs_read", "list_dir", "diff_view", "semantic_search",
+    "generate_project_docs", "impact_analysis",
 }
 _RESULT_CACHE = {}  # {(name, args_json): (value, expire_ts)}
 
@@ -158,6 +159,21 @@ TOOL_SCHEMAS = [
         "description": "语义近似检索 (零依赖本地向量召回, 对标 Cody/Cursor 找代码): 当你只知道「要找做 X 的代码/文档」而不知精确符号名时, 用 TF-IDF 向量 + 余弦相似度召回 top-k 最相关片段。支持中文(逐字+bigram)。索引持久化 <root>/.lmw_index 并按 mtime 增量复用。query=意图(中/英), scope?=code|docs|all(默认 all), top_k?=返回条数(默认8), glob?=文件过滤, rebuild?=true 强制重建索引。命中后用 read_file/grep 接力精确定位。",
         "parameters": {"query": "要找的代码/文档意图(中/英)", "scope?": "code|docs|all", "top_k?": "返回条数", "glob?": "文件过滤", "rebuild?": "true 强制重建索引"},
     },
+    {
+        "name": "impact_analysis",
+        "description": "变更影响分析 (对标重构前回归范围评估): 输入符号名 symbol, 扫描仓库定位其定义位置 + 所有调用方/使用点, 按文件聚合调用数量并列出调用点明细。大重构/重命名前先调它看清回归范围。symbol=符号名(精确匹配, 支持中文), glob?=文件过滤(*.py), root?=扫描根(默认当前根)。",
+        "parameters": {"symbol": "符号名(精确匹配)", "glob?": "如 *.py", "root?": "扫描根目录"},
+    },
+    {
+        "name": "compare_options",
+        "description": "多方案对比 (对标复杂决策先比后落): 输入任务 task + 2~N 个候选方案 options(每项含 title/description/pros/cons/effort/risk), 输出结构化对比表 + 建议方案(评分=优点数-缺点数-0.5×(工作量+风险))。复杂任务先比对权衡再落地, 避免盲目选边。",
+        "parameters": {"task?": "任务描述", "options": "[{title,description?,pros?,cons?,effort?,risk?}, ...]"},
+    },
+    {
+        "name": "generate_project_docs",
+        "description": "项目文档自动生成 (对标 CLAUDE.md/AGENTS.md 引导): 扫描仓库生成草稿, 含技术栈(按文件数统计语言)/关键目录/入口点/测试命令/已有约定(README/LICENSE 等)。返回 Markdown 草稿, 供人工复核后保存为 CLAUDE.md/AGENTS.md, 让后续会话自动获得项目认知。format?=claude_md|agents_md, root?=扫描根。",
+        "parameters": {"format?": "claude_md|agents_md", "root?": "扫描根目录"},
+    },
 ]
 
 # 名称 -> 实现函数 (签名: func(args, ctx) -> str)
@@ -184,6 +200,9 @@ _IMPLS = {
     "git_commit": advanced.git_commit,
     "review_code": review._tool_review_code,
     "semantic_search": semantic.semantic_search,
+    "impact_analysis": decision.impact_analysis,
+    "compare_options": decision.compare_options,
+    "generate_project_docs": decision.generate_project_docs,
 }
 
 
@@ -238,7 +257,7 @@ def _tool_undo(args, ctx):
 # plan            : 仅只读探查 (list/read/grep/glob/diff_view), 禁写/编辑/执行
 # acceptEdits     : 允许文件读写/编辑(diff_view 预览仍建议), 但 run_command 默认拦截
 # bypassPermissions: 全放开 (等同 dangerously, 由 deny_patterns 仍拦危险命令)
-_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search"}
+_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs"}
 _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo"}
 _EXEC_TOOLS = {"run_command", "auto_test", "git_commit"}
 

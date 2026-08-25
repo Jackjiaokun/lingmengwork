@@ -36,7 +36,7 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12b. 写完代码后调 auto_test 跑测试: 若失败, 根据返回的失败用例 + traceback 摘要自行修复代码, 再调 auto_test 验证, 循环直至全部通过 (红→绿自愈闭环)。这是高质量交付的关键。")
     lines.append("   12c. 交付时用 git_commit: 先不传 message 调一次拿到 diff 摘要, 据此生成简洁中文提交信息(含 why), 再带 message 调一次完成提交; 不要 --no-verify 绕过 hook。需要推送时传 push=true。")
     lines.append("   12d. 写完关键代码 (新文件/重要改动) 后调 review_code 做评审自检: 若返回 VERDICT: revise, 必须按 ISSUES 修改代码, 然后再次调用 review_code 复评; 最多复评 3 轮, 直到 VERDICT: approve 或已无高严重度问题再交付。这是「写-审-改」质量闭环, 与 12b 的测试自愈互补。")
-    lines.append("   12e. 【自动交付闭环】收到「实现 / 修改 / 修复 X」类代码任务时, 默认走完整闭环再汇报: ① 用 fs_write 写入代码 ② 用 shell_exec 跑对应测试(如 pytest tests/ , 失败则读 traceback 自行修代码并重跑, 红→绿自愈) ③ 用 review_code (无 LLM 环境或需确定性结果时, 改用 MCP 版 code_review 工具, 输出同样为 VERDICT/SCORE/ISSUES) 自评估。测试全绿 且 VERDICT: approve 才算完成, 才用中文总结交付; 任一步不通过就回到对应步骤修复重试, 不要中途向用户报「完成」。")
+    lines.append("   12e. 【自动交付闭环】收到「实现 / 修改 / 修复 X」类代码任务时, 默认走完整闭环再汇报: ① 用 write_file 写入代码 (主写工具, 写入项目根内) ② 用 run_command 或 auto_test 跑对应测试(如 pytest tests/ , 失败则读 traceback 自行修代码并重跑, 红→绿自愈) ③ 用 review_code (无 LLM 环境或需确定性结果时, 改用 MCP 版 code_review 工具, 输出同样为 VERDICT/SCORE/ISSUES) 自评估。测试全绿 且 VERDICT: approve 才算完成, 才用中文总结交付; 任一步不通过就回到对应步骤修复重试, 不要中途向用户报「完成」。")
     lines.append("   12f. 需要联网查文档/报错/最新信息时调 web_search; 需要查本地 sqlite 数据时调 db_query / db_list_tables。这些外部工具让你可以「改-跑-查-评」全链路自主完成。")
     lines.append("")
     lines.append("可用工具:")

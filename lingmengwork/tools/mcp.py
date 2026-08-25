@@ -21,6 +21,30 @@ from concurrent.futures import Future
 PROTOCOL_VERSION = "2024-11-05"
 CLIENT_INFO = {"name": "lingmengwork", "version": "1.0"}
 
+# MCP 工具权限分层: 按工具名判定只读/写/执行, 让 plan/acceptEdits 模式不再误拦只读工具。
+# (与 registry._READONLY_TOOLS/_WRITE_TOOLS/_EXEC_TOOLS 分层保持一致)
+_READONLY_HINTS = ("read", "list", "search", "fetch", "status", "diff", "log",
+                   "branch", "echo", "time", "review", "query", "tables")
+_WRITE_HINTS = ("write", "add", "create", "update", "delete", "remove", "edit", "patch")
+
+
+def _classify_mcp_tool(name, schema=None):
+    """把 MCP 工具名归到权限层级: readonly / write / exec。
+
+    - 写类动作 (write/add/create/update/delete/remove/edit/patch) -> write
+    - 只读探查 (read/list/search/fetch/status/diff/log/branch/echo/time/review/query/tables) -> readonly
+    - 其余 (shell_exec / 未知) -> exec (最危险, 仅 bypassPermissions 可用)
+    纯函数, 便于单测。
+    """
+    n = (name or "").lower()
+    for h in _WRITE_HINTS:
+        if h in n:
+            return "write"
+    for h in _READONLY_HINTS:
+        if h in n:
+            return "readonly"
+    return "exec"
+
 
 class MCPClientError(Exception):
     pass
@@ -344,5 +368,12 @@ def populate_registry(cfg, registry=None, force=False):
                 continue
             _reg.TOOL_SCHEMAS.append(sch)
             _reg._IMPLS[name] = _mcp_tool_impl(mgr, name)
-            _reg._EXEC_TOOLS.add(name)
+            # 按危险度分层注入权限集合, 避免 plan/acceptEdits 误拦只读工具
+            cls = _classify_mcp_tool(name, sch)
+            if cls == "readonly":
+                _reg._READONLY_TOOLS.add(name)
+            elif cls == "write":
+                _reg._WRITE_TOOLS.add(name)
+            else:
+                _reg._EXEC_TOOLS.add(name)
             _registered.add(name)

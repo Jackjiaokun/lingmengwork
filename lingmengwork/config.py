@@ -50,6 +50,8 @@ DEFAULTS = {
         "system_prompt": "",
         # 并发上限: 0 = 自动(任务池=通道数*2, 子代理=4)。>0 时统一作为硬上限。
         "concurrency": 0,
+        # 工具返回截断: web_fetch/code_search/shell 等可能返回超长内容, 截断以防上下文爆炸。0 = 不截断。
+        "tool_result_max_chars": 6000,
         "security": {
             "allowed_roots": ["."],
             "dangerously_run_commands": False,

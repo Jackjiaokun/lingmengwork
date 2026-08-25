@@ -1,6 +1,7 @@
 """Agent 多轮循环: 解析工具调用 -> 执行 -> 回灌 -> 重复, 直至完成或达上限。"""
 import json
 import re
+import time
 
 from .prompt import build_system_prompt
 from .context import build_project_context
@@ -61,6 +62,19 @@ def _coerce_scalar(v):
         return json.loads(s)
     except Exception:
         return s
+
+
+def _truncate_tool_result(res, limit):
+    """把超长工具返回截断, 防止 web_fetch/code_search/shell 等撑爆上下文。
+
+    limit<=0 表示不截断。纯函数, 便于单测。
+    """
+    if not limit or limit <= 0:
+        return res
+    s = str(res)
+    if len(s) <= limit:
+        return res
+    return s[:limit] + f"\n... [工具结果已截断: 原文 {len(s)} 字符, 保留前 {limit} 字符]"
 
 
 def _parse_kv_tool(raw):
@@ -136,21 +150,27 @@ _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_
 _READ_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "review_code", "memory"}
 _EXEC_TOOLS = {"run_command", "auto_test"}
 _PLANNING_TOOLS = {"think", "todo", "subagent"}
+# MCP 外部工具 (按危险度分类, 与 registry 权限分层保持一致)
+_MCP_READ = {"fs_read", "fs_list", "code_search", "db_query", "db_list_tables",
+             "web_fetch", "demo_echo", "demo_time"}
+_MCP_WRITE = {"fs_write", "git_add"}
+_MCP_EXEC = {"shell_exec"}
+_MCP_GIT = {"git_status", "git_diff", "git_log", "git_branch", "git_commit"}
 
 
 def tool_kind(name):
     """把工具名归到可视化类别: write/edit/read/exec/test/review/plan/git/search/other。"""
-    if name in _WRITE_TOOLS:
+    if name in _WRITE_TOOLS or name in _MCP_WRITE:
         return "write"
-    if name in _READ_TOOLS:
+    if name in _READ_TOOLS or name in _MCP_READ:
         return "read"
-    if name in _EXEC_TOOLS:
+    if name in _EXEC_TOOLS or name in _MCP_EXEC:
         return "exec"
-    if name == "review_code":
+    if name == "review_code" or name == "code_review":
         return "review"
     if name in _PLANNING_TOOLS:
         return "plan"
-    if name == "git_commit":
+    if name == "git_commit" or name in _MCP_GIT:
         return "git"
     if name in ("web_search", "fetch", "db_query", "db_list_tables"):
         return "search"
@@ -164,6 +184,7 @@ class AgentLoop:
         self.registry = registry
         self.cfg = cfg
         self.max_iter = int(cfg["agent"]["max_iterations"])
+        self._tool_result_limit = int((cfg["agent"].get("tool_result_max_chars") or 6000))
         self.session_id = session_id or None
         self.provider = provider
         override = system_prompt_override if system_prompt_override is not None else cfg["agent"].get("system_prompt")
@@ -257,15 +278,19 @@ class AgentLoop:
                 args = call.get("arguments", {})
                 seq += 1
                 emit("tool", name=name, args=args, seq=seq, kind=tool_kind(name))
+                t0 = time.time()
                 try:
                     res = self.registry.execute(name, args)
                     ok = not str(res).startswith(("[tool error]", "[权限拒绝]", "[mcp error]"))
                 except Exception as e:
                     res = "[tool error] %s" % e
                     ok = False
-                emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name), ok=ok)
+                dt_ms = int((time.time() - t0) * 1000)
+                # 截断超长返回, 防止上下文爆炸 (web_fetch/code_search/shell 等)
+                res = _truncate_tool_result(res, self._tool_result_limit)
+                emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name), ok=ok, duration_ms=dt_ms)
                 results.append(f"[tool result: {name}]\n{res}")
-                chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok})
+                chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok, "duration_ms": dt_ms})
 
             self.messages.append({"role": "user", "content": "\n\n".join(results)})
 

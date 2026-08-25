@@ -126,6 +126,70 @@ _SYM_RES = {
         re.compile(r"(?P<n>[A-Za-z_$]\w*)\s*[:=]\s*\([^)]*\)\s*=>"),
         re.compile(r"(?P<n>[A-Za-z_$]\w*)\s*\([^)]*\)\s*\{"),
     ],
+    "ts": [
+        re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:function|class|interface|type|enum|const|let|var)\s+(?P<n>[A-Za-z_$]\w*)"),
+        re.compile(r"(?P<n>[A-Za-z_$]\w*)\s*[:=]\s*\([^)]*\)\s*=>"),
+    ],
+    "jsx": [
+        re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:function|class|const|let|var)\s+(?P<n>[A-Za-z_$]\w*)"),
+    ],
+    "tsx": [
+        re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:function|class|const|let|var)\s+(?P<n>[A-Za-z_$]\w*)"),
+    ],
+    "java": [
+        re.compile(r"^\s*(?:public|private|protected|static|final|abstract|\s)*\s*(?:class|interface|enum)\s+(?P<n>[A-Za-z_]\w*)"),
+        re.compile(r"^\s*(?:public|private|protected|static|final|\s)*\s*(?P<n>[A-Za-z_]\w*)\s*\([^)]*\)\s*\{"),
+    ],
+    "go": [
+        re.compile(r"^\s*(?:func|type|struct|interface|package|const|var|func)\s+(?P<n>[A-Za-z_]\w*)"),
+        re.compile(r"^\s*func\s+(?:\([^)]*\)\s+)?(?P<n>[A-Za-z_]\w*)\s*\("),
+    ],
+    "rs": [
+        re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?(?:fn|struct|enum|trait|mod|impl|type)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "c": [
+        re.compile(r"^\s*(?:static\s+|inline\s+)?[A-Za-z_][\w\s\*]*\s+(?P<n>[A-Za-z_]\w*)\s*\("),
+        re.compile(r"^\s*(?:typedef\s+)?struct\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "cpp": [
+        re.compile(r"^\s*(?:inline\s+|static\s+|virtual\s+)?[A-Za-z_][\w:<\>,\s\*&]*\s+(?P<n>[A-Za-z_]\w*)\s*\("),
+        re.compile(r"^\s*(?:class|struct|enum|namespace)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "cc": [
+        re.compile(r"^\s*(?:inline\s+|static\s+|virtual\s+)?[A-Za-z_][\w:<\>,\s\*&]*\s+(?P<n>[A-Za-z_]\w*)\s*\("),
+        re.compile(r"^\s*(?:class|struct|enum|namespace)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "h": [
+        re.compile(r"^\s*(?:inline\s+|static\s+)?[A-Za-z_][\w\s\*]*\s+(?P<n>[A-Za-z_]\w*)\s*\("),
+        re.compile(r"^\s*(?:class|struct|enum|namespace)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "hpp": [
+        re.compile(r"^\s*(?:inline\s+|static\s+)?[A-Za-z_][\w:<\>,\s\*&]*\s+(?P<n>[A-Za-z_]\w*)\s*\("),
+        re.compile(r"^\s*(?:class|struct|enum|namespace)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "rb": [
+        re.compile(r"^\s*(?:def|class|module)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "php": [
+        re.compile(r"^\s*(?:public|private|protected|static|\s)*\s*function\s+(?P<n>[A-Za-z_]\w*)"),
+        re.compile(r"^\s*(?:abstract\s+|final\s+)?class\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "cs": [
+        re.compile(r"^\s*(?:public|private|protected|internal|static|async|\s)*\s*(?:class|interface|struct|enum|namespace)\s+(?P<n>[A-Za-z_]\w*)"),
+        re.compile(r"^\s*(?:public|private|protected|internal|static|async|\s)*\s*(?P<n>[A-Za-z_]\w*)\s*\([^)]*\)\s*\{"),
+    ],
+    "kt": [
+        re.compile(r"^\s*(?:fun|class|interface|object|enum\s+class|data\s+class|val|var)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "swift": [
+        re.compile(r"^\s*(?:func|class|struct|enum|protocol|extension)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "scala": [
+        re.compile(r"^\s*(?:def|class|object|trait|val|var)\s+(?P<n>[A-Za-z_]\w*)"),
+    ],
+    "sh": [
+        re.compile(r"^\s*(?:function\s+)?(?P<n>[A-Za-z_]\w*)\s*\(\s*\)\s*\{?"),
+    ],
 }
 
 

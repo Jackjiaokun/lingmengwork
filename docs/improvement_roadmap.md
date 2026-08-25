@@ -126,13 +126,20 @@
 - [done] 单测 9 例 `test_settings.py`: `_config_path` 命中/缺失回退 + `_set_scalar_in_toml` 替换/嵌套段/插入 + `_fmt_toml_value` 类型格式化 + `_cfg_get` 嵌套 + `_settings_get` 结构(存在/缺失文件) + schema 字段全覆盖; 全量 pytest **294 passed**。
 - [done] plain PyInstaller 重打包(06:06) + 宿主启动 8318(PID 8464); 冻结版含 settings.html; e2e: `/api/settings` 返回 4 组 17 字段 + `/settings` 200 + 非法 TOML 返回语法错误(不写文件) + 原样 raw/form roundtrip 等价重存且写回后 backend/max_iter 不变。
 
+## 批次 15 — 结构化结果回写对话流（主题 A 闭环）✅ (2026-08-26 完成)
+- [done] **后端闭环**: `loop.py` 在 `tool_result` 事件 emit 时调用 `registry._extract_struct(res)`(成功结果), 把抽取出的结构(`is_json`/`kind`/`n`/`keys`/`sample`)随 SSE 事件下发; `_chat_sse` 的 `emit` 经 `obj.update(kw)` 自动透传, 单聊与多路任务两条流均带 `structured` 字段。
+- [done] **前端渲染**: `app.js` 新增 `appendStructured(outEl, s)` —— 工具返回 JSON 时在气泡内直接渲染「结构化面板」: 类型徽标(`{}`/`[]`/`#`) + 「对象 · N 字段 / 数组 · M 项」标签 + 键名 chip 流 + 对象样例值 mini 表; 单聊(`handleEvent`)与多路任务(`/api/tasks` 流)两处 `tool_result` 均接入; `styles.css` 新增 `.struct-panel`/`.struct-badge`/`.struct-keys`/`.kchip`/`.struct-sample` 样式(绿调渐变卡片)。
+- [done] `prompt 12z`: 引导模型在工具返回结构化数据时优先依据关键字段推进, 不再复述整段 JSON 原文。
+- [done] 单测 2 例 `test_structure_chat.py`: ① `loop.run` 驱动 JSON 工具 → `tool_result` 事件 `structured.is_json==True` 且 kind/keys/sample 正确; ② 非 JSON 结果 `structured is None`; 全量 pytest **296 passed**。
+- [done] plain PyInstaller 重打包(06:35) + 宿主启动 8318(PID 36560); 冻结版 `/static/app.js` 含 `appendStructured`(3 处) 与 `struct-panel`(1 处), 运行服务 `/static/app.js` 同源命中。
+
 ---
 
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
 - [done] 工具结果脱敏：密钥/密码/令牌在回灌前自动遮蔽，防凭证泄露（批次4）。
-- [done] 工具结果结构化：成功 JSON 结果自动抽取结构(object/array/scalar + 字段数与键名)，recent 事件带 `structured` 徽标，面板可一眼识别结构化返回（批次13）。
+- [done] 工具结果结构化：成功 JSON 结果自动抽取结构(object/array/scalar + 字段数与键名)，recent 事件带 `structured` 徽标，面板可一眼识别结构化返回（批次13）；批次15 进一步闭环——结构化随对话流直接渲染进聊天气泡（类型徽标 + 字段 chip + 样例表），单聊/多路任务双流均覆盖。
 - [ ] 工具缓存层：`web_search`/`code_search` 同查询命中缓存，省 token 与时延。
 - [ ] 危险命令沙箱增强：`run_command` 支持允许清单 + 超时 + 资源上限（CPU/内存）。
 - [ ] 工具调用配额：单轮/单任务工具调用次数上限，防失控循环烧钱。

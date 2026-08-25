@@ -8,6 +8,7 @@ from .prompt import build_system_prompt
 from .context import build_project_context
 from .context import build_memory_context
 from ..llm import pricing as _pricing
+from ..tools.registry import _extract_struct
 
 # 工具调用围栏: ```tool\n{json}\n```
 TOOL_RE = re.compile(r"```tool\s*\n(.*?)```", re.DOTALL)
@@ -655,7 +656,12 @@ class AgentLoop:
                 # 证据链 (provenance): 结果标记带稳定 #seq, 配合文件:行号可溯源每个结论到具体工具调用
                 fail_tag = "" if ok else _classify_failure(res)
                 marker = f"[tool result: {name} #{seq}]{fail_tag}"
-                emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name), ok=ok, duration_ms=dt_ms)
+                # 主题 A 闭环 (批次15): 成功结果抽取 JSON 结构, 随 tool_result 事件回写对话流,
+                # 供前端直接在气泡内渲染「结构化字段/键名」(不再只给整段文本, 省 token 且更直观)。
+                _struct = _extract_struct(res) if ok else None
+                emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name),
+                     ok=ok, duration_ms=dt_ms,
+                     structured=(_struct if (_struct and _struct.get("is_json")) else None))
                 results.append(f"{marker}\n{res}")
                 chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok, "duration_ms": dt_ms, "fail_tag": fail_tag})
 

@@ -58,6 +58,7 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12w. 【计划看板】用「计划模式」(Web 对话选 mode=plan 或 CLI --mode plan)只读出方案、不动手修改, 最终回复即一份完整实施计划。面板 GET /planboard 把这份计划解析为可勾选任务卡(标题/分章节/复选框与编号步骤), 用户可逐项打勾跟踪落地进度。复杂任务先走计划模式产出方案, 让用户确认后再切全放开模式执行, 减少返工。")
     lines.append("   12x. 【工具结果结构化】许多工具(fsp_grep/glob/list_dir/db_query/MCP 查询等)返回 JSON 或 JSON 片段; 面板 /api/stats 的最近事件会对成功 JSON 结果抽取结构化徽标(类型 object/array + 字段数 + 键名)。当工具返回结构化数据时, 直接基于其中的关键字段推进, 不要重复解析全文, 省 token 且更稳。")
     lines.append("   12y. 【设置中心】面板 GET /settings 提供可视化配置中心: 表单视图可改常用标量开关(最大循环轮数/并发/工具结果截断/反思间隔/脱敏/上下文压缩阈值/安全护栏/审计日志/MCP 启用等), 改完即时软重载生效; 数组类配置(多路 LLM providers、MCP 服务器列表、deny_patterns)切「原始 TOML」直接编辑并校验语法。后端/安全/MCP 类改动标「需重启」, 保存后重启面板完全生效。调参或排查行为异常时, 先来设置中心看当前生效值, 不要盲猜配置。")
+    lines.append("   12z. 【结构化结果回写对话流】工具返回的 JSON 结果会被抽取结构(类型 object/array + 字段数 + 键名 + 样例值)并随对话流直接渲染在气泡里, 用户在聊天界面就能看到「这是 N 个字段的对象 / M 项的数组」以及具体键名。当工具返回结构化数据时, 优先依据这些关键字段推进, 不要再向用户复述整段 JSON 原文, 省 token 且更直观。")
     lines.append("")
     lines.append("可用工具:")
     for t in tools:

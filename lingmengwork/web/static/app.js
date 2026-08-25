@@ -331,14 +331,18 @@ function handleEvent(evt, narr, toolsBox, chainStrip, addText) {
       }
       if (evt.name === "review_code") {
         const parsed = parseCodeReview(evt.output || "");
-        if (parsed) {
-          last._out.innerHTML = renderReviewInline(parsed);
-          last._out.classList.add("review-inline");
-          loadReviews();
+          if (parsed) {
+            last._out.innerHTML = renderReviewInline(parsed);
+            last._out.classList.add("review-inline");
+            loadReviews();
+          }
+        }
+        // 主题 A 闭环 (批次15): 工具返回 JSON 时, 在气泡内直接渲染「结构化字段/键名」
+        if (evt.structured && evt.structured.is_json) {
+          appendStructured(last._out, evt.structured);
         }
       }
-    }
-    // 链路节点: 完成态染色 (ok / fail)
+      // 链路节点: 完成态染色 (ok / fail)
     if (chainStrip && last && last._chainNode) {
       const n = last._chainNode;
       n.classList.remove("running");
@@ -364,6 +368,33 @@ function handleEvent(evt, narr, toolsBox, chainStrip, addText) {
       chainStrip.appendChild(summary);
     }
   }
+}
+
+// 主题 A 闭环 (批次15): 把工具返回的 JSON 结构渲染进气泡 (字段/键名/样例值)
+function appendStructured(outEl, s) {
+  if (!s || !s.is_json) return;
+  const panel = document.createElement("div");
+  panel.className = "struct-panel";
+  const badge = s.kind === "array" ? "[]" : (s.kind === "object" ? "{}" : "#");
+  let label;
+  if (s.kind === "array") label = "数组 · " + s.n + " 项";
+  else if (s.kind === "object") label = "对象 · " + s.n + " 字段";
+  else label = "标量值";
+  let html = '<div class="struct-head"><span class="struct-badge">' + badge +
+             '</span><span class="struct-label">' + esc(label) + '</span></div>';
+  if (s.keys && s.keys.length) {
+    html += '<div class="struct-keys">' +
+      s.keys.slice(0, 24).map((k) => '<span class="kchip">' + esc(k) + '</span>').join("") +
+      '</div>';
+  }
+  if (s.kind === "object" && s.sample) {
+    const rows = Object.entries(s.sample)
+      .map(([k, v]) => '<tr><td class="sk">' + esc(k) + '</td><td class="sv">' + esc(String(v)) + '</td></tr>')
+      .join("");
+    html += '<table class="struct-sample"><tbody>' + rows + '</tbody></table>';
+  }
+  panel.innerHTML = html;
+  outEl.appendChild(panel);
 }
 
 // ---------- 计划模式: 方案确认卡片 ----------
@@ -577,6 +608,10 @@ function subscribeTask(id) {
         last.setAttribute("open", "");
         if (evt.name === "auto_test") {
           last._out.classList.add(/✅|全部通过/.test(evt.output || "") ? "ok" : "bad");
+        }
+        // 主题 A 闭环 (批次15): 工具返回 JSON 时, 在气泡内直接渲染「结构化字段/键名」
+        if (evt.structured && evt.structured.is_json) {
+          appendStructured(last._out, evt.structured);
         }
       }
     } else if (evt.type === "status") {

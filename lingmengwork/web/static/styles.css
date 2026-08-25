@@ -84,6 +84,29 @@ body {
   max-height: 140px; overflow: auto; background: var(--bg); border-radius: 6px; padding: 6px 8px;
 }
 
+/* —— 主题 A 闭环 (批次15): 工具结构化结果面板 —— */
+.struct-panel {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+  background: linear-gradient(180deg, rgba(61,220,132,.08), rgba(61,220,132,.03));
+  border: 1px solid rgba(61,220,132,.28);
+}
+.struct-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.struct-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; font-size: 12px;
+  color: #06140c; background: var(--ok); border-radius: 5px; padding: 1px 7px; line-height: 1.5;
+}
+.struct-label { font-size: 11px; font-weight: 600; color: var(--ok); }
+.struct-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+.struct-keys .kchip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px;
+  color: var(--text); background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 7px;
+}
+.struct-sample { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+.struct-sample td { padding: 2px 6px; border-top: 1px solid rgba(61,220,132,.16); vertical-align: top; }
+.struct-sample .sk { color: var(--muted); font-family: ui-monospace, monospace; white-space: nowrap; width: 1%; }
+.struct-sample .sv { color: var(--text); word-break: break-all; }
+
 /* —— 多工具调用链可视化 (全链路时序节点) —— */
 .chain-strip {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;

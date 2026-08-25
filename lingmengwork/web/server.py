@@ -653,6 +653,13 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 model = "?"
             return self._send_json({"ok": True, "version": __version__, "backend": backend, "model": model})
+        # ---- 主题 E 可观测性 (批次9): 工具调用运行期统计 ----
+        if p == "/api/stats":
+            try:
+                from ..tools.registry import get_stats
+                return self._send_json(get_stats())
+            except Exception as e:
+                return self._send_json({"error": str(e)}, status=500)
         if p == "/api/tools":
             try:
                 tools = build_registry(_get_cfg()).list_tools()

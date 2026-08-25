@@ -78,6 +78,15 @@
 
 ---
 
+## 批次 9 — 可观测性基础（主题 E 开篇）✅ (2026-08-26 完成)
+- [done] **工具调用统计埋点**: `registry.execute` 统一计时+记录(拆出 `_execute_core` 返回 `(res,ok,tag)`), 进程级 `_STATS` 聚合每工具的 调用次数/成功/失败/平均耗时/失败归因标签 + 全局 total + 最近 50 条环形事件(`recent`)。线程安全(`_STATS_LOCK`)。
+- [done] **失败归因标签**: `_classify_err` 与批次6 `_classify_failure` 同源(网络/权限/资源/未找到/逻辑), 失败工具按错误类型计数(`fail_by_tag`), 定位常败根因。
+- [done] **Web 端点 `GET /api/stats`**: 实时返回 `{total_calls, success_rate, tools[], recent[]}`, 供面板/外部可观测展示运行期健康。
+- [done] **prompt 引导 12s**: 可观测性——系统持续统计各工具调用次数/成功率/平均耗时/失败归因, 面板 `/api/stats` 实时展示, 频繁失败/异常慢可据此定位根因。
+- [done] 单测 `tests/test_observability.py`(12 例) 覆盖分类/聚合/成功率/recent 截断/真实 execute 埋点(成功+失败+权限拒绝+未知工具归因); 全量 pytest **244 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
@@ -201,3 +210,4 @@
 - 2026-08-26 批次6：全球领先运行时三件套（自动上下文压缩 context_compact_threshold=120000/失败自愈归因 _classify_failure/证据链 #seq + prompt 12m/12n），214 单测全绿，待重打包+端到端验证。
 - 2026-08-26 批次7：全球领先安全与项目记忆双引擎（破坏性操作全局硬护栏 destructive_guard/写操作审计日志 .lmw_audit.log/CLAUDE.md 自动读取注入 system + prompt 12o），223 单测全绿，待重打包+端到端验证。
 - 2026-08-26 批次8：结构化决策与项目记忆补全（多方案对比 compare_options/变更影响分析 impact_analysis/项目文档自动生成 generate_project_docs + Web 端点 /api/docs/generate + prompt 12p/12q/12r），234 单测全绿，已重打包(04:25)+e2e 验证(8318 工具总数 42 含三新工具 + /api/docs/generate 生成 CLAUDE.md 草稿)。
+- 2026-08-26 批次9：可观测性基础（主题E开篇，registry.execute 统一埋点统计 调用次数/成功率/平均耗时/失败归因标签+recent 环形 + GET /api/stats + _classify_err 同源批次6 + prompt 12s），244 单测全绿，已重打包+e2e 验证(8318 真实 /api/chat 触发 list_dir×2/read_file×1 均被 /api/stats 统计, success_rate=1.0)。

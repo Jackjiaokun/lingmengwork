@@ -384,9 +384,23 @@ class Registry:
         return out
 
     def execute(self, name, args):
+        # 主题 E — 可观测性基础 (批次9): 统一埋点计时 + 记录, 无论成功/失败/拦截都计入统计
+        t0 = time.time()
+        try:
+            res, ok, tag = self._execute_core(name, args)
+        except Exception as e:
+            # 理论上 _execute_core 内部已兜底; 双保险
+            res = f"[tool error] {type(e).__name__}: {e}"
+            ok, tag = False, _classify_err(e)
+        dur = int((time.time() - t0) * 1000)
+        _record(name, ok, dur, tag)
+        return res
+
+    def _execute_core(self, name, args):
+        """核心分发; 返回 (result_text, ok:bool, tag:str|None)。"""
         allowed, reason = self._check_permission(name)
         if not allowed:
-            return f"[权限拒绝] {reason}"
+            return f"[权限拒绝] {reason}", False, "permission"
         # 主题 A — 工具结果缓存: 只读搜索类同查询命中内存缓存, 省 token/时延
         _ttl = 0
         try:
@@ -396,20 +410,23 @@ class Registry:
         if _ttl > 0 and name in _CACHEABLE_TOOLS:
             _hit = _cache_get(name, args, _ttl)
             if _hit is not None:
-                return _hit + "\n[缓存命中]"
+                return _hit + "\n[缓存命中]", True, None
         if name == "think":
-            return _tool_think(args or {}, self.ctx)
+            return _tool_think(args or {}, self.ctx), True, None
         if name == "undo":
-            return _tool_undo(args or {}, self.ctx)
+            return _tool_undo(args or {}, self.ctx), True, None
         if name == "todo":
-            return agent_tools._tool_todo(args or {}, self.ctx)
+            return agent_tools._tool_todo(args or {}, self.ctx), True, None
         if name == "subagent":
-            return agent_tools._tool_subagent(args or {}, self.ctx)
+            return agent_tools._tool_subagent(args or {}, self.ctx), True, None
         if name == "memory":
-            return memory.memory_read(args or {}, self.ctx) if (args or {}).get("action", "read") == "read" else (
-                memory.memory_write(args or {}, self.ctx) if (args or {}).get("action") == "write" else
-                memory.memory_append(args or {}, self.ctx)
-            )
+            a = args or {}
+            act = a.get("action", "read")
+            if act == "read":
+                return memory.memory_read(a, self.ctx), True, None
+            if act == "write":
+                return memory.memory_write(a, self.ctx), True, None
+            return memory.memory_append(a, self.ctx), True, None
         # —— 全球领先破坏性操作护栏 (批次7) —— 致命项任何模式硬拦; plan/accept 拦高危项; bypass 高危告警放行
         guard = _guard_destructive(
             name, args, self.permission_mode,
@@ -419,24 +436,24 @@ class Registry:
             gtext, glevel = guard
             self._audit(name, args, False, blocked=True, note=glevel)
             if glevel in ("critical", "high"):
-                return gtext  # 致命/受限模式高危 -> 硬拦
+                return gtext, False, "blocked"  # 致命/受限模式高危 -> 硬拦
             # high_warn (bypass 放行但告警): 继续往下执行, 仅记录
 
         func = _IMPLS.get(name)
         if not func:
-            return f"[tool error] 未知工具: {name}"
+            return f"[tool error] 未知工具: {name}", False, "notfound"
         try:
             result = func(args or {}, self.ctx)
             self._audit(name, args, True)
             if _ttl > 0 and name in _CACHEABLE_TOOLS and not str(result).startswith(("[tool error]", "[权限拒绝]")):
                 _cache_put(name, args, result, _ttl)
-            return result
+            return result, True, None
         except ToolError as e:
             self._audit(name, args, False)
-            return f"[tool error] {e}"
+            return f"[tool error] {e}", False, _classify_err(e)
         except Exception as e:  # 兜底: 让模型看到错误并自我修复
             self._audit(name, args, False)
-            return f"[tool error] {type(e).__name__}: {e}"
+            return f"[tool error] {type(e).__name__}: {e}", False, _classify_err(e)
 
 
     def _audit(self, name, args, ok, blocked=False, note=""):
@@ -485,3 +502,81 @@ def _populate_mcp(cfg):
         _mcp.populate_registry(cfg)
     except Exception:
         pass
+
+
+# —— 主题 E — 可观测性基础 (批次9): 工具调用统计埋点 ——
+# 进程级聚合, 面板重启清零 (符合运行期统计语义)。配套 GET /api/stats 展示。
+import threading
+_STATS_LOCK = threading.Lock()
+_STATS = {"tools": {}, "total": {"calls": 0, "ok": 0, "fail": 0}, "recent": []}
+_STATS_MAX_RECENT = 50
+
+# 错误分类 (与 agent/loop._classify_failure 对齐; 独立实现避免与 loop 循环依赖)
+_NET_ERR = ("connectionerror", "timeout", "timed out", "urlerror", "connectionreset",
+            "remotedisconnected", "nameresolutionerror", "getaddrinfo", "socket")
+_PERM_ERR = ("permissionerror", "accessdenied", "403", "eacces", "denied", "forbidden")
+_RES_ERR = ("memoryerror", "outofmemory", "resourceexhausted", "diskfull", "no space", "quotaexceeded")
+_NOTFOUND_ERR = ("filenotfounderror", "notfound", "no such file", "404", "does not exist")
+
+
+def _classify_err(e):
+    """把异常分类为 network/permission/resource/notfound/logic (与批次6 _classify_failure 同源)。"""
+    s = f"{type(e).__name__}: {e}".lower()
+    if any(k in s for k in _NET_ERR):
+        return "network"
+    if any(k in s for k in _PERM_ERR):
+        return "permission"
+    if any(k in s for k in _RES_ERR):
+        return "resource"
+    if any(k in s for k in _NOTFOUND_ERR):
+        return "notfound"
+    return "logic"
+
+
+def _record(name, ok, dur_ms, tag=None):
+    """记录一次工具调用的统计 (线程安全)。"""
+    with _STATS_LOCK:
+        t = _STATS["tools"].setdefault(name, {"calls": 0, "ok": 0, "fail": 0, "total_ms": 0, "fail_by_tag": {}})
+        t["calls"] += 1
+        t["total_ms"] += dur_ms
+        if ok:
+            t["ok"] += 1
+        else:
+            t["fail"] += 1
+            if tag:
+                t["fail_by_tag"][tag] = t["fail_by_tag"].get(tag, 0) + 1
+        _STATS["total"]["calls"] += 1
+        if ok:
+            _STATS["total"]["ok"] += 1
+        else:
+            _STATS["total"]["fail"] += 1
+        _STATS["recent"].append({"name": name, "ok": ok, "ms": dur_ms, "tag": tag, "ts": int(time.time())})
+        if len(_STATS["recent"]) > _STATS_MAX_RECENT:
+            _STATS["recent"].pop(0)
+
+
+def get_stats():
+    """返回聚合统计: 总调用/成功率/各工具统计/最近事件。供 Web /api/stats 使用。"""
+    with _STATS_LOCK:
+        tools = []
+        for n, st in _STATS["tools"].items():
+            avg = round(st["total_ms"] / st["calls"], 1) if st["calls"] else 0
+            tools.append({
+                "name": n, "calls": st["calls"], "ok": st["ok"], "fail": st["fail"],
+                "avg_ms": avg, "fail_by_tag": dict(st["fail_by_tag"]),
+            })
+        tools.sort(key=lambda x: (-x["calls"], x["name"]))
+        tot = _STATS["total"]
+        rate = round(tot["ok"] / tot["calls"], 4) if tot["calls"] else 1.0
+        return {
+            "total_calls": tot["calls"], "total_ok": tot["ok"], "total_fail": tot["fail"],
+            "success_rate": rate, "tools": tools, "recent": list(_STATS["recent"]),
+        }
+
+
+def reset_stats():
+    """清空运行期统计 (供调试/新会话重置)。"""
+    with _STATS_LOCK:
+        _STATS["tools"].clear()
+        _STATS["total"] = {"calls": 0, "ok": 0, "fail": 0}
+        _STATS["recent"] = []

@@ -51,6 +51,7 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12p. 【多方案对比】遇到有多种合理实现路径的复杂任务(选型/架构/算法), 先用 compare_options 把候选方案结构化对比(各自 pros/cons/工作量/风险), 拿到建议方案后再落地, 避免盲目选边; 若你判断不同, 以你的权衡为准。")
     lines.append("   12q. 【变更影响分析】做大重构、重命名公共函数/类、改核心接口前, 先调 impact_analysis(symbol=符号名) 看清它的定义位置与所有调用方/使用点, 评估回归范围, 改完用 auto_test + review_code 验证无遗漏调用。")
     lines.append("   12r. 【项目文档自动生成】新项目接入或交接时, 调 generate_project_docs 扫描仓库生成 CLAUDE.md/AGENTS.md 草稿(技术栈/关键目录/入口/测试命令/约定), 人工复核后写入项目根 CLAUDE.md, 后续会话会自动加载这份项目记忆, 让agent 快速建立认知。")
+    lines.append("   12s. 【可观测性】系统持续统计各工具的调用次数/成功率/平均耗时/失败归因标签(网络/权限/超时/资源/未找到/逻辑)与最近事件, 面板 GET /api/stats 实时展示。若某工具频繁失败或异常慢, 可据此定位根因(网络类换源/权限类换路径/超时类降量), 不要反复裸调同一失败工具。")
     lines.append("")
     lines.append("可用工具:")
     for t in tools:

@@ -1,0 +1,1 @@
+{"server":"shell","tool":"shell_exec","arguments":{"command":"cd /d D:/lmw_closure && python -m pytest -q","timeout":60}}

@@ -1,0 +1,41 @@
+# ===== 密钥 / 环境 (绝不入库) =====
+.env
+.env.*
+!.env.example
+
+# ===== PyInstaller 构建产物 =====
+dist/
+build/
+*.pyc
+*.pyo
+__pycache__/
+*.pyd
+*.dll
+*.toc
+*.manifest
+spec/
+
+# ===== 缓存 / 运行时产物 =====
+.pytest_cache/
+.lmw_artifacts/
+*.bak_*
+*.log
+
+# ===== 临时调试文件 =====
+rep_body*.txt
+diag*.txt
+diag2.txt
+_dev_*.py
+*_debug.py
+
+# ===== 依赖 / 系统 =====
+node_modules/
+.venv/
+venv/
+.workbuddy/
+
+# ===== 编辑器 / OS =====
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

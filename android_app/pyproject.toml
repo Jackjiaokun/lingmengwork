@@ -1,0 +1,50 @@
+[build-system]
+requires = ["briefcase==0.3.20"]
+build-backend = "briefcase"
+
+[project]
+name = "lingmengwork"
+version = "0.2.0"
+description = "灵梦work — 本地优先 AI 编码代理 (安卓端)"
+authors = [{ name = "青牛灵梦工作室" }]
+requires-python = ">=3.11"
+dependencies = [
+    "toga>=0.4.0",
+    "toga-android>=0.4.0",
+    "toga-webview>=0.4.0",
+]
+
+[project.optional-dependencies]
+# 桌面开发调试用 (非安卓必需)
+dev = ["briefcase"]
+
+[tool.briefcase]
+project_name = "灵梦work"
+bundle = "com.lingmengwork"
+version = "0.2.0"
+url = "https://github.com/your-org/lingmengwork"
+author = "青牛灵梦工作室"
+
+[tool.briefcase.app.lingmengwork]
+formal_name = "灵梦work"
+description = "本地优先 AI 编码代理 (安卓 App)"
+sources = ["app", "lingmengwork"]
+test_sources = []
+
+[tool.briefcase.app.lingmengwork.android]
+# 安卓权限: 联网 (WebView 加载本地 127.0.0.1 也需要 INTERNET)
+permissions = ["INTERNET"]
+requires = []
+
+[tool.briefcase.app.lingmengwork.android.gradle]
+template_branch = "v0.3.20"
+
+# 桌面调试目标 (可选)
+[tool.briefcase.app.lingmengwork.windows]
+requires = ["toga-winforms>=0.4.0"]
+
+[tool.briefcase.app.lingmengwork.linux]
+requires = ["toga-gtk>=0.4.0"]
+
+[tool.briefcase.app.lingmengwork.macOS]
+requires = ["toga-cocoa>=0.4.0"]

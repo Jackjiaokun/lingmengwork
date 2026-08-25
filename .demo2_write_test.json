@@ -1,0 +1,1 @@
+{"server":"fs","tool":"fs_write","arguments":{"path":"D:/lmw_closure/test_mathlib.py","content":"from mathlib import add\n\ndef test_add_positive():\n    assert add(2, 3) == 5\n\n\ndef test_add_negative():\n    assert add(-1, 1) == 0\n"}}

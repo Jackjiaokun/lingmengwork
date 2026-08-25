@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>灵梦work · LingMeng Work</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand">
+        <span class="logo">灵</span>
+        <div>
+          <div class="brand-name">灵梦work</div>
+          <div class="brand-sub">LingMeng Work</div>
+        </div>
+      </div>
+      <div id="status" class="status">连接中…</div>
+      <div class="side-title">可用通道 (多路 LLM)</div>
+      <ul id="provider-list" class="tool-list"></ul>
+      <div class="side-title">可用工具</div>
+      <ul id="tool-list" class="tool-list"></ul>
+      <div class="side-title">外部工具 (MCP)</div>
+      <ul id="mcp-list" class="tool-list"></ul>
+      <button id="btn-clear" class="btn-ghost">清空对话</button>
+    </aside>
+
+    <main id="chat">
+      <!-- 全局仪表盘 -->
+      <div id="dashboard" class="dashboard">
+        <div class="dash-item"><span class="dash-num" id="dash-tasks">0</span><span class="dash-label">任务</span></div>
+        <div class="dash-item"><span class="dash-num" id="dash-running">0</span><span class="dash-label">运行中</span></div>
+        <div class="dash-item"><span class="dash-num" id="dash-providers">0/0</span><span class="dash-label">在线通道</span></div>
+        <div class="dash-item"><span class="dash-num" id="dash-tokens">0</span><span class="dash-label">累计 Token</span></div>
+        <div class="dash-item"><span class="dash-num" id="dash-cost">¥0</span><span class="dash-label">累计成本</span></div>
+        <div class="dash-item"><span class="dash-num" id="dash-results">0</span><span class="dash-label">已落盘</span></div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="chat">对话</button>
+        <button class="tab" data-tab="tasks">多路任务 <span id="task-count" class="badge">0</span></button>
+        <button class="tab" data-tab="results">结果回看</button>
+        <button class="tab" data-tab="files">文件树</button>
+        <button class="tab" data-tab="terminal">终端</button>
+        <button class="tab" data-tab="sessions">会话历史</button>
+        <button class="tab" data-tab="reviews">代码评审 <span id="review-count" class="badge">0</span></button>
+        <button class="tab" data-tab="mcp">外部工具 <span id="mcp-count" class="badge">0</span></button>
+        <button class="tab" data-tab="deliver">交付中心</button>
+        <button class="tab" data-tab="artifacts">成果 <span id="artifact-count" class="badge">0</span></button>
+      </div>
+
+      <section id="panel-chat" class="panel active">
+        <div id="messages" class="messages"></div>
+        <div id="composer" class="composer">
+          <textarea id="input" placeholder="描述你的编码任务, 例如: 在 src 下新建一个 hello.py 并打印版本号" rows="2"></textarea>
+          <div class="composer-row">
+            <label class="mode-select" title="智能体自主度: 计划=只读出方案 / 接受编辑=可写文件但禁执行 / 全放开=可写可执行">
+              模式
+              <select id="agent-mode">
+                <option value="bypassPermissions">全放开 (读写+执行)</option>
+                <option value="acceptEdits">接受编辑 (写文件, 禁执行)</option>
+                <option value="plan">计划 (只读出方案)</option>
+              </select>
+            </label>
+            <button id="send" class="btn-primary">发送</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-tasks" class="panel">
+        <div class="orch-zone">
+          <div class="orch-head">⚡ 并行编排 <span class="orch-hint">每行一个独立任务, 一次性扇出多路并发</span></div>
+          <textarea id="orch-prompts" placeholder="第1路: 给 utils.py 加 retry 装饰器&#10;第2路: 给 models.py 加 created_at 字段&#10;第3路: 写 tests/test_utils.py 覆盖 retry" rows="3"></textarea>
+          <div class="orch-row">
+            <button id="orch-run" class="btn-accent">⚡ 扇出并行</button>
+            <div id="orch-progress" class="orch-progress" style="display:none;">
+              <div class="progress-bar"><div id="orch-fill" class="progress-fill"></div></div>
+              <span id="orch-stat" class="orch-stat"></span>
+            </div>
+          </div>
+        </div>
+        <div class="task-bar">
+          <textarea id="task-prompt" placeholder="新建并发编程任务, 例如: 给 utils.py 加一个 retry 装饰器" rows="2"></textarea>
+          <select id="task-provider"><option value="">自动轮询通道</option></select>
+          <button id="task-add" class="btn-primary">＋ 新建任务</button>
+        </div>
+        <div id="task-list" class="task-list"></div>
+      </section>
+
+      <section id="panel-results" class="panel">
+        <div id="result-list" class="card-list"></div>
+        <div id="result-detail" class="result-detail" style="display:none;">
+          <button id="result-back" class="btn-ghost">← 返回列表</button>
+          <pre id="result-md"></pre>
+        </div>
+      </section>
+
+      <section id="panel-files" class="panel">
+        <div class="file-bar">
+          <button id="file-up" class="btn-ghost">↑ 上级</button>
+          <span id="file-path" class="file-path">.</span>
+          <span id="file-save-state" class="file-save-state"></span>
+        </div>
+        <div id="file-tree" class="file-tree"></div>
+        <div id="editor-wrap" class="editor-wrap" style="display:none;">
+          <div class="editor-toolbar">
+            <span id="editor-file" class="editor-file"></span>
+            <span class="editor-spacer"></span>
+            <button id="editor-save" class="btn-primary">💾 保存</button>
+            <button id="editor-reload" class="btn-ghost">↻ 重载</button>
+            <button id="editor-copy" class="btn-ghost">⧉ 复制</button>
+            <button id="editor-deliver" class="btn-accent">🚀 交付自检</button>
+            <button id="editor-export" class="btn-ghost">📄 导出报告</button>
+            <button id="editor-review-changed" class="btn-ghost">📋 评审改动</button>
+            <button id="editor-pr" class="btn-ghost">📝 PR 草稿</button>
+            <button id="editor-review-report" class="btn-ghost">📊 评审报告</button>
+            <input id="deliver-note" class="deliver-note" placeholder="变更说明(可选, 写进交付报告/PR)" />
+            <span id="deliver-badge" class="deliver-badge" style="display:none;"></span>
+            <span id="editor-hint" class="editor-hint">Ctrl/Cmd+S 保存</span>
+          </div>
+          <div class="editor-area">
+            <div id="editor-gutter" class="editor-gutter">1</div>
+            <div class="editor-stack">
+              <pre id="editor-hl" class="editor-hl" aria-hidden="true"></pre>
+              <textarea id="editor-text" class="editor-text" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+            </div>
+          </div>
+        </div>
+        <pre id="file-content" class="file-content" style="display:none;"></pre>
+      </section>
+
+      <section id="panel-terminal" class="panel">
+        <div class="term-head">
+          <span class="term-title">交互式终端 (实时 stdout)</span>
+          <span class="term-hint">支持 git / python / node / pytest 等; 危险命令被拦截</span>
+          <span class="editor-spacer"></span>
+          <button id="term-clear" class="btn-ghost">清屏</button>
+        </div>
+        <div id="term-output" class="term-output"></div>
+        <div class="term-input-row">
+          <span class="term-prompt">$</span>
+          <input id="term-input" class="term-input" placeholder="输入命令, 回车执行 (如 pytest -q / git status)" autocomplete="off" />
+        </div>
+      </section>
+
+      <section id="panel-sessions" class="panel">
+        <div id="session-list" class="card-list"></div>
+        <div id="session-detail" class="result-detail" style="display:none;">
+          <button id="session-back" class="btn-ghost">← 返回列表</button>
+          <button id="session-resume" class="btn-primary">恢复此会话</button>
+          <div id="session-msgs" class="session-msgs"></div>
+        </div>
+      </section>
+      <section id="panel-reviews" class="panel">
+        <div id="review-stats" class="review-stats" style="display:none;"></div>
+        <div id="review-list" class="card-list"></div>
+        <div id="review-detail" class="result-detail" style="display:none;">
+          <button id="review-back" class="btn-ghost">← 返回列表</button>
+          <div id="review-body"></div>
+        </div>
+      </section>
+
+      <section id="panel-mcp" class="panel">
+        <div class="mcp-head">
+          <span class="mcp-hint">开放工具中枢 · 直连调用任意 MCP 工具 (无需经对话)</span>
+          <button id="mcp-refresh" class="btn-ghost">刷新连接</button>
+        </div>
+        <div id="mcp-list" class="card-list"></div>
+      </section>
+
+      <section id="panel-deliver" class="panel">
+        <div class="dc-head">
+          <span class="dc-title">🚀 交付中心 · 项目级 改→跑→评→交付 一站式</span>
+          <span class="editor-spacer"></span>
+          <button id="dc-scan" class="btn-accent">🔍 扫描改动并评审</button>
+          <button id="dc-deliver" class="btn-primary">🚀 一键交付自检</button>
+          <button id="dc-pr" class="btn-ghost">📝 生成 PR 草稿</button>
+          <button id="dc-refresh" class="btn-ghost">刷新</button>
+        </div>
+        <div id="dc-summary" class="dc-summary" style="display:none;"></div>
+        <div class="dc-health">
+          <span class="dc-health-label">项目交付健康 (评审趋势)</span>
+          <canvas id="dc-trend" class="dc-trend" height="120"></canvas>
+        </div>
+        <div id="dc-files" class="card-list">
+          <div class="empty">点击「扫描改动并评审」生成项目交付快照</div>
+        </div>
+      </section>
+
+      <section id="panel-artifacts" class="panel">
+        <div class="mcp-head">
+          <span class="mcp-hint">交付 / 评审 / PR 成果存档 · 可回看与重新打开</span>
+          <button id="art-refresh" class="btn-ghost">刷新</button>
+        </div>
+        <div id="art-list" class="card-list"></div>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

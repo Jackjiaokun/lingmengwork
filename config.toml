@@ -1,0 +1,139 @@
+# 灵梦work LingMeng Work 配置
+# 后端优先级: ollama(本地) | openai(云端兼容) | mock(离线) | auto(自动探测)
+[llm]
+# 默认单路对话后端 = 商汤 SenseNova (OpenAI 兼容)。多路池另由 [[llm.providers]] 提供商汤A/B 双通道。
+# key 经 SENSENOVA_API_KEY / SENSENOVA_API_KEY_2 环境变量注入, 不落明文。
+backend = "sensenova"
+
+# 多路 LLM 同时接入: 配置后, 任务池/Web 面板可同时用多个通道并发编程。
+# 每个 provider 是一个命名通道, 任务可指定用哪个通道(或自动轮询分配)。
+# 未配置 providers 时, 退化为单 backend 模式(下方 ollama/openai/mock 生效)。
+# 示例(取消注释即可启用多路):
+# [[llm.providers]]
+# name = "本地Qwen"
+# type = "ollama"
+# model = "qwen2.5:7b"
+# base_url = "http://127.0.0.1:11434"
+#
+# [[llm.providers]]
+# name = "云端DeepSeek"
+# type = "openai"
+# model = "deepseek-chat"
+# base_url = "https://api.deepseek.com/v1"
+# api_key_env = "DEEPSEEK_API_KEY"
+#
+# [[llm.providers]]
+# name = "离线演示"
+# type = "mock"
+# model = "mock-coder"
+
+# 商汤 SenseNova OpenAI 兼容接口 (token.sensenova.cn)
+# 双 key 同模型并发: 两个通道都跑 sensenova-6.8-flash-lite, 任务池轮询分摊, 提升并发吞吐与限流上限。
+# api_key 通过环境变量注入, 勿在文件内明文写入密钥:
+#   Windows cmd:    set SENSENOVA_API_KEY=key1
+#                   set SENSENOVA_API_KEY_2=key2
+#   PowerShell:     $env:SENSENOVA_API_KEY="key1"; $env:SENSENOVA_API_KEY_2="key2"
+#   Linux/macOS:    export SENSENOVA_API_KEY=key1; export SENSENOVA_API_KEY_2=key2
+[[llm.providers]]
+name = "商汤A"
+type = "openai"
+model = "sensenova-6.8-flash-lite"
+base_url = "https://token.sensenova.cn/v1"
+api_key_env = "SENSENOVA_API_KEY"
+
+[[llm.providers]]
+name = "商汤B"
+type = "openai"
+model = "sensenova-6.8-flash-lite"
+base_url = "https://token.sensenova.cn/v1"
+api_key_env = "SENSENOVA_API_KEY_2"
+
+[llm.ollama]
+base_url = "http://127.0.0.1:11434"
+model = "qwen2.5:7b"
+
+[llm.openai]
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[llm.mock]
+model = "mock-coder"
+
+[agent]
+max_iterations = 32
+# 并发上限: 0 = 自动(任务池=通道数*2, 子代理默认 4 路)。>0 时统一作为硬上限。
+# 例如多核机器想让 /new 并发任务或 subagent 多路更激进, 可调到 8/16。
+# concurrency = 8
+# system_prompt 留空则使用内置默认提示词
+
+[agent.security]
+# 允许操作的目录根 (相对或绝对); "." 表示启动目录
+allowed_roots = ["."]
+# 危险命令直接拦截 (不询问)
+dangerously_run_commands = false
+deny_patterns = [
+  "rm -rf /",
+  "format ",
+  "mkfs",
+  "shutdown",
+  "reboot",
+  ":(){",
+  "dd if=",
+]
+
+# ===== 外部工具接入 (MCP over stdio) =====
+# 进程内懒连接, 工具自动注入注册表; 单个服务器失败不影响其它。
+# fs 服务器用 ASCII 根目录 "D:/" 规避冻结 exe 子进程中文路径 mojibake, 允许读写整个 D 盘。
+[mcp]
+enabled = true
+[[mcp.servers]]
+name = "demo"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_demo_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+[[mcp.servers]]
+name = "fs"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_fs_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+env = { LMW_FS_ROOT = "D:/" }
+[[mcp.servers]]
+name = "git"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_git_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+env = { LMW_GIT_ROOT = "D:/" }
+[[mcp.servers]]
+name = "fetch"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_fetch_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+[[mcp.servers]]
+name = "shell"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_shell_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+env = { LMW_SHELL_ROOT = "D:/" }
+[[mcp.servers]]
+name = "grep"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_grep_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+env = { LMW_GREP_ROOT = "D:/" }
+[[mcp.servers]]
+name = "sqlite"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_sqlite_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+env = { LMW_SQLITE_ROOT = "D:/" }
+[[mcp.servers]]
+name = "search"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_search_server"]
+cwd = "D:/开发/配置AI应用/lingmengwork"
+
+[[mcp.servers]]
+name = "review"
+command = "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe"
+args = ["-m", "lingmengwork.tools.mcp_review_server"]

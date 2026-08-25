@@ -1,4 +1,5 @@
 """文件系统工具: 读 / 写 / 编辑 / 列目录 / glob / grep。"""
+import glob as _glob_mod
 import os
 import re
 from pathlib import Path
@@ -25,12 +26,17 @@ def read_file(args, ctx):
     text = p.read_text(encoding="utf-8", errors="replace")
     offset = int(args.get("offset", 0) or 0)
     limit = args.get("limit")
+    numbered = args.get("numbered") in (True, "true", "1")
     lines = text.splitlines()
     if offset or (limit is not None and limit != ""):
         lim = int(limit) if limit not in (None, "", "0") else None
         lines = lines[offset: (offset + lim) if lim else None]
-        text = "\n".join(lines)
-    return text
+    body = "\n".join(lines)
+    if numbered and body:
+        shown = body.splitlines()
+        width = len(str(offset + len(shown)))
+        body = "\n".join(f"{str(offset + i).rjust(width)} | {ln}" for i, ln in enumerate(shown, 1))
+    return body
 
 
 def write_file(args, ctx):
@@ -54,7 +60,7 @@ def edit_file(args, ctx):
     old = args["old_string"]
     new = args.get("new_string", "")
     if old not in text:
-        raise ToolError("未找到待替换文本 old_string。")
+        raise ToolError("未找到待替换文本 old_string。\n" + _nearest_lines(text, old))
     count = text.count(old)
     if count > 1 and args.get("replace_all") not in (True, "true", "1"):
         raise ToolError(f"old_string 出现 {count} 次, 存在歧义; 请提供更多上下文或设 replace_all=true。")
@@ -66,6 +72,26 @@ def edit_file(args, ctx):
         text = text.replace(old, new, 1)
     p.write_text(text, encoding="utf-8")
     return f"已编辑 {args['path']} (替换 {count} 处)"
+
+
+def _nearest_lines(text, old, k=3):
+    """old_string 未命中时, 给出可操作的修正提示 (近似行/候选行号)。"""
+    from difflib import get_close_matches
+    old_lines = [l.strip() for l in old.splitlines() if l.strip()]
+    if not old_lines:
+        return "(old_string 为空或仅含空白)"
+    key = old_lines[0][:50]
+    lines = text.splitlines()
+    cand = [(i, ln) for i, ln in enumerate(lines, 1) if key in ln]
+    if cand:
+        return ("未找到精确匹配, 但以下 %d 行含片段「%s」(行号: %s), 请据此对齐 old_string:\n- "
+                % (len(cand), key, ", ".join(str(i) for i, _ in cand[:k]))) + "\n- ".join(
+            f"L{i}: {ln.strip()[:80]}" for i, ln in cand[:k])
+    pool = [ln.strip() for ln in lines if ln.strip()]
+    close = get_close_matches(key, pool, n=k, cutoff=0.5)
+    if close:
+        return "未找到包含「%s」的行, 近似行(请据此修正 old_string):\n- " % key + "\n- ".join(close)
+    return "未找到包含「%s」的行, 且无近似匹配。" % key
 
 
 def insert_at(args, ctx):
@@ -226,6 +252,7 @@ def glob_files(args, ctx):
 
 
 def grep_files(args, ctx):
+    """按正则搜索文本。增强: context 上下行 / glob 文件过滤 / head_limit 单文件上限。"""
     pattern = args["pattern"]
     try:
         rx = re.compile(pattern, re.IGNORECASE if args.get("ignore_case") in (True, "true", "1") else 0)
@@ -233,33 +260,48 @@ def grep_files(args, ctx):
         raise ToolError("正则表达式错误: " + str(e))
     root = resolve_path(ctx["roots"], args.get("path", "."))
     max_matches = int(args.get("max_matches", 200) or 200)
+    head_limit = int(args.get("head_limit", 50) or 50)
+    context = int(args.get("context", 0) or 0)
+    fglob = (args.get("glob") or "").strip()
     out = []
-    count = 0
+    total = 0
     for r in ctx["roots"]:
         for dirpath, dirnames, filenames in os.walk(r):
             dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
             for fn in filenames:
-                if count >= max_matches:
+                if total >= max_matches:
                     break
                 fp = Path(dirpath) / fn
                 if fp.suffix.lower() not in _TEXT_SUFFIX:
                     continue
+                if fglob and not _glob_mod.fnmatch.fnmatch(str(fp), fglob) and not _glob_mod.fnmatch.fnmatch(fp.name, fglob):
+                    continue
                 try:
-                    lines = fp.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    content = fp.read_text(encoding="utf-8", errors="ignore")
                 except Exception:
                     continue
-                for i, line in enumerate(lines, 1):
-                    if rx.search(line):
-                        out.append(f"{fp}:{i}: {line}")
-                        count += 1
-                        if count >= max_matches:
-                            break
-            if count >= max_matches:
+                lines = content.splitlines()
+                hits = [i for i, ln in enumerate(lines, 1) if rx.search(ln)][:head_limit]
+                if not hits:
+                    continue
+                rel = str(fp.relative_to(r)) if fp.is_relative_to(r) else fn
+                for i in hits:
+                    if context > 0:
+                        lo, hi = max(1, i - context), min(len(lines), i + context)
+                        for j in range(lo, hi + 1):
+                            mark = ">" if j == i else " "
+                            out.append(f"{rel}:{j}:{mark} {lines[j - 1]}")
+                    else:
+                        out.append(f"{rel}:{i}: {lines[i - 1]}")
+                    total += 1
+                    if total >= max_matches:
+                        break
+            if total >= max_matches:
                 break
-        if count >= max_matches:
+        if total >= max_matches:
             break
     if not out:
         return "(无匹配)"
-    if count >= max_matches:
+    if total >= max_matches:
         out.append(f"... (已达上限 {max_matches} 条)")
     return "\n".join(out)

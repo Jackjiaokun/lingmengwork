@@ -16,6 +16,17 @@
 
 ---
 
+## 批次 2 — 代码精读/检索/编辑能力增强 ✅ (2026-08-26 完成)
+- [done] `grep` 增强：`context`(命中行上下各 N 行, `>` 标记命中) + `glob`(文件过滤 *.py) + `head_limit`(单文件上限), 输出 `rel:Lline:` 结构。
+- [done] `read_file` 行号视图：`numbered=true` 输出 `行号 | 内容`, 精确定位便于 edit_file 对齐。
+- [done] `edit_file` 模糊定位提示：old_string 未命中时给近似行/候选行号, 不再盲目失败。
+- [done] `apply_patch` 诊断增强：未命中给首行相似行号/近似行; 歧义给全部命中行号。
+- [done] 新增 `symbol_search` 工具 (仿 LSP 跳转定义)：跨仓库按名/正则检索 path:Lline: 签名, 支持 glob/limit; 大小写不敏感; 注册进 readonly 层 + prompt + tool_kind=search。
+- [done] `repo_map` 尊重 `.gitignore` 自动排除 + `max_depth` 限深 (文件层生效)。
+- [done] 单测 `tests/test_code_capability.py`(6 例) 覆盖; 全量 pytest **175 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [ ] 工具结果结构化：MCP 返回 JSON 时自动提取关键字段（如 search 的标题/url、fetch 的正文），而非整页文本。
 - [ ] 工具缓存层：`web_search`/`code_search` 同查询命中缓存，省 token 与时延。
@@ -127,4 +138,5 @@
 ---
 
 ## 进度小结
-- 2026-08-26 批次1：工具系统综合硬化（权限分层/截断/repo_map多语言/可视化/prompt），169 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次1：工具系统综合硬化（权限分层/截断/repo_map多语言/可视化/prompt），169 单测全绿，已重打包+端到端验证。
+- 2026-08-26 批次2：代码精读/检索/编辑能力增强（grep增强/read行号/edit模糊提示/apply_patch诊断/symbol_search/repo_map gitignore+depth），175 单测全绿，待重打包+端到端验证。

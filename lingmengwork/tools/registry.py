@@ -94,8 +94,13 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "repo_map",
-        "description": "生成仓库符号地图 (Aider repo-map 范式): 扫描代码文件提取 class/def/函数签名及行号, 给 LLM 仓库结构认知, 大仓库编码前先调用。零依赖。max_files?/max_symbols? 限幅。",
-        "parameters": {"path?": "目录", "max_files?": "文件上限", "max_symbols?": "每文件符号上限"},
+        "description": "生成仓库符号地图 (Aider repo-map 范式): 扫描代码文件提取 class/def/函数签名及行号, 给 LLM 仓库结构认知, 大仓库编码前先调用。零依赖。max_files?/max_symbols?/max_depth? 限幅, 自动尊重 .gitignore。",
+        "parameters": {"path?": "目录", "max_files?": "文件上限", "max_symbols?": "每文件符号上限", "max_depth?": "扫描深度上限"},
+    },
+    {
+        "name": "symbol_search",
+        "description": "跨仓库按名称检索符号定义位置 (仿 LSP 跳转定义): 返回 path:Lline: 签名。改代码前先看定义/签名一致性。name=符号名(子串), regex?=true 时按正则, glob?=文件过滤(*.py), limit?=上限。",
+        "parameters": {"name": "符号名(子串/正则)", "regex?": "true 按正则", "glob?": "如 *.py", "limit?": "上限"},
     },
     {
         "name": "git_commit",
@@ -129,6 +134,7 @@ _IMPLS = {
     "memory": None,  # 特殊处理: 跨会话记忆
     "auto_test": advanced.auto_test,
     "repo_map": advanced.repo_map,
+    "symbol_search": advanced.symbol_search,
     "git_commit": advanced.git_commit,
     "review_code": review._tool_review_code,
 }
@@ -185,7 +191,7 @@ def _tool_undo(args, ctx):
 # plan            : 仅只读探查 (list/read/grep/glob/diff_view), 禁写/编辑/执行
 # acceptEdits     : 允许文件读写/编辑(diff_view 预览仍建议), 但 run_command 默认拦截
 # bypassPermissions: 全放开 (等同 dangerously, 由 deny_patterns 仍拦危险命令)
-_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "review_code"}
+_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code"}
 _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo"}
 _EXEC_TOOLS = {"run_command", "auto_test", "git_commit"}
 

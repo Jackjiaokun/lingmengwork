@@ -9,6 +9,7 @@
 - git_commit: 自动 stage + 抓取 diff 摘要回灌 -> 生成提交信息 -> 提交 (保留 hook),
              仿 Claude Code /commit 智能交付。
 """
+import fnmatch
 import os
 import re
 import subprocess
@@ -193,15 +194,75 @@ _SYM_RES = {
 }
 
 
+def _load_gitignore(base):
+    """轻量解析 .gitignore 为模式列表 (支持 ! 取反 / 目录后缀 / 通配)。"""
+    pats = []
+    gi = os.path.join(base, ".gitignore")
+    if os.path.isfile(gi):
+        try:
+            with open(gi, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    pats.append(line)
+        except Exception:
+            pass
+    return pats
+
+
+def _is_ignored(rel_parts, pats):
+    """判断相对路径 parts 是否被 gitignore 模式忽略 (支持 ! 取反)。"""
+    if not pats:
+        return False
+    name = rel_parts[-1]
+    result = False
+    for p in pats:
+        neg = p.startswith("!")
+        pat = p[1:] if neg else p
+        dir_only = pat.endswith("/")
+        matched = False
+        if "/" in pat.rstrip("/"):
+            full = "/".join(rel_parts)
+            norm = pat.lstrip("/")
+            if fnmatch.fnmatch(full, norm) or fnmatch.fnmatch(full, "*" + norm):
+                matched = True
+        else:
+            if fnmatch.fnmatch(name, pat.rstrip("/")) or fnmatch.fnmatch(name, pat.rstrip("/") + "/*"):
+                matched = True
+        if matched:
+            result = not neg
+    return result
+
+
 def repo_map(args, ctx):
     base = ctx.get("cwd") or (str(ctx["roots"][0]) if ctx.get("roots") else ".")
     max_files = int(args.get("max_files") or 80)
     max_sym = int(args.get("max_symbols") or 40)
+    md = args.get("max_depth")
+    max_depth = int(md) if md not in (None, "") else None
+    gi_pats = _load_gitignore(base)
     files = []
     for root, dirs, fns in os.walk(base):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        depth = root[len(base):].count(os.sep)
+        if max_depth is not None and depth >= max_depth:
+            dirs[:] = []
+        kept = []
+        for d in dirs:
+            if d in _SKIP_DIRS:
+                continue
+            rel = os.path.relpath(os.path.join(root, d), base).split(os.sep)
+            if _is_ignored(rel, gi_pats):
+                continue
+            kept.append(d)
+        dirs[:] = kept
         for fn in fns:
+            if max_depth is not None and depth > max_depth:
+                continue
             if os.path.splitext(fn)[1].lower() in _CODE_EXT:
+                rel = os.path.relpath(os.path.join(root, fn), base).split(os.sep)
+                if _is_ignored(rel, gi_pats):
+                    continue
                 files.append(os.path.join(root, fn))
     files.sort()
     files = files[:max_files]
@@ -258,3 +319,70 @@ def git_commit(args, ctx):
     if args.get("push"):
         _run("git push", cwd, timeout=90)
     return f"[git_commit] 提交成功:\n{cout.strip()[:300]}\n{diffstat.strip()}"
+
+
+# --------------------------------------------------------------------------
+# symbol_search : 跨仓库符号检索 (仿 LSP 跳转定义)
+# --------------------------------------------------------------------------
+def symbol_search(args, ctx):
+    """跨仓库按名称检索符号定义位置。
+
+    参数:
+      name    : 符号名 (子串匹配, 或 regex=true 时视作正则)
+      regex?  : true 时 name 按正则匹配
+      glob?   : 文件过滤, 如 *.py / src/**
+      limit?  : 命中上限 (默认 50)
+    返回 path:Lline: 签名 列表, 供「改之前先看定义/签名一致」类任务。
+    """
+    base = ctx.get("cwd") or (str(ctx["roots"][0]) if ctx.get("roots") else ".")
+    name = (args.get("name") or "").strip()
+    if not name:
+        return "[symbol_search] 需提供 name 参数"
+    use_regex = args.get("regex") in (True, "true", "1")
+    if use_regex:
+        try:
+            rx = re.compile(name, re.IGNORECASE)
+        except re.error as e:
+            raise ToolError("正则表达式错误: " + str(e))
+        match = lambda s: bool(rx.search(s))
+    else:
+        needle = name.lower()
+        match = lambda s: needle in s.lower()
+    fglob = (args.get("glob") or "").strip()
+    limit = int(args.get("limit", 50) or 50)
+
+    files = []
+    for root, dirs, fns in os.walk(base):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        for fn in fns:
+            if os.path.splitext(fn)[1].lower() in _CODE_EXT:
+                files.append(os.path.join(root, fn))
+    files.sort()
+
+    out = []
+    total = 0
+    for fp in files:
+        if fglob and not fnmatch.fnmatch(fp, fglob) and not fnmatch.fnmatch(os.path.basename(fp), fglob):
+            continue
+        try:
+            with open(fp, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except Exception:
+            continue
+        ext = os.path.splitext(fp)[1].lower().lstrip(".")
+        res_list = _SYM_RES.get(ext) or _SYM_RES["js"]
+        for i, line in enumerate(lines, 1):
+            for rgx in res_list:
+                m = rgx.search(line)
+                if m and match(m.group("n")):
+                    rel = os.path.relpath(fp, base)
+                    out.append(f"{rel}:{i}: {line.strip()[:80]}")
+                    total += 1
+                    break
+        if total >= limit:
+            break
+    if not out:
+        return f"[symbol_search] 未找到匹配「{name}」的符号 (扫描 {len(files)} 文件)。"
+    if total >= limit:
+        out.append(f"... (已达上限 {limit})")
+    return "[symbol_search] 命中 %d 个符号:\n" % total + "\n".join(out)

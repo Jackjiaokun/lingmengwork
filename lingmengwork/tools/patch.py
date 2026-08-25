@@ -36,10 +36,23 @@ def apply_patch(args, ctx):
         text = fp.read_text(encoding="utf-8")
         if old not in text:
             first = old.splitlines()[0][:40] if old.splitlines() else ""
-            raise ToolError(f"apply_patch: 在 {path} 中未找到 old 片段 (首行: {first})")
+            from difflib import get_close_matches
+            lines = text.splitlines()
+            locs = [i + 1 for i, ln in enumerate(lines) if first and first in ln]
+            hint = ""
+            if locs:
+                hint = " (文件内含 %d 处与首行相似行: %s)" % (len(locs), ", ".join(map(str, locs[:5])))
+            else:
+                pool = [ln.strip() for ln in lines if ln.strip()]
+                close = get_close_matches(first, pool, n=3, cutoff=0.5)
+                if close:
+                    hint = " (近似行: " + " | ".join(close) + ")"
+            raise ToolError(f"apply_patch: 在 {path} 中未找到 old 片段 (首行: {first}){hint}")
         cnt = text.count(old)
         if cnt > 1:
-            raise ToolError(f"apply_patch: old 片段在 {path} 出现 {cnt} 次存在歧义, 请提供更大上下文或改用 edit_file")
+            fl = old.splitlines()[0][:40]
+            locs = [i + 1 for i, ln in enumerate(text.splitlines()) if fl and fl in ln]
+            raise ToolError(f"apply_patch: old 片段在 {path} 出现 {cnt} 次存在歧义 (行号: {locs[:5]}), 请提供更大上下文或改用 edit_file")
         by_file[str(fp.resolve())] = (fp, path, by_file.get(str(fp.resolve()), (None, None, []))[2] + [(old, new)])
 
     # 阶段2: 逐文件串行应用 (后一块基于前一块修改后的文本), 先推快照再写

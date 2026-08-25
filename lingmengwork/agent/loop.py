@@ -172,7 +172,7 @@ def tool_kind(name):
         return "plan"
     if name == "git_commit" or name in _MCP_GIT:
         return "git"
-    if name in ("web_search", "fetch", "db_query", "db_list_tables"):
+    if name in ("web_search", "fetch", "db_query", "db_list_tables", "symbol_search", "code_search"):
         return "search"
     return "other"
 

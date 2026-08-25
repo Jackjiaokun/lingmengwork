@@ -27,6 +27,43 @@ _REFLECT_HINT = (
     "下一步最该做什么才能逼近最终交付? 若已掌握足够信息, 直接给结论; "
     "若还需工具, 只调用能带来新信息且必要的工具, 避免无效重复。"
 )
+# ④ 配额耗尽 (主题 A): 单任务工具调用次数达上限, 不再执行工具, 强制基于已有结果收尾。
+_QUOTA_HINT = (
+    "⚠️ 本任务的工具调用次数已达配置上限。请立即停止调用任何工具, "
+    "基于已获取的全部工具结果, 用中文直接给出最终结论或交付物。"
+)
+
+
+# —— 工具结果脱敏 (主题 D): 回灌前自动遮蔽密钥/密码/令牌, 防凭证泄露 ——
+# 匹配「敏感键名 = / : 值」与已知的密钥前缀格式。纯函数, 便于单测。
+_SECRET_KEY_RE = re.compile(
+    r"(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|"
+    r"private[_-]?key|auth(?:orization)?|client[_-]?secret|session[_-]?key)\b"
+    r"\s*[:=]\s*(\S+)"
+)
+# 已知密钥前缀/格式 (不依赖键名, 直接匹配值本身)
+_SECRET_VALUE_RE = re.compile(
+    r"(?i)("
+    r"sk-[A-Za-z0-9]{8,}|"          # OpenAI / SenseNova 等 sk- 前缀
+    r"ghp_[A-Za-z0-9]{20,}|"        # GitHub PAT
+    r"xox[bap]-[A-Za-z0-9-]{10,}|"  # Slack token
+    r"AIza[0-9A-Za-z_-]{20,}|"      # Google API key
+    r"AKIA[0-9A-Z]{16,}|"           # AWS access key id
+    r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|"  # JWT
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----"  # PEM 私钥块
+    r")"
+)
+_REDACTED = "***REDACTED***"
+
+
+def _redact(text):
+    """把工具结果中的密钥/密码/令牌替换为 ***REDACTED***。纯函数。"""
+    if not text:
+        return text
+    s = str(text)
+    s = _SECRET_VALUE_RE.sub(lambda m: _REDACTED, s)
+    s = _SECRET_KEY_RE.sub(lambda m: f"{m.group(1)}: {_REDACTED}", s)
+    return s
 # 工具结果 LLM 摘要提示 (主题 B): 把超长原始输出压缩为关键要点, 省 token/时延
 _SUMMARIZE_PROMPT = (
     "你是一个工具结果压缩器。下面是一段过长的工具输出。请提炼对完成当前编程任务"
@@ -227,6 +264,11 @@ class AgentLoop:
         self._reflect_every = int(cfg["agent"].get("reflect_every") or 0)
         self._summarize = bool(cfg["agent"].get("summarize_tool_results") or False)
         self._summarize_max = int(cfg["agent"].get("summarize_max_chars") or 3000)
+        # 主题 A — 工具调用配额 (批次4): 单任务累计次数上限, 0=不限
+        self._tool_quota = int(cfg["agent"].get("tool_call_quota") or 0)
+        self._tool_calls = 0  # 本轮 run() 已执行的工具调用计数 (跨轮累计)
+        # 主题 D — 工具结果脱敏 (批次4): 回灌前遮蔽密钥/密码
+        self._redact = bool(cfg["agent"].get("redact_secrets", True))
         self.session_id = session_id or None
         self.provider = provider
         override = system_prompt_override if system_prompt_override is not None else cfg["agent"].get("system_prompt")
@@ -314,11 +356,24 @@ class AgentLoop:
                 emit("done", text=assistant, truncated=False, chain=chain, **self.token_stats())
                 return assistant
 
+            # 主题 A — 工具调用配额: 达上限即停止执行工具, 落盘续跑点, 强制收尾
+            if self._tool_quota and self._tool_calls >= self._tool_quota:
+                self.messages.append({"role": "user", "content": _QUOTA_HINT})
+                try:
+                    self.save_session()
+                except Exception:
+                    pass
+                emit("done", text=last, truncated=True, chain=chain,
+                     resume_available=True, session_id=self.session_id,
+                     quota_exceeded=True, **self.token_stats())
+                return last
+
             results = []
             for call in calls:
                 name = call["name"]
                 args = call.get("arguments", {})
                 seq += 1
+                self._tool_calls += 1
                 emit("tool", name=name, args=args, seq=seq, kind=tool_kind(name))
                 t0 = time.time()
                 try:
@@ -335,6 +390,9 @@ class AgentLoop:
                     summarize_max=self._summarize_max,
                     hard_limit=self._tool_result_limit,
                 )
+                # 主题 D — 工具结果脱敏: 回灌前遮蔽密钥/密码, 防凭证泄露进上下文/会话/日志
+                if self._redact:
+                    res = _redact(res)
                 emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name), ok=ok, duration_ms=dt_ms)
                 results.append(f"[tool result: {name}]\n{res}")
                 chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok, "duration_ms": dt_ms})

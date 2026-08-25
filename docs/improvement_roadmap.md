@@ -36,7 +36,19 @@
 
 ---
 
+## 批次 4 — 工具调用治理（配额/缓存/脱敏）✅ (2026-08-26 完成)
+- [done] **工具调用配额**: `loop.run()` 新增 `agent.tool_call_quota`(默认 0=不限); 单任务累计调用达上限即停止执行工具、落盘续跑点并 `emit("done", quota_exceeded=True, resume_available=True)`, 与 max_iter 同源处理; 防失控循环烧钱。
+- [done] **工具结果缓存层**: `registry.execute()` 对只读搜索类(web_search/code_search/db_*/symbol_search/grep/glob/repo_map/read_file/fs_read/list_dir/diff_view)同查询命中进程级内存缓存(`_RESULT_CACHE`, TTL=`agent.tool_cache_ttl`), 省 token/时延; 写/执行类永不缓存; 命中返回追加 `[缓存命中]`。
+- [done] **工具结果脱敏**: `loop._redact` 纯函数, 回灌前自动遮蔽密钥/密码/令牌(`sk-`/`ghp_`/`xox[bap]-`/`AIza`/`AKIA`/JWT/PEM + `password`/`token`/`api_key`/`Authorization` 等键名), 默认开(`agent.redact_secrets=True`); 防凭证泄露进上下文/会话/日志。
+- [done] **prompt 引导**: 系统提示新增 12j 工具调用节制(复用/合并/配额收尾)、12k 敏感信息(凭证自动遮蔽、勿硬编码)。
+- [done] 单测 `tests/test_tool_governance.py`(7 例) 覆盖配额拦截+续跑信号/默认不限/缓存命中免重跑/默认不缓存/脱敏多格式/管线集成; 全量 pytest **195 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
+- [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
+- [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
+- [done] 工具结果脱敏：密钥/密码/令牌在回灌前自动遮蔽，防凭证泄露（批次4）。
 - [ ] 工具结果结构化：MCP 返回 JSON 时自动提取关键字段（如 search 的标题/url、fetch 的正文），而非整页文本。
 - [ ] 工具缓存层：`web_search`/`code_search` 同查询命中缓存，省 token 与时延。
 - [ ] 危险命令沙箱增强：`run_command` 支持允许清单 + 超时 + 资源上限（CPU/内存）。
@@ -149,4 +161,5 @@
 ## 进度小结
 - 2026-08-26 批次1：工具系统综合硬化（权限分层/截断/repo_map多语言/可视化/prompt），169 单测全绿，已重打包+端到端验证。
 - 2026-08-26 批次2：代码精读/检索/编辑能力增强（grep增强/read行号/edit模糊提示/apply_patch诊断/symbol_search/repo_map gitignore+depth），175 单测全绿，待重打包+端到端验证。
-- 2026-08-26 批次3：智能体循环与推理增强（断点续跑/resume/反思循环/工具结果LLM摘要/prompt自验证+主动澄清），188 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次3：智能体循环与推理增强（断点续跑/resume/反思循环/工具结果LLM摘要/prompt自验证+主动澄清），188 单测全绿，已重打包(01:31)+端到端验证。
+- 2026-08-26 批次4：工具调用治理（配额tool_call_quota/结果缓存tool_cache_ttl/脱敏redact_secrets+prompt 12j/12k），195 单测全绿，待重打包+端到端验证。

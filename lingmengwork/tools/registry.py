@@ -1,9 +1,48 @@
 """工具注册表: 定义 / 分发 / 路径与安全上下文。"""
 import os
+import json
+import time
 
 from .common import ToolError
 from . import fs, shell, patch, agent_tools, memory, advanced, review
 from .undo import get_default_stack, SnapshotStack
+
+# 主题 A — 工具结果缓存 (批次4): 只读搜索类工具同查询的内存缓存 (进程级共享)
+_CACHEABLE_TOOLS = {
+    "web_search", "code_search", "db_query", "db_list_tables",
+    "symbol_search", "grep", "glob", "repo_map", "read_file",
+    "fs_read", "list_dir", "diff_view",
+}
+_RESULT_CACHE = {}  # {(name, args_json): (value, expire_ts)}
+
+
+def _cache_key(name, args):
+    try:
+        a = json.dumps(args or {}, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        a = str(args)
+    return (name, a)
+
+
+def _cache_get(name, args, ttl):
+    if ttl <= 0:
+        return None
+    key = _cache_key(name, args)
+    entry = _RESULT_CACHE.get(key)
+    if entry is None:
+        return None
+    val, exp = entry
+    if exp and time.time() > exp:
+        _RESULT_CACHE.pop(key, None)
+        return None
+    return val
+
+
+def _cache_put(name, args, val, ttl):
+    if ttl <= 0:
+        return
+    _RESULT_CACHE[_cache_key(name, args)] = (val, time.time() + ttl)
+
 
 # 工具 schema: 用于系统提示词与 Web 控制台展示
 TOOL_SCHEMAS = [
@@ -255,6 +294,16 @@ class Registry:
         allowed, reason = self._check_permission(name)
         if not allowed:
             return f"[权限拒绝] {reason}"
+        # 主题 A — 工具结果缓存: 只读搜索类同查询命中内存缓存, 省 token/时延
+        _ttl = 0
+        try:
+            _ttl = int((self.cfg or {}).get("agent", {}).get("tool_cache_ttl") or 0)
+        except Exception:
+            _ttl = 0
+        if _ttl > 0 and name in _CACHEABLE_TOOLS:
+            _hit = _cache_get(name, args, _ttl)
+            if _hit is not None:
+                return _hit + "\n[缓存命中]"
         if name == "think":
             return _tool_think(args or {}, self.ctx)
         if name == "undo":
@@ -272,7 +321,10 @@ class Registry:
         if not func:
             return f"[tool error] 未知工具: {name}"
         try:
-            return func(args or {}, self.ctx)
+            result = func(args or {}, self.ctx)
+            if _ttl > 0 and name in _CACHEABLE_TOOLS and not str(result).startswith(("[tool error]", "[权限拒绝]")):
+                _cache_put(name, args, result, _ttl)
+            return result
         except ToolError as e:
             return f"[tool error] {e}"
         except Exception as e:  # 兜底: 让模型看到错误并自我修复

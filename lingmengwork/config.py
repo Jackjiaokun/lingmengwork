@@ -59,6 +59,13 @@ DEFAULTS = {
         "summarize_tool_results": False,
         # 触发摘要的原文长度阈值(字符)。
         "summarize_max_chars": 3000,
+        # 主题 A/D — 工具调用治理 (批次4):
+        # ① 工具调用配额: 单任务累计工具调用次数上限(0=不限), 防失控循环烧钱; 耗尽即落盘续跑点。
+        "tool_call_quota": 0,
+        # ② 工具结果缓存: 只读搜索类工具同查询命中内存缓存的 TTL 秒(0=关闭); 写/执行类永不缓存。
+        "tool_cache_ttl": 0,
+        # ③ 工具结果脱敏: 回灌前自动遮蔽密钥/密码/令牌(默认开), 防凭证泄露进上下文/会话/日志。
+        "redact_secrets": True,
         "security": {
             "allowed_roots": ["."],
             "dangerously_run_commands": False,

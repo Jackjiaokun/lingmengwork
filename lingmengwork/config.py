@@ -66,6 +66,12 @@ DEFAULTS = {
         "tool_cache_ttl": 0,
         # ③ 工具结果脱敏: 回灌前自动遮蔽密钥/密码/令牌(默认开), 防凭证泄露进上下文/会话/日志。
         "redact_secrets": True,
+        # 主题 B-Compaction — 自动上下文压缩 (全球领先 AI coding 标准, 仿 Claude Code auto-compact):
+        # 累计上下文字符数超过此阈值, 自动把「旧回合」压缩为单条 [历史压缩摘要], 只保留 system + 最近 keep_recent 轮原文。
+        # 0 = 关闭。默认 120000 字符 (~75k token) 即长会话自动压缩, 防上下文退化/溢出。
+        "context_compact_threshold": 120000,
+        # 压缩时保留最近的 N 个消息(回合)不压缩, 保证当前任务连续性。
+        "context_keep_recent": 6,
         "security": {
             "allowed_roots": ["."],
             "dangerously_run_commands": False,

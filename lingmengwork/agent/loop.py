@@ -64,6 +64,56 @@ def _redact(text):
     s = _SECRET_VALUE_RE.sub(lambda m: _REDACTED, s)
     s = _SECRET_KEY_RE.sub(lambda m: f"{m.group(1)}: {_REDACTED}", s)
     return s
+
+
+# —— 工具失败自愈归因 (主题 D / 全球领先标准): 把报错分类, 给模型可执行的修正提示 ——
+# 返回 "" 表示无需特别提示; 否则返回形如 " [网络异常?重试/换源]" 的归因标签, 注入工具结果标记。
+_FAIL_PATTERNS = [
+    (("readtimeout", "operation timed out", "deadline exceeded", "timed out"),
+     "超时异常? 降低数据量或增大超时后重试"),
+    (("connectionerror", "connection refused", "connection reset", "econnreset",
+      "name or service not known", "getaddrinfo", "network is unreachable",
+      "socket.gaierror", "failed to resolve", "dns"),
+     "网络异常? 检查网络/代理, 可重试一次或换源"),
+    (("403 forbidden", "401 unauthorized", "401 ", "permission denied", "eacces", "access is denied",
+      "[权限拒绝]", "not allowed"),
+     "权限异常? 当前模式/凭据不足, 换用合法路径或提升权限模式"),
+    (("memoryerror", "out of memory", "disk full", "no space left", "resource temporarily unavailable"),
+     "资源异常? 输入过大或环境资源不足, 缩小范围后重试"),
+    (("no such file", "filenotfounderror", "file not found", "404", "does not exist", "no such directory"),
+     "未找到? 路径/文件名有误, 先用 list_dir/glob 确认实际位置"),
+    (("syntaxerror", "indentationerror", "typeerror", "attributeerror", "keyerror", "valueerror",
+      "nameerror", "indexerror", "modulenotfounderror"),
+     "逻辑/语法异常? 检查参数与调用方式, 修正后重试"),
+]
+_FAIL_HINT_RE = None  # 延迟编译
+
+
+def _classify_failure(text):
+    """把工具报错文本分类为 网络/权限/超时/资源/未找到/逻辑, 返回归因提示标签。纯函数。"""
+    if not text:
+        return ""
+    s = str(text).lower()
+    if s.startswith("[tool error]") or "[mcp error]" in s or "[权限拒绝]" in s:
+        # 已带前缀, 仍做细分以辅助自愈
+        pass
+    for keys, hint in _FAIL_PATTERNS:
+        for k in keys:
+            if k in s:
+                return f" [{hint}]"
+    return ""
+
+
+# 历史压缩摘要提示 (自动上下文压缩): 把长会话旧回合提炼为关键结论/决策/待办, 保真溯源。
+_COMPACT_PROMPT = (
+    "你是一个长会话历史压缩器。下面是一段 AI 编码智能体的早期对话历史(含工具调用与结果)。"
+    "请提炼对继续完成任务真正关键的信息: "
+    "(1) 已完成的工具与关键发现(文件/符号/结论, 保留原始路径与行号); "
+    "(2) 已做出的决策与约束; (3) 当前待办与未决问题。用中文要点输出, 不超过 16 条, "
+    "保留原始文件路径与行号原文, 不要编造未出现的内容。"
+)
+
+
 # 工具结果 LLM 摘要提示 (主题 B): 把超长原始输出压缩为关键要点, 省 token/时延
 _SUMMARIZE_PROMPT = (
     "你是一个工具结果压缩器。下面是一段过长的工具输出。请提炼对完成当前编程任务"
@@ -269,6 +319,10 @@ class AgentLoop:
         self._tool_calls = 0  # 本轮 run() 已执行的工具调用计数 (跨轮累计)
         # 主题 D — 工具结果脱敏 (批次4): 回灌前遮蔽密钥/密码
         self._redact = bool(cfg["agent"].get("redact_secrets", True))
+        # 主题 B-Compaction — 自动上下文压缩 (全球领先标准): 超阈值压缩旧回合, 防长会话退化
+        self._compact_threshold = int(cfg["agent"].get("context_compact_threshold") or 0)
+        self._keep_recent = max(1, int(cfg["agent"].get("context_keep_recent") or 6))
+        self._compact_count = 0  # 已发生的压缩次数(供成本/可观测)
         self.session_id = session_id or None
         self.provider = provider
         override = system_prompt_override if system_prompt_override is not None else cfg["agent"].get("system_prompt")
@@ -327,6 +381,74 @@ class AgentLoop:
         self.est_input_chars = 0
         self.est_output_chars = 0
 
+    # —— 自动上下文压缩 (主题 B-Compaction, 全球领先标准) ——
+    def _maybe_compact(self):
+        """达到上下文阈值且旧回合足够多时压缩历史; 返回是否发生压缩。"""
+        if not self._compact_threshold or self._compact_threshold <= 0:
+            return False
+        total = sum(len(m.get("content", "")) for m in self.messages)
+        # 防抖: 至少要有「主system + 阈值外旧回合 + 最近 keep 轮」才压缩, 避免频繁/无意义压缩
+        if total < self._compact_threshold:
+            return False
+        if len(self.messages) <= self._keep_recent + 2:
+            return False
+        return self._compact_history()
+
+    def _compact_history(self):
+        """把 messages[1:-keep] 的旧回合压缩为单条 [历史压缩摘要] (system 角色, 紧随主 system)。
+
+        优先调 LLM 摘要(若可用), 失败回退启发式提取(工具名+关键片段/结论)。返回是否成功压缩。
+        """
+        keep = self._keep_recent
+        head = self.messages[0]            # 主 system
+        recent = self.messages[-keep:]     # 最近 keep 轮保留原文
+        old = self.messages[1:-keep]       # 待压缩的旧回合
+        if not old:
+            return False
+        summary = self._summarize_old(old)
+        self.messages = [
+            head,
+            {"role": "system", "content":
+             "[历史压缩摘要] 以下内容已自动压缩, 仅保留关键结论/决策/待办, 请据此继续:\n" + summary},
+        ] + recent
+        self._compact_count += 1
+        return True
+
+    def _summarize_old(self, old_messages):
+        """把旧回合摘要为文本。优先 LLM 摘要, 无/失败则启发式提取。"""
+        # 启发式提取: assistant 首段结论 + 每个 tool_result 的工具名与关键片段
+        heur = []
+        for m in old_messages:
+            role = m.get("role", "")
+            content = m.get("content", "") or ""
+            if role == "assistant":
+                first = next((ln.strip() for ln in content.split("\n") if ln.strip()), "")
+                if first:
+                    heur.append("• 结论: " + first[:300])
+            elif role == "user" and "[tool result:" in content:
+                head = content.split("\n", 1)[0][:80]
+                body = content[len(head):].strip().replace("\n", " ")[:240]
+                heur.append(f"• {head}: {body}")
+        heur_text = "\n".join(heur) if heur else "(早期历史无有效工具结果)"
+        # 尝试 LLM 摘要 (失败/空则回退启发式)
+        try:
+            s = self.client.chat(
+                [
+                    {"role": "system", "content": _COMPACT_PROMPT},
+                    {"role": "user", "content": "\n\n".join(
+                        f"[{m.get('role', '')}] {m.get('content', '')}" for m in old_messages
+                    )[:8000]},
+                ],
+                stream=False,
+                temperature=0.0,
+            )
+            s = (s or "").strip()
+            if s:
+                return s
+        except Exception:
+            pass
+        return heur_text
+
     def run(self, user_message, on_event=None):
         """执行一轮用户请求, 返回最终文本。on_event(type, kw) 用于流式展示。"""
         self.messages.append({"role": "user", "content": user_message})
@@ -342,6 +464,10 @@ class AgentLoop:
             self.iteration += 1
             # 估算 input token (本轮发给模型的全部上下文)
             self.est_input_chars += sum(len(m.get("content", "")) for m in self.messages)
+            # 主题 B-Compaction — 自动上下文压缩: 超阈值压缩旧回合, 防长会话退化(全球领先标准)
+            if self._maybe_compact():
+                emit("compact", kept_recent=self._keep_recent, count=self._compact_count,
+                     summary_len=len(self.messages[1].get("content", "")) if len(self.messages) > 1 else 0)
             chunks = []
             for chunk in self.client.chat(self.messages, stream=True):
                 chunks.append(chunk)
@@ -393,9 +519,12 @@ class AgentLoop:
                 # 主题 D — 工具结果脱敏: 回灌前遮蔽密钥/密码, 防凭证泄露进上下文/会话/日志
                 if self._redact:
                     res = _redact(res)
+                # 证据链 (provenance): 结果标记带稳定 #seq, 配合文件:行号可溯源每个结论到具体工具调用
+                fail_tag = "" if ok else _classify_failure(res)
+                marker = f"[tool result: {name} #{seq}]{fail_tag}"
                 emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name), ok=ok, duration_ms=dt_ms)
-                results.append(f"[tool result: {name}]\n{res}")
-                chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok, "duration_ms": dt_ms})
+                results.append(f"{marker}\n{res}")
+                chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok, "duration_ms": dt_ms, "fail_tag": fail_tag})
 
             self.messages.append({"role": "user", "content": "\n\n".join(results)})
 

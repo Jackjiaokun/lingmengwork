@@ -53,6 +53,15 @@
 
 ---
 
+## 批次 6 — 全球领先运行时三件套（Auto Context Compaction / 失败归因 / 证据链）✅ (2026-08-26 完成)
+- [done] **自动上下文压缩 (Auto Context Compaction, 仿 Claude Code auto-compact)**: `loop._maybe_compact`/`_compact_history`/`_summarize_old`; 累计上下文字符超 `agent.context_compact_threshold`(默认 120000) 时, 把旧回合(除 system + 最近 `context_keep_recent`=6 轮)压缩为单条 `[历史压缩摘要]`; 优先调 LLM 摘要(失败/无则回退启发式提取 工具名+关键结论), 防长会话退化/溢出。emit `compact` 事件供可观测。默认开启(只触发超长)。
+- [done] **工具失败自愈归因**: `_classify_failure` 纯函数, 把报错分类为 网络/权限/超时/资源/未找到/逻辑, 注入结果标记(如 `[工具 result: read_file #1] [网络异常?…]`), 模型按提示修正而非裸重试; prompt 12n 引导。
+- [done] **证据链 (Provenance)**: 工具结果标记带稳定 `#seq`(如 `[tool result: read_file #1]`), 配合文件:行号可溯源每个结论到具体工具调用; chain 事件同步带 `fail_tag`。
+- [done] **prompt 引导**: 新增 12m(长会话自动压缩: 信任 [历史压缩摘要] 继续) + 12n(失败归因: 按标签重试/换源/换路径)。
+- [done] 单测 `tests/test_context_compaction.py`(12 例) 覆盖分类(网络/权限/超时/资源/未找到/逻辑/成功无标签)/压缩(关/启发式降长保最近轮/LLM 用摘要/防抖)/run 中 #seq 证据链 + 失败归因标签; 全量 pytest **214 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
@@ -83,7 +92,7 @@
 - [ ] 证据链：每个结论标注其来源工具/文件行号，可点击溯源。
 - [ ] 主动澄清：需求模糊时反问至多 1 次，避免盲目执行。
 - [ ] 自验证：写完代码自动 `repo_map` + `grep` 自检接口签名一致性。
-- [ ] 上下文压缩：旧轮 `tool_result` 滚动摘要，支撑超长会话。
+- [done] 上下文压缩：旧轮 `tool_result` 滚动摘要，支撑超长会话（批次6 Auto Context Compaction）。
 - [ ] 工具选择学习：基于历史高成功率路径，优先推荐工具组合。
 - [ ] 失败归因：工具报错后分类（网络/权限/逻辑），针对性重试或换工具。
 - [ ] 多方案对比：复杂任务并行探索 2-3 方案，给出权衡建议再落地。
@@ -107,7 +116,8 @@
 - [ ] 写操作审计日志：所有 `write_file/edit/fs_write/shell` 落盘审计。
 - [ ] 危险模式识别：`rm -rf /`、DROP TABLE 等模式在 `shell/db` 层硬拦截。
 - [ ] 凭证零落盘：`.env` 密钥不进任何工具结果、不进日志、不进会话导出。
-- [ ] 工具结果脱敏：自动遮蔽 token/密码/密钥后再回灌上下文。
+- [done] 工具结果脱敏：自动遮蔽 token/密码/密钥后再回灌上下文（批次4）。
+- [done] 工具失败自愈归因：报错分类（网络/权限/超时/资源/未找到/逻辑）并注入修正提示（批次6）。
 - [ ] 沙箱网络策略：可配置允许外联域名（fetch/search 白名单）。
 - [ ] 最小权限默认：`acceptEdits` 下默认只允许项目内写，越界需升级模式。
 - [ ] 操作回滚点：每次写前打快照（轻量），可一键回退。
@@ -171,4 +181,5 @@
 - 2026-08-26 批次2：代码精读/检索/编辑能力增强（grep增强/read行号/edit模糊提示/apply_patch诊断/symbol_search/repo_map gitignore+depth），175 单测全绿，待重打包+端到端验证。
 - 2026-08-26 批次3：智能体循环与推理增强（断点续跑/resume/反思循环/工具结果LLM摘要/prompt自验证+主动澄清），188 单测全绿，已重打包(01:31)+端到端验证。
 - 2026-08-26 批次4：工具调用治理（配额tool_call_quota/结果缓存tool_cache_ttl/脱敏redact_secrets+prompt 12j/12k），195 单测全绿，已重打包(03:08)+e2e 验证(8318 PID 33164)。
-- 2026-08-26 批次5：语义检索（主题C开篇，零依赖 TF-IDF+余弦 semantic_search，中英召回/增量持久化/readonly+cacheable+prompt 12l），202 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次5：语义检索（主题C开篇，零依赖 TF-IDF+余弦 semantic_search，中英召回/增量持久化/readonly+cacheable+prompt 12l），202 单测全绿，已重打包(03:21)+e2e 验证(8318 PID 33784)。
+- 2026-08-26 批次6：全球领先运行时三件套（自动上下文压缩 context_compact_threshold=120000/失败自愈归因 _classify_failure/证据链 #seq + prompt 12m/12n），214 单测全绿，待重打包+端到端验证。

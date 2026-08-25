@@ -39,3 +39,7 @@ venv/
 .idea/
 Thumbs.db
 Desktop.ini
+
+# ===== 运行时探针生成物 / 外来目录 (不入库) =====
+lmw_agent_probe/
+gold_strategy/

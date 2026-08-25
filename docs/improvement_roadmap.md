@@ -87,6 +87,15 @@
 
 ---
 
+## 批次 10 — 全链路健康度自检（主题 E 健康度）✅ (2026-08-26 完成)
+- [done] **`tools/health.py`**: 纯函数 `health_check(cfg, *, llm_probe, mcp_probe, fs_probe)` 聚合全链路红绿——LLM 连通(真实最小 chat + 线程超时保护, 不阻塞 HTTP)/ 9 MCP 服务器(枚举 `cfg['mcp']['servers']` + 模块文件校验)/ 文件系统根(`resolve_roots` 可达性)。
+- [done] **探针可注入**: `enumerate_mcp_servers`/`_module_file`(由 `-m 模块` 推导源码路径)/`probe_llm`/`probe_mcp_server`/`probe_filesystem`, 单测确定性; 端点注入真实探针。
+- [done] **Web 端点 `GET /api/health/full`**: 调 `health_check` + 用 `MCPManager.connect_all(cfg)`(12s 线程超时守卫)补全各 MCP 实时 `connected` 状态, 返回 `{overall, llm, mcp_servers[9], filesystem}`。
+- [done] **prompt 引导 12t**: 健康度自检——面板 `/api/health/full` 自检 LLM 连通+9 MCP+文件系统, 红绿状态定位失联组件。
+- [done] 单测 `tests/test_health_check.py`(9 例) 覆盖枚举/模块路径/全绿/llm失败/fail/fs失败/mcp缺模块/overall warn + 真实 config.toml 枚举 9 MCP 烟测; 全量 pytest **253 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。

@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -653,6 +654,9 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 model = "?"
             return self._send_json({"ok": True, "version": __version__, "backend": backend, "model": model})
+        # ---- 主题 E 健康度自检 (批次10): LLM + 9 MCP + 文件系统 红绿体检 ----
+        if p == "/api/health/full":
+            return self._health_full()
         # ---- 主题 E 可观测性 (批次9): 工具调用运行期统计 ----
         if p == "/api/stats":
             try:
@@ -1414,6 +1418,34 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _health_full(self):
+        """全链路健康度自检: LLM 连通 + 9 MCP 服务器 + 文件系统根。
+
+        返回结构化 JSON, 各组件带 ok/warn/fail 状态; MCP 额外补全实时 connected。
+        """
+        cfg = _get_cfg()
+        try:
+            from ..tools import health as _health
+            report = _health.health_check(cfg)
+        except Exception as e:
+            return self._send_json({"ok": False, "overall": "fail", "error": str(e)}, status=500)
+        # 补全 9 MCP 实时连接状态 (best-effort, 超时保护, 不阻断主报告)
+        try:
+            from ..tools.mcp import get_manager
+            mgr = get_manager()
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(mgr.connect_all, cfg)
+                try:
+                    fut.result(timeout=12)
+                except Exception:
+                    pass
+            live = {s["name"]: True for s in mgr.status()}
+            for s in report.get("mcp_servers", []):
+                s["connected"] = bool(live.get(s["name"]))
+        except Exception:
+            pass
+        return self._send_json(report)
 
     def _chat_sse(self):
         length = int(self.headers.get("Content-Length", 0) or 0)

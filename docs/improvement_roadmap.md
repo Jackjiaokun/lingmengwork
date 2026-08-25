@@ -45,6 +45,14 @@
 
 ---
 
+## 批次 5 — 语义检索（主题 C 开篇）✅ (2026-08-26 完成)
+- [done] **零依赖本地向量近似召回**: 新建 `tools/semantic.py`, TF-IDF 向量 + 余弦相似度; 对代码(py/js/ts/go/rust/java/c/c++/c#/php/ruby/swift/kotlin/scala/sh) + 文档(md/txt/rst)建索引, 持久化 `<root>/.lmw_index/index.json`, 按 mtime 增量复用(命中复用/改文件自动重建)。
+- [done] **中文语义召回**: 中文逐字 unigram + 相邻 bigram (`c:` 前缀隔离), 支持「数据库连接池配置」类意图召回; 英文/数字词级 token; `min_df=2` 平滑 IDF 去噪。
+- [done] **新工具 `semantic_search`**: 参数 `query`(意图) / `scope`(all|code|docs) / `top_k`(默认8) / `glob` / `rebuild`; 返回 top-k 片段 `relpath:line score + snippet`, 引导接 `read_file`/`grep` 接力; 注册进 readonly + cacheable + prompt(12l)。
+- [done] 单测 `tests/test_semantic_search.py`(7 例) 覆盖 tokenize 中英/英文召回/中文召回/增量复用/强制重建/scope 过滤/空查询; 全量 pytest **202 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
@@ -83,7 +91,7 @@
 - [ ] 目标可达性判断：任务不可行时尽早返回，而非空转。
 
 ## 主题 C — 检索与上下文工程（约 10 轮）
-- [ ] 语义检索：本地向量索引（零依赖）支持 `@语义` 召回相关代码/文档。
+- [done] 语义检索：本地向量索引（零依赖 TF-IDF + 余弦）支持 `semantic_search` 召回相关代码/文档（批次5）。
 - [ ] 自动上下文裁剪：按当前任务动态选 relevant 文件注入 system。
 - [ ] 文档库接入：把 `docs/` 纳入可被 `grep/语义` 检索的知识源。
 - [ ] 依赖图：`repo_map` 升级为调用/导入关系图，辅助大重构。
@@ -162,4 +170,5 @@
 - 2026-08-26 批次1：工具系统综合硬化（权限分层/截断/repo_map多语言/可视化/prompt），169 单测全绿，已重打包+端到端验证。
 - 2026-08-26 批次2：代码精读/检索/编辑能力增强（grep增强/read行号/edit模糊提示/apply_patch诊断/symbol_search/repo_map gitignore+depth），175 单测全绿，待重打包+端到端验证。
 - 2026-08-26 批次3：智能体循环与推理增强（断点续跑/resume/反思循环/工具结果LLM摘要/prompt自验证+主动澄清），188 单测全绿，已重打包(01:31)+端到端验证。
-- 2026-08-26 批次4：工具调用治理（配额tool_call_quota/结果缓存tool_cache_ttl/脱敏redact_secrets+prompt 12j/12k），195 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次4：工具调用治理（配额tool_call_quota/结果缓存tool_cache_ttl/脱敏redact_secrets+prompt 12j/12k），195 单测全绿，已重打包(03:08)+e2e 验证(8318 PID 33164)。
+- 2026-08-26 批次5：语义检索（主题C开篇，零依赖 TF-IDF+余弦 semantic_search，中英召回/增量持久化/readonly+cacheable+prompt 12l），202 单测全绿，待重打包+端到端验证。

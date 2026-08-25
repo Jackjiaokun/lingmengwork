@@ -4,14 +4,14 @@ import json
 import time
 
 from .common import ToolError
-from . import fs, shell, patch, agent_tools, memory, advanced, review
+from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic
 from .undo import get_default_stack, SnapshotStack
 
 # 主题 A — 工具结果缓存 (批次4): 只读搜索类工具同查询的内存缓存 (进程级共享)
 _CACHEABLE_TOOLS = {
     "web_search", "code_search", "db_query", "db_list_tables",
     "symbol_search", "grep", "glob", "repo_map", "read_file",
-    "fs_read", "list_dir", "diff_view",
+    "fs_read", "list_dir", "diff_view", "semantic_search",
 }
 _RESULT_CACHE = {}  # {(name, args_json): (value, expire_ts)}
 
@@ -151,6 +151,11 @@ TOOL_SCHEMAS = [
         "description": "代码评审自评估 (Critic Loop, 领先一代质量门禁): 对文件/代码片段/diff 做零依赖静态评审(py_compile 语法 + 规则扫描), 可选叠加 LLM 评审子代理。返回 VERDICT(approve|revise)/SCORE/ISSUES/SUGGESTIONS。写完关键代码后调用自检, verdict=revise 则改后再 review, 形成写-审-改闭环。target=文件路径或代码片段, focus?=评审焦点, critic?=是否叠加 LLM(默认 true)。",
         "parameters": {"target": "文件路径或代码片段/diff", "focus?": "评审焦点(安全/性能/...)", "critic?": "默认 true 叠加 LLM 评审"},
     },
+    {
+        "name": "semantic_search",
+        "description": "语义近似检索 (零依赖本地向量召回, 对标 Cody/Cursor 找代码): 当你只知道「要找做 X 的代码/文档」而不知精确符号名时, 用 TF-IDF 向量 + 余弦相似度召回 top-k 最相关片段。支持中文(逐字+bigram)。索引持久化 <root>/.lmw_index 并按 mtime 增量复用。query=意图(中/英), scope?=code|docs|all(默认 all), top_k?=返回条数(默认8), glob?=文件过滤, rebuild?=true 强制重建索引。命中后用 read_file/grep 接力精确定位。",
+        "parameters": {"query": "要找的代码/文档意图(中/英)", "scope?": "code|docs|all", "top_k?": "返回条数", "glob?": "文件过滤", "rebuild?": "true 强制重建索引"},
+    },
 ]
 
 # 名称 -> 实现函数 (签名: func(args, ctx) -> str)
@@ -176,6 +181,7 @@ _IMPLS = {
     "symbol_search": advanced.symbol_search,
     "git_commit": advanced.git_commit,
     "review_code": review._tool_review_code,
+    "semantic_search": semantic.semantic_search,
 }
 
 
@@ -230,7 +236,7 @@ def _tool_undo(args, ctx):
 # plan            : 仅只读探查 (list/read/grep/glob/diff_view), 禁写/编辑/执行
 # acceptEdits     : 允许文件读写/编辑(diff_view 预览仍建议), 但 run_command 默认拦截
 # bypassPermissions: 全放开 (等同 dangerously, 由 deny_patterns 仍拦危险命令)
-_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code"}
+_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search"}
 _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo"}
 _EXEC_TOOLS = {"run_command", "auto_test", "git_commit"}
 

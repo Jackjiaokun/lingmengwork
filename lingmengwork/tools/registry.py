@@ -4,6 +4,7 @@ import re
 import json
 import time
 import datetime
+import collections
 
 from .common import ToolError
 from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision
@@ -511,6 +512,11 @@ _STATS_LOCK = threading.Lock()
 _STATS = {"tools": {}, "total": {"calls": 0, "ok": 0, "fail": 0}, "recent": []}
 _STATS_MAX_RECENT = 50
 
+# 主题 E 可视化深化 (批次12): 每工具 + 全局耗时分布样本(有界), 用于计算 p50/p95/p99 分位
+_DUR_MAX = 240                 # 每工具保留最近样本数
+_DURATIONS = {}                # name -> collections.deque(maxlen=_DUR_MAX) of dur_ms
+_DUR_ALL = collections.deque(maxlen=800)   # 全局样本池
+
 # 错误分类 (与 agent/loop._classify_failure 对齐; 独立实现避免与 loop 循环依赖)
 _NET_ERR = ("connectionerror", "timeout", "timed out", "urlerror", "connectionreset",
             "remotedisconnected", "nameresolutionerror", "getaddrinfo", "socket")
@@ -553,24 +559,56 @@ def _record(name, ok, dur_ms, tag=None):
         _STATS["recent"].append({"name": name, "ok": ok, "ms": dur_ms, "tag": tag, "ts": int(time.time())})
         if len(_STATS["recent"]) > _STATS_MAX_RECENT:
             _STATS["recent"].pop(0)
+        _buf = _DURATIONS.setdefault(name, collections.deque(maxlen=_DUR_MAX))
+        _buf.append(dur_ms)
+        _DUR_ALL.append(dur_ms)
+
+
+def _pct(vals, p):
+    """线性插值分位 (与 numpy 默认一致)。vals 为可迭代数值。"""
+    if not vals:
+        return 0
+    sv = sorted(vals)
+    if len(sv) == 1:
+        return sv[0]
+    k = (len(sv) - 1) * (p / 100.0)
+    f = int(k)
+    c = min(f + 1, len(sv) - 1)
+    if f == c:
+        return sv[f]
+    return round(sv[f] + (sv[c] - sv[f]) * (k - f))
 
 
 def get_stats():
-    """返回聚合统计: 总调用/成功率/各工具统计/最近事件。供 Web /api/stats 使用。"""
+    """返回聚合统计: 总调用/成功率/各工具统计(含耗时分位)/最近事件。供 Web /api/stats。"""
     with _STATS_LOCK:
         tools = []
         for n, st in _STATS["tools"].items():
             avg = round(st["total_ms"] / st["calls"], 1) if st["calls"] else 0
+            durs = list(_DURATIONS.get(n, []))
+            if durs:
+                p50 = int(_pct(durs, 50)); p95 = int(_pct(durs, 95)); p99 = int(_pct(durs, 99))
+                max_ms = max(durs); min_ms = min(durs)
+            else:
+                p50 = p95 = p99 = max_ms = min_ms = 0
             tools.append({
                 "name": n, "calls": st["calls"], "ok": st["ok"], "fail": st["fail"],
-                "avg_ms": avg, "fail_by_tag": dict(st["fail_by_tag"]),
+                "avg_ms": avg, "p50_ms": p50, "p95_ms": p95, "p99_ms": p99,
+                "max_ms": max_ms, "min_ms": min_ms, "fail_by_tag": dict(st["fail_by_tag"]),
             })
         tools.sort(key=lambda x: (-x["calls"], x["name"]))
         tot = _STATS["total"]
         rate = round(tot["ok"] / tot["calls"], 4) if tot["calls"] else 1.0
+        total_ms = sum((st["total_ms"] for st in _STATS["tools"].values()), 0)
+        avg_ms = round(total_ms / tot["calls"], 1) if tot["calls"] else 0
+        all_durs = list(_DUR_ALL)
+        g_p50 = int(_pct(all_durs, 50)); g_p95 = int(_pct(all_durs, 95)); g_p99 = int(_pct(all_durs, 99))
         return {
             "total_calls": tot["calls"], "total_ok": tot["ok"], "total_fail": tot["fail"],
-            "success_rate": rate, "tools": tools, "recent": list(_STATS["recent"]),
+            "success_rate": rate,
+            "total_ms": total_ms, "avg_ms": avg_ms,
+            "p50_ms": g_p50, "p95_ms": g_p95, "p99_ms": g_p99,
+            "tools": tools, "recent": list(_STATS["recent"]),
         }
 
 
@@ -580,3 +618,5 @@ def reset_stats():
         _STATS["tools"].clear()
         _STATS["total"] = {"calls": 0, "ok": 0, "fail": 0}
         _STATS["recent"] = []
+        _DURATIONS.clear()
+        _DUR_ALL.clear()

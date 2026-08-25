@@ -103,6 +103,12 @@
 - [done] **字段一致性修复**: recent 事件时间字段真实为 `ts`(unix 秒, 非 `time`), 修正前端 `e.time`→`fmtTime(e.ts)` 显示空 bug。
 - [done] 单测 `tests/test_observability_page.py`(5 例) 覆盖 页面存在+引用两端点 / `/observability` 路由注册 / index 入口 / `health_check` 结构字段齐全 / `get_stats` 聚合结构与 recent 字段; 全量 pytest **258 passed**。
 
+## 批次 12 — 可观测可视化深化（主题 E 可视化续）✅ (2026-08-26 完成)
+- [done] **埋点层耗时分位样本池**: `registry` 模块级 `_DURATIONS`(每工具 `deque(maxlen=240)`)+`_DUR_ALL`(全局 `deque(maxlen=800)`) 有界; `_record` 双写样本; 新增 `_pct`(线性插值分位, `round` 就近取整规避 `int()` 浮点负偏); `get_stats` 计算每工具 `p50/p95/p99/max/min` + 全局 `p50/p95/p99/total_ms/avg_ms`; `reset_stats` 同步清样本池。
+- [done] **仪表盘深化 `observability.html`**: ① 顶部 6 卡(总调用/成功率/p50/p95/p99/工具数) ② 各工具耗时分位分布三色分段条(绿 p50/黄 p95/红 p99 + max) ③ 调用时间线瀑布图(Gantt 式: 每次调用一行, 横轴相对时间, 绿/红条按 ok/fail, >1500ms 标 ⚠ 慢尖刺); 复用 5s 自动轮询。
+- [done] **prompt 12u**: 运行追踪可视化——时间线瀑布图 + 耗时分位, 识别长尾慢调用与失败尖刺。
+- [done] 单测 4 例(`_pct` 线性插值/聚合分位/reset 清样本池/stats 分位字段齐全); 全量 pytest **262 passed**。
+
 ---
 
 ## 主题 A — 工具体系纵深（约 15 轮）
@@ -168,8 +174,8 @@
 - [ ] 第三方 MCP 供应链校验：接入前校验服务器来源与能力声明。
 
 ## 主题 E — 可观测性与评测（约 10 轮）
-- [ ] 运行追踪面板：可视化每轮 token/时延/工具调用瀑布图。
-- [ ] 工具调用成功率/耗时指标：长期统计，定位慢/常败工具。
+- [done] 运行追踪面板：可视化每轮 token/时延/工具调用瀑布图（批次11 仪表盘 + 批次12 调用时间线瀑布图 + 耗时分位 p50/p95/p99）。
+- [done] 工具调用成功率/耗时指标：长期统计，定位慢/常败工具（批次9 /api/stats + 批次12 全局/每工具耗时分位）。
 - [ ] 评测集：固定编码任务集（写/改/修/测/评），每次升级跑回归打分。
 - [ ] 成本看板：按会话/任务汇总 LLM 花费，超阈值预警。
 - [ ] 结构化日志：JSON 日志含 event/seq/tool/duration/ok，便于离线分析。

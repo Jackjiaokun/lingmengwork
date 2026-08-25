@@ -155,3 +155,47 @@ def test_execute_unknown_tool_tagged(monkeypatch):
     assert s["total_ok"] == 1
     # 未知工具名经 _IMPLS.get 命中(我们注入了), 走正常路径
     assert s["tools"][0]["name"] == "__probe_unknown__"
+
+
+# ---------------- 主题 E 可视化深化 (批次12): 耗时分位 p50/p95/p99 ----------------
+
+def test_pct_helper_linear_interp():
+    # 线性插值分位 (与 numpy 默认一致)
+    assert reg._pct([10, 50, 100, 200], 50) == 75
+    assert reg._pct([7], 99) == 7          # 单元素直接返回
+    assert reg._pct([], 50) == 0           # 空返回 0
+
+
+def test_percentile_fields_in_stats():
+    reg.reset_stats()
+    # alpha: 100/200/50  -> sorted [50,100,200]
+    reg._record("alpha", True, 100)
+    reg._record("alpha", True, 200)
+    reg._record("alpha", False, 50, tag="network")
+    # beta: 10
+    reg._record("beta", True, 10)
+    s = reg.get_stats()
+    # 全局分位: all=[10,50,100,200]; p50=75, p95=185, p99=197
+    assert s["p50_ms"] == 75, s["p50_ms"]
+    assert s["p95_ms"] == 185, s["p95_ms"]
+    assert s["p99_ms"] == 197, s["p99_ms"]
+    assert s["total_ms"] == 360, s["total_ms"]      # 100+200+50+10
+    assert s["avg_ms"] == 90.0, s["avg_ms"]
+    # 每工具: alpha sorted [50,100,200] -> p50=100, p95=190, p99=198, max=200, min=50
+    byname = {t["name"]: t for t in s["tools"]}
+    a = byname["alpha"]
+    assert a["p50_ms"] == 100 and a["p95_ms"] == 190 and a["p99_ms"] == 198
+    assert a["max_ms"] == 200 and a["min_ms"] == 50
+    assert byname["beta"]["p50_ms"] == 10 and byname["beta"]["max_ms"] == 10
+    # 分位单调: p50 <= p95 <= p99
+    assert a["p50_ms"] <= a["p95_ms"] <= a["p99_ms"]
+
+
+def test_reset_clears_durations():
+    reg.reset_stats()
+    reg._record("x", True, 123)
+    buf = reg._DURATIONS.get("x")
+    assert buf is not None and len(buf) == 1
+    reg.reset_stats()
+    assert len(reg._DURATIONS) == 0
+    assert len(reg._DUR_ALL) == 0

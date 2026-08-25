@@ -54,7 +54,7 @@
   .pill.warn{background:rgba(241,196,15,.16);color:var(--warn)}
   .pill.fail{background:rgba(231,76,60,.16);color:var(--fail)}
   /* stats */
-  .top-stats{grid-template-columns:repeat(4,1fr)}
+  .top-stats{grid-template-columns:repeat(6,1fr)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
   th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
@@ -69,6 +69,28 @@
   .bar-row .val{width:54px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
   .chart-box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px}
   .chart-box h4{margin:0 0 12px;font-size:13px;color:var(--mut);font-weight:600}
+  /* 耗时分位图: 三色分段条 */
+  .pct-bars{display:flex;flex-direction:column;gap:9px}
+  .pct-row{display:flex;align-items:center;gap:10px}
+  .pct-row .lbl{width:150px;color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
+  .pct-row .track{flex:1;height:16px;border-radius:5px;background:var(--bg2);position:relative;overflow:hidden}
+  .pct-row .seg{position:absolute;top:0;bottom:0}
+  .pct-row .seg.p50{background:var(--ok);opacity:.85}
+  .pct-row .seg.p95{background:var(--warn);opacity:.9}
+  .pct-row .seg.p99{background:var(--fail);opacity:.95}
+  .pct-row .val{width:200px;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;flex:none;text-align:right}
+  .pct-row .val b{color:var(--txt)}
+  /* 调用时间线瀑布图 */
+  .tl{background:var(--bg2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .tl-row{display:flex;align-items:center;height:22px;border-bottom:1px solid rgba(43,51,66,.5)}
+  .tl-row:last-child{border-bottom:none}
+  .tl-name{width:140px;flex:none;padding:0 8px;color:var(--mut);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--line)}
+  .tl-canvas{flex:1;position:relative;height:100%}
+  .tl-bar{position:absolute;top:4px;height:14px;border-radius:3px}
+  .tl-bar.ok{background:var(--ok)}
+  .tl-bar.fail{background:var(--fail)}
+  .tl-axis{display:flex;justify-content:space-between;color:var(--mut);font-size:11px;padding:6px 8px 0;font-variant-numeric:tabular-nums}
+  .tl-spike{color:var(--fail);font-size:10px;margin-left:6px;vertical-align:middle}
   .donut-wrap{display:flex;align-items:center;gap:22px}
   .donut-wrap .legend{font-size:13px;color:var(--mut);display:flex;flex-direction:column;gap:8px}
   .legend b{color:var(--txt)}
@@ -122,6 +144,10 @@
       <div id="time-bars" class="bar-row-wrap"></div>
     </div>
     <div class="chart-box">
+      <h4>各工具耗时分位分布 (p50 · p95 · p99 · 最大, ms)</h4>
+      <div id="pct-bars" class="pct-bars"></div>
+    </div>
+    <div class="chart-box">
       <h4>明细</h4>
       <table id="tbl">
         <thead><tr>
@@ -130,6 +156,14 @@
         </tr></thead>
         <tbody id="tbl-body"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">调用时间线 · 瀑布图</h2>
+    <div class="chart-box" style="margin-top:0">
+      <h4>每次调用的起止时间 (横轴=相对时间, 绿=成功 / 红=失败, 一眼看出慢调用与异常尖刺)</h4>
+      <div id="timeline" class="tl"></div>
     </div>
   </section>
 
@@ -211,6 +245,14 @@ function renderStats(s){
   const maxCalls = Math.max(1,...tools.map(t=>t.calls||0));
   const maxMs = Math.max(1,...tools.map(t=>t.avg_ms||0));
 
+  $("#topstats").innerHTML = `
+    <div class="card stat-lg"><span class="num">${total}</span><span class="lab">总调用次数</span></div>
+    <div class="card stat-lg"><span class="num" style="color:${rateClass(rate)==='ok'?'var(--ok)':rateClass(rate)==='warn'?'var(--warn)':'var(--fail)'}">${(rate*100).toFixed(1)}%</span><span class="lab">整体成功率</span></div>
+    <div class="card stat-lg"><span class="num">${s.p50_ms||0}<small style="font-size:13px;color:var(--mut)"> ms</small></span><span class="lab">中位耗时 p50</span></div>
+    <div class="card stat-lg"><span class="num" style="color:var(--warn)">${s.p95_ms||0}<small style="font-size:13px;color:var(--mut)"> ms</small></span><span class="lab">尾部 p95</span></div>
+    <div class="card stat-lg"><span class="num" style="color:var(--fail)">${s.p99_ms||0}<small style="font-size:13px;color:var(--mut)"> ms</small></span><span class="lab">尖刺 p99</span></div>
+    <div class="card stat-lg"><span class="num">${(s.tools||[]).length}</span><span class="lab">已统计工具</span></div>`;
+
   $("#calls-bars").innerHTML = tools.map(t=>`
     <div class="bar-row">
       <span class="lbl">${esc(t.name)}</span>
@@ -224,6 +266,8 @@ function renderStats(s){
       <div class="barcell" style="flex:1"><div class="bar" style="width:${(100*(t.avg_ms||0)/maxMs).toFixed(1)}%;background:var(--warn)"></div></div>
       <span class="val">${Math.round(t.avg_ms||0)}</span>
     </div>`).join("") || '<div class="empty">暂无调用数据</div>';
+
+  renderPct(s);
 
   const rows = tools.map(t=>{
     const r = (t.calls||0)?(t.ok||0)/(t.calls||0):1;
@@ -249,6 +293,49 @@ function renderStats(s){
       <span class="ms">${e.ms!=null?e.ms+" ms":"—"}</span>
       <span class="tg">${e.tag?esc(e.tag):(e.ok?"":"未知错误")}</span>
     </div>`).join("") || '<div class="empty">暂无事件</div>';
+
+  renderTimeline(s);
+}
+
+function renderPct(s){
+  const tools = (s.tools||[]).filter(t=>(t.calls||0)>0).sort((a,b)=>(b.p99_ms||0)-(a.p99_ms||0));
+  if(!tools.length){ $("#pct-bars").innerHTML='<div class="empty">暂无调用数据</div>'; return; }
+  const maxp = Math.max(1,...tools.map(t=>Math.max(t.p99_ms||0,t.max_ms||0)));
+  $("#pct-bars").innerHTML = tools.map(t=>{
+    const p50=t.p50_ms||0, p95=t.p95_ms||0, p99=t.p99_ms||0, mx=t.max_ms||0;
+    const x50=(100*p50/maxp).toFixed(1), x95=(100*p95/maxp).toFixed(1), x99=(100*p99/maxp).toFixed(1);
+    const w95=(100*(p95-p50)/maxp).toFixed(1), w99=(100*(p99-p95)/maxp).toFixed(1);
+    return `<div class="pct-row">
+      <span class="lbl" title="${esc(t.name)}">${esc(t.name)}</span>
+      <div class="track">
+        <div class="seg p50" style="left:0;width:${x50}%"></div>
+        <div class="seg p95" style="left:${x50}%;width:${w95}%"></div>
+        <div class="seg p99" style="left:${x95}%;width:${w99}%"></div>
+      </div>
+      <span class="val">p50 <b>${p50}</b> · p95 <b>${p95}</b> · p99 <b>${p99}</b> · max <b>${mx}</b></span>
+    </div>`;
+  }).join("");
+}
+
+function renderTimeline(s){
+  const rec = (s.recent||[]);
+  if(!rec.length){ $("#timeline").innerHTML='<div class="empty">暂无事件</div>'; return; }
+  const t0 = Math.min.apply(null, rec.map(e=>e.ts));
+  const t1 = Math.max.apply(null, rec.map(e=>e.ts));
+  const span = Math.max(t1 - t0, 1);     // 秒
+  const span_ms = span * 1000;
+  const rows = rec.map(e=>{
+    const xp = (100*(e.ts - t0)/span).toFixed(2);
+    let w = span_ms>0 ? (100*(e.ms||0)/span_ms) : 1.4;
+    w = Math.max(1.4, Math.min(w, 100 - parseFloat(xp)));
+    const spike = (e.ms||0) > 1500 ? '<span class="tl-spike">⚠ 慢</span>' : '';
+    return `<div class="tl-row">
+      <span class="tl-name" title="${esc(e.name)}">${esc(e.name)}</span>
+      <div class="tl-canvas"><div class="tl-bar ${e.ok?"ok":"fail"}" style="left:${xp}%;width:${w.toFixed(2)}%" title="${esc(e.name)} ${e.ms}ms"></div></div>
+      <span class="tl-name" style="width:104px;text-align:right;border-right:none;border-left:1px solid var(--line)">${e.ms}ms ${spike}</span>
+    </div>`;
+  }).join("");
+  $("#timeline").innerHTML = rows + `<div class="tl-axis"><span>${fmtTime(t0)}</span><span>${fmtTime(t1)}</span></div>`;
 }
 
 let timer=null;

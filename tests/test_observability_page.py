@@ -90,3 +90,22 @@ def test_stats_structure_fields():
         for k in ("ts", "name", "ok", "ms"):
             assert k in e, f"recent 字段缺失: {k}"
     reg.reset_stats()
+
+
+def test_stats_percentile_fields_batch12():
+    from lingmengwork.tools import registry as reg
+
+    reg.reset_stats()
+    reg._record("alpha", True, 100)
+    reg._record("alpha", True, 200)
+    reg._record("alpha", False, 50, tag="network")
+    reg._record("beta", True, 10)
+    s = reg.get_stats()
+    # 全局耗时分位 (批次12 新增)
+    for k in ("total_ms", "avg_ms", "p50_ms", "p95_ms", "p99_ms"):
+        assert k in s, f"stats 顶层字段缺失: {k}"
+    # 每工具耗时分位 (批次12 新增)
+    for t in s["tools"]:
+        for k in ("p50_ms", "p95_ms", "p99_ms", "max_ms", "min_ms"):
+            assert k in t, f"tools 字段缺失: {k}"
+    reg.reset_stats()

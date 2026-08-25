@@ -43,3 +43,6 @@ Desktop.ini
 # ===== 运行时探针生成物 / 外来目录 (不入库) =====
 lmw_agent_probe/
 gold_strategy/
+
+# e2e 探针临时输出
+e2e*.txt

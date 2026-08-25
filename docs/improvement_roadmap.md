@@ -120,6 +120,14 @@
 
 ---
 
+## 批次 14 — 设置中心：可视化查看/编辑 config.toml（主题 F 设置中心）✅ (2026-08-26 完成)
+- [done] **后端**: `server.py` 新增 `_SETTINGS_SCHEMA`(4 组 17 标量字段: LLM 后端 / 循环与治理 / 安全护栏 / MCP 启用, 含 label/type/options/section/restart 元数据) + `_config_path`(命中 load_config 候选序) + `_cfg_get`/`_fmt_toml_value`/`_set_scalar_in_toml`(O(n) 行内替换, 保留注释/缩进/数组, 段内无键则插入); `GET /api/settings`(返回 path/raw/schema/values) 与 `POST /api/settings`(mode=raw 整文件覆盖并校验 TOML 语法 / mode=form 标量行内替换并校验); 保存成功后软重载 `_RUNTIME_CONFIG` 即时部分生效, 若改 MCP 类字段则 try connect_all; 标 `restart=true` 字段提示重启完全生效。
+- [done] **前端**: 零依赖 `settings.html`(分组表单视图 + 高级原始 TOML 视图双模式, checkbox/select/number/textarea 控件, 保存按钮 POST, 结果区显示「✓ 已保存 + 字节数 + ⚠ 需重启」); `index.html` 加「⚙️ 设置中心」入口; `prompt 12y`。
+- [done] 单测 9 例 `test_settings.py`: `_config_path` 命中/缺失回退 + `_set_scalar_in_toml` 替换/嵌套段/插入 + `_fmt_toml_value` 类型格式化 + `_cfg_get` 嵌套 + `_settings_get` 结构(存在/缺失文件) + schema 字段全覆盖; 全量 pytest **294 passed**。
+- [done] plain PyInstaller 重打包(06:06) + 宿主启动 8318(PID 8464); 冻结版含 settings.html; e2e: `/api/settings` 返回 4 组 17 字段 + `/settings` 200 + 非法 TOML 返回语法错误(不写文件) + 原样 raw/form roundtrip 等价重存且写回后 backend/max_iter 不变。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
@@ -205,7 +213,7 @@
 - [ ] 工具结果语法高亮：代码/JSON/表格渲染。
 - [ ] 断点续跑 UI：「继续」按钮显式恢复长任务。
 - [ ] 交付报告页：自动生成变更+测试+评审 HTML 报告可下载。
-- [ ] 设置中心：可视化编辑 config.toml（模式/后端/截断阈值/MCP）。
+- [done] 设置中心：可视化编辑 config.toml（模式/后端/截断阈值/MCP）—— 批次14 落地：表单视图 + 原始 TOML 双模式，即时软重载 + 需重启提示。
 - [ ] 错误边界：前端异常不白屏，给出可复制的诊断信息。
 
 ## 主题 G — 测试与 CI（约 8 轮）

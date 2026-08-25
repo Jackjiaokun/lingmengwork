@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚙️ 设置中心 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0d1117; --card:#161b22; --card2:#1c2330; --line:#2a3340;
+    --txt:#e6edf3; --mut:#8b949e; --acc:#58a6ff; --ok:#3fb950; --fail:#f85149;
+    --warn:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{margin:0;font-size:18px}
+  header .path{color:var(--mut);font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .tabs{padding:10px 20px 0;display:flex;gap:8px}
+  .tab{background:var(--card);border:1px solid var(--line);border-bottom:none;color:var(--mut);padding:8px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-size:13px}
+  .tab.active{color:var(--txt);background:var(--card2)}
+  main{padding:16px 20px 40px;max-width:920px;margin:0 auto}
+  .view{display:none}
+  .view.active{display:block}
+  .grp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .grp h3{margin:0 0 10px;font-size:13px;color:var(--acc);letter-spacing:.5px}
+  .fld{display:flex;align-items:flex-start;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .fld:last-child{border-bottom:none}
+  .lbl{flex:0 0 220px;color:var(--txt);font-size:13px;display:flex;align-items:center;gap:6px;padding-top:4px}
+  .ctl{flex:1;display:flex}
+  .ctl input[type=text],.ctl input[type=number],.ctl select,.ctl textarea{
+    background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;width:100%}
+  .ctl textarea{resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .restag{background:rgba(210,153,34,.15);color:var(--warn);border:1px solid var(--warn);border-radius:6px;font-size:10px;padding:1px 6px;font-weight:600;white-space:nowrap}
+  .sw{position:relative;display:inline-block;width:42px;height:24px}
+  .sw input{opacity:0;width:0;height:0}
+  .sw span{position:absolute;inset:0;background:var(--card2);border:1px solid var(--line);border-radius:24px;transition:.2s}
+  .sw span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:2px;background:var(--mut);border-radius:50%;transition:.2s}
+  .sw input:checked+span{background:rgba(63,185,80,.3);border-color:var(--ok)}
+  .sw input:checked+span:before{transform:translateX(18px);background:var(--ok)}
+  .actions{display:flex;gap:10px;margin:6px 0 14px}
+  button{background:var(--acc);color:#04101f;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;color:var(--mut);border:1px solid var(--line)}
+  button:hover{filter:brightness(1.08)}
+  .result{margin:10px 0;padding:10px 14px;border-radius:8px;font-size:13px;display:none}
+  .result.ok{display:block;background:rgba(63,185,80,.12);color:var(--ok);border:1px solid rgba(63,185,80,.4)}
+  .result.err{display:block;background:rgba(248,81,73,.12);color:var(--fail);border:1px solid rgba(248,81,73,.4)}
+  textarea#raw{width:100%;min-height:460px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical}
+  .hint{color:var(--mut);font-size:12px;margin:4px 0 12px}
+  .badge{display:inline-block;background:var(--card2);border:1px solid var(--line);color:var(--mut);border-radius:6px;padding:2px 8px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙️ 设置中心</h1>
+  <span class="path" id="path">…</span>
+  <span class="badge" id="ver"></span>
+</header>
+<div class="tabs">
+  <div class="tab active" data-view="form" onclick="switchTab('form')">表单视图</div>
+  <div class="tab" data-view="raw" onclick="switchTab('raw')">高级 · 原始 TOML</div>
+</div>
+<main>
+  <div class="view active" id="formView">
+    <p class="hint">可视化调整常用开关。标量改动即时软重载生效；标「需重启」的项（后端/安全/MCP）保存后需重启面板完全生效。数组类配置（多路 providers、MCP 服务器列表）请切到「原始 TOML」编辑。</p>
+    <div id="form"></div>
+    <div class="actions">
+      <button onclick="saveForm()">保存改动</button>
+      <button class="ghost" onclick="load()">重新加载</button>
+    </div>
+    <div class="result" id="result"></div>
+  </div>
+  <div class="view" id="rawView">
+    <p class="hint">直接编辑 config.toml 原始文本，保存时校验 TOML 语法。适合修改多路 LLM providers、MCP 服务器列表、deny_patterns 等数组/嵌套结构。</p>
+    <textarea id="raw" spellcheck="false"></textarea>
+    <div class="actions">
+      <button onclick="saveRaw()">保存原始配置</button>
+      <button class="ghost" onclick="load()">重新加载</button>
+    </div>
+    <div class="result" id="result2"></div>
+  </div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+let STATE={schema:[],values:{},raw:""};
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function findField(k){for(const g of STATE.schema)for(const f of g.fields)if(f.key===k)return f;return{};}
+async function load(){
+  const r=await fetch('/api/settings'); const d=await r.json();
+  STATE.schema=d.schema||[]; STATE.values=d.values||{}; STATE.raw=d.raw||'';
+  $('#path').textContent=d.path||'(内置默认)';
+  $('#ver').textContent='v'+(d.version||'');
+  renderForm();
+  $('#raw').value=STATE.raw;
+  hideResult();
+}
+function renderForm(){
+  const wrap=$('#form'); wrap.innerHTML='';
+  for(const g of STATE.schema){
+    const box=document.createElement('div'); box.className='grp';
+    box.innerHTML='<h3>'+esc(g.title)+'</h3>';
+    for(const f of g.fields){
+      const cur=STATE.values[f.key];
+      const row=document.createElement('div'); row.className='fld';
+      let ctrl='';
+      if(f.type==='bool'){
+        ctrl='<label class="sw"><input type="checkbox" data-key="'+f.key+'" '+(cur?'checked':'')+'><span></span></label>';
+      }else if(f.options){
+        ctrl='<select data-key="'+f.key+'">'+f.options.map(o=>'<option value="'+o+'" '+(String(cur)===o?'selected':'')+'>'+o+'</option>').join('')+'</select>';
+      }else if(f.key==='agent.system_prompt'){
+        ctrl='<textarea data-key="'+f.key+'" rows="3">'+esc(cur==null?'':cur)+'</textarea>';
+      }else if(f.type==='int'){
+        ctrl='<input type="number" data-key="'+f.key+'" value="'+(cur==null?'':cur)+'">';
+      }else{
+        ctrl='<input type="text" data-key="'+f.key+'" value="'+esc(cur==null?'':cur)+'">';
+      }
+      row.innerHTML='<label class="lbl">'+esc(f.label)+(f.restart?'<span class="restag">需重启</span>':'')+'</label><div class="ctl">'+ctrl+'</div>';
+      box.appendChild(row);
+    }
+    wrap.appendChild(box);
+  }
+}
+function collectForm(){
+  const v={};
+  document.querySelectorAll('#form [data-key]').forEach(el=>{
+    const k=el.dataset.key, f=findField(k);
+    if(f.type==='bool') v[k]=el.checked;
+    else if(f.type==='int') v[k]=parseInt(el.value||'0',10)||0;
+    else v[k]=el.value;
+  });
+  return v;
+}
+function showResult(el, d){
+  if(d.error){el.className='result err'; el.textContent='✗ '+d.error;}
+  else{el.className='result ok'; el.textContent='✓ 已保存 '+d.bytes+' 字节'+(d.require_restart?' · ⚠ 部分改动需重启面板完全生效':'');}
+}
+async function saveForm(){
+  const v=collectForm();
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'form',values:v})});
+  const d=await r.json();
+  showResult($('#result'), d);
+}
+async function saveRaw(){
+  const t=$('#raw').value;
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'raw',text:t})});
+  const d=await r.json();
+  if(d.ok) STATE.raw=t;
+  showResult($('#result2'), d);
+}
+function switchTab(v){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
+  $('#formView').classList.toggle('active',v==='form');
+  $('#rawView').classList.toggle('active',v==='raw');
+}
+function hideResult(){$('#result').className='result';$('#result2').className='result';}
+load();
+</script>
+</body>
+</html>

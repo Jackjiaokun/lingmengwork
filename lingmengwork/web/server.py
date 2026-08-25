@@ -16,12 +16,14 @@ import argparse
 import json
 import os
 import time
+import re
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from .. import __version__
-from ..config import load_config
+from ..config import load_config, DEFAULT_CONFIG_PATHS
 from ..llm.client import build_client
 from ..llm import pricing as _pricing
 from ..tools.registry import build_registry
@@ -629,6 +631,133 @@ def _get_cfg():
     return _RUNTIME_CONFIG if _RUNTIME_CONFIG is not None else load_config()
 
 
+# ===== 设置中心 (批次14): 可视化查看/编辑 config.toml =====
+# 字段 schema: 分组 + 标量字段元数据 (label/type/options/section/restart)。
+# section 对应 TOML 段头 (如 "agent" / "agent.security" / "mcp"); restart=True 表示
+# 改动后需重建连接/客户端, 保存后提示重启面板才能完全生效 (其余标量即时软重载)。
+_SETTINGS_SCHEMA = [
+    {"title": "LLM 后端", "fields": [
+        {"key": "llm.backend", "section": "llm", "type": "string",
+         "options": ["sensenova", "openai", "ollama", "mock", "auto"],
+         "label": "默认对话后端", "restart": True},
+    ]},
+    {"title": "智能体循环与治理", "fields": [
+        {"key": "agent.max_iterations", "section": "agent", "type": "int",
+         "label": "最大循环轮数(防无限)", "restart": False},
+        {"key": "agent.concurrency", "section": "agent", "type": "int",
+         "label": "并发上限(0=自动)", "restart": False},
+        {"key": "agent.tool_result_max_chars", "section": "agent", "type": "int",
+         "label": "工具结果截断字符数(0=不截断)", "restart": False},
+        {"key": "agent.reflect_every", "section": "agent", "type": "int",
+         "label": "反思循环间隔轮数(0=关闭)", "restart": False},
+        {"key": "agent.summarize_tool_results", "section": "agent", "type": "bool",
+         "label": "超长结果用 LLM 摘要", "restart": False},
+        {"key": "agent.tool_call_quota", "section": "agent", "type": "int",
+         "label": "单任务工具调用配额(0=不限)", "restart": False},
+        {"key": "agent.tool_cache_ttl", "section": "agent", "type": "int",
+         "label": "只读结果缓存 TTL 秒(0=关闭)", "restart": False},
+        {"key": "agent.redact_secrets", "section": "agent", "type": "bool",
+         "label": "工具结果脱敏(防凭证泄露)", "restart": False},
+        {"key": "agent.context_compact_threshold", "section": "agent", "type": "int",
+         "label": "上下文压缩阈值字符(0=关闭)", "restart": False},
+        {"key": "agent.context_keep_recent", "section": "agent", "type": "int",
+         "label": "压缩时保留最近轮数", "restart": False},
+        {"key": "agent.system_prompt", "section": "agent", "type": "string",
+         "label": "自定义系统提示(留空=默认)", "restart": False},
+    ]},
+    {"title": "安全护栏", "fields": [
+        {"key": "agent.security.destructive_guard", "section": "agent.security", "type": "string",
+         "options": ["block", "off"], "label": "破坏性操作全局护栏", "restart": True},
+        {"key": "agent.security.audit_log", "section": "agent.security", "type": "bool",
+         "label": "写操作审计日志", "restart": True},
+        {"key": "agent.security.read_project_docs", "section": "agent.security", "type": "bool",
+         "label": "启动读取项目文档(CLAUDE.md 等)", "restart": True},
+        {"key": "agent.security.dangerously_run_commands", "section": "agent.security", "type": "bool",
+         "label": "允许危险命令(关闭拦截)", "restart": True},
+    ]},
+    {"title": "外部工具 MCP", "fields": [
+        {"key": "mcp.enabled", "section": "mcp", "type": "bool",
+         "label": "启用 MCP 工具中枢", "restart": True},
+    ]},
+]
+
+
+def _config_path():
+    """返回当前生效的 config.toml 路径 (命中 load_config 同一候选序)。"""
+    for c in DEFAULT_CONFIG_PATHS:
+        if c and c.exists():
+            return c
+    return DEFAULT_CONFIG_PATHS[0] if DEFAULT_CONFIG_PATHS else Path("config.toml")
+
+
+def _cfg_get(cfg, dotted):
+    """按 'a.b.c' 取嵌套 dict 值, 缺失返回 None。"""
+    cur = cfg
+    for part in dotted.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def _indent_of(line):
+    m = re.match(r"^(\s*)", line)
+    return m.group(1) if m else ""
+
+
+def _fmt_toml_value(key, value, typ):
+    """把 Python 值格式化为 TOML 字面量 (标量)。"""
+    if typ == "bool":
+        return "true" if value else "false"
+    if typ == "int":
+        try:
+            return str(int(value))
+        except Exception:
+            return "0"
+    if typ == "string":
+        s = "" if value is None else str(value)
+        s = s.replace("\\", "\\\\").replace('"', '\\"')
+        return '"%s"' % s
+    return str(value)
+
+
+def _set_scalar_in_toml(text, section, key, value, typ):
+    """在 TOML 文本中定位 [section] 段, 行内替换 `key = ...` (保留注释/缩进/数组)。
+
+    返回 (new_text, applied: bool)。找不到 key 则在段末(下一 [段头] 前)插入;
+    段不存在则追加整段。数组值(如 allowed_roots)因首行即 `key = [`, 但本函数只匹配
+    传入的标量 key, 不会误改数组段。
+    """
+    lines = text.split("\n")
+    sec_idx = {}
+    for i, ln in enumerate(lines):
+        m = re.match(r"^\s*\[(?P<name>[^\]]+)\]\s*$", ln)
+        if m:
+            sec_idx[m.group("name")] = i
+    if section not in sec_idx:
+        lines.append("")
+        lines.append("[%s]" % section)
+        lines.append("%s = %s" % (key, _fmt_toml_value(key, value, typ)))
+        return "\n".join(lines), True
+    start = sec_idx[section]
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if re.match(r"^\s*\[[^\]]+\]\s*$", lines[j]):
+            end = j
+            break
+    pat = re.compile(r"^\s*" + re.escape(key) + r"\s*=")
+    for k in range(start + 1, end):
+        if pat.match(lines[k]):
+            lines[k] = _indent_of(lines[k]) + "%s = %s" % (key, _fmt_toml_value(key, value, typ))
+            return "\n".join(lines), True
+    # 段内未出现该键: 在段末插入
+    lines.insert(end, _indent_of(lines[start + 1] if start + 1 < len(lines) else "") +
+                 "%s = %s" % (key, _fmt_toml_value(key, value, typ)))
+    return "\n".join(lines), True
+
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         # directory 设为 web/ (STATIC_DIR 的父), 使 /static/<file> 映射到 web/static/<file>
@@ -661,6 +790,11 @@ class Handler(SimpleHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             sid = (q.get("id") or [None])[0]
             return self._send_json(self._planboard(sid))
+        # ---- 设置中心 (批次14): 可视化查看/编辑 config.toml ----
+        if p == "/settings":
+            return self._serve_file("settings.html")
+        if p == "/api/settings":
+            return self._send_json(self._settings_get())
         if p == "/api/health":
             cfg = _get_cfg()
             backend = cfg["llm"].get("backend", "ollama")
@@ -800,6 +934,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 项目文档自动生成 (批次8: 生成 CLAUDE.md/AGENTS.md 草稿) ----
         if p == "/api/docs/generate":
             return self._docs_generate()
+        # ---- 设置中心 (批次14): 保存 config.toml ----
+        if p == "/api/settings":
+            return self._settings_save()
         # ---- 文件编辑: 保存 (供 Web 代码编辑器) ----
         if p.startswith("/api/fs"):
             return self._fs_save()
@@ -1836,6 +1973,109 @@ class Handler(SimpleHTTPRequestHandler):
             "cards": cards,
             "model": getattr(loop, "model", ""),
         }
+
+    # ---- 设置中心 (批次14): 查看 / 编辑 config.toml ----
+    def _settings_get(self):
+        """GET /api/settings: 返回配置路径、原始文本、结构化标量分组(供表单)。"""
+        cfg = _get_cfg()
+        path = _config_path()
+        raw = ""
+        if path and path.exists():
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except Exception:
+                raw = ""
+        values = {}
+        for g in _SETTINGS_SCHEMA:
+            for fld in g["fields"]:
+                values[fld["key"]] = _cfg_get(cfg, fld["key"])
+        return {
+            "path": str(path) if path else None,
+            "exists": bool(path and path.exists()),
+            "raw": raw,
+            "schema": _SETTINGS_SCHEMA,
+            "values": values,
+            "version": __version__,
+        }
+
+    def _settings_save(self):
+        """POST /api/settings {mode, text?, values?}: 写回 config.toml。
+
+        - mode=raw:   校验 text 为合法 TOML 后整文件覆盖 (保留用户完全掌控, 适合数组/复杂结构)。
+        - mode=form:  对标量字段行内替换 (保留注释/缩进/数组), 再校验生成的 TOML。
+        成功后软重载 _RUNTIME_CONFIG 即时部分生效; 改动需重建连接/客户端的字段则 require_restart=True。
+        """
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return self._send_json({"error": "请求体非 JSON"}, status=400)
+        mode = body.get("mode", "raw")
+        path = _config_path()
+        if path is None:
+            return self._send_json({"error": "找不到配置文件路径"}, status=500)
+        changed_restart = False
+        try:
+            if mode == "raw":
+                text = body.get("text", "")
+                try:
+                    tomllib.loads(text)
+                except Exception as e:
+                    return self._send_json({"error": "TOML 语法错误: %s" % e}, status=400)
+                new_text = text
+                # raw 模式可能因改了任意字段(含 mcp/security)而需重启
+                changed_restart = True
+            elif mode == "form":
+                current = path.read_text(encoding="utf-8") if path.exists() else ""
+                new_text = current
+                for g in _SETTINGS_SCHEMA:
+                    for fld in g["fields"]:
+                        if fld["key"] not in body.get("values", {}):
+                            continue
+                        val = body["values"][fld["key"]]
+                        new_text, _applied = _set_scalar_in_toml(
+                            new_text, fld["section"], fld["key"].split(".")[-1], val, fld["type"])
+                        if fld.get("restart"):
+                            changed_restart = True
+                try:
+                    tomllib.loads(new_text)
+                except Exception as e:
+                    return self._send_json({"error": "生成的 TOML 语法错误: %s" % e}, status=400)
+            else:
+                return self._send_json({"error": "未知 mode: %s" % mode}, status=400)
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+
+        # 写回文件
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(new_text, encoding="utf-8")
+        except Exception as e:
+            return self._send_json({"error": "写入失败: %s" % e}, status=500)
+
+        # 软重载: 即时生效 (新 chat/调用经 _get_cfg 取新值)
+        try:
+            global _RUNTIME_CONFIG
+            _RUNTIME_CONFIG = load_config(str(path))
+        except Exception:
+            pass
+        # 若改动涉及 MCP, 尝试即时重连 (禁用需重启才能断开旧连接)
+        if changed_restart and mode == "form" and any(
+                fld["section"].startswith("mcp") for g in _SETTINGS_SCHEMA
+                for fld in g["fields"] if fld["key"] in body.get("values", {})):
+            try:
+                from ..tools import mcp as _mcp
+                _mcp.get_manager().connect_all(_get_cfg())
+            except Exception:
+                pass
+
+        return self._send_json({
+            "ok": True,
+            "path": str(path),
+            "require_restart": changed_restart,
+            "bytes": len(new_text.encode("utf-8")),
+        })
 
     # ---- 文件树浏览器 (只读, 限定项目根与 HOME) ----
     def _fs_api(self, p):

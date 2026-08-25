@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 运行追踪仪表盘</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --card:#1c2230; --card2:#222a3a;
+    --line:#2b3342; --txt:#e6edf3; --mut:#8b97a7; --acc:#4ea1ff;
+    --ok:#2ecc71; --warn:#f1c40f; --fail:#e74c3c; --bar:#4ea1ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.45}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;
+    background:linear-gradient(90deg,#11161f,#161b22);border-bottom:1px solid var(--line)}
+  header h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.5px}
+  header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  .head-meta{color:var(--mut);font-size:12px;display:flex;gap:16px;align-items:center}
+  .switch{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px;cursor:pointer}
+  .switch input{accent-color:var(--acc)}
+  .btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block}
+  .btn:hover{border-color:var(--acc)}
+  main{max-width:1280px;margin:0 auto;padding:20px 22px 60px}
+  section{margin-bottom:28px}
+  .sec-title{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:1px;
+    margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .sec-title::before{content:"";width:3px;height:14px;background:var(--acc);border-radius:2px}
+  .grid{display:grid;gap:14px}
+  .g-health{grid-template-columns:1.1fr 1fr 1fr;grid-auto-rows:auto}
+  .g-mcp{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .stat-lg{display:flex;flex-direction:column;gap:4px}
+  .stat-lg .num{font-size:30px;font-weight:700;line-height:1}
+  .stat-lg .lab{color:var(--mut);font-size:12px}
+  .overall-badge{display:inline-flex;align-items:center;gap:8px;font-size:15px;font-weight:600}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block;flex:none}
+  .dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+  .dot.fail{background:var(--fail);box-shadow:0 0 8px var(--fail)}
+  .kvs{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+  .kv{display:flex;justify-content:space-between;font-size:13px}
+  .kv .k{color:var(--mut)}
+  .kv .v{font-weight:500}
+  .mcp-card{display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden}
+  .mcp-card .nm{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px}
+  .mcp-card .dt{color:var(--mut);font-size:11px;word-break:break-all;line-height:1.3}
+  .pill{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+  .pill.ok{background:rgba(46,204,113,.16);color:var(--ok)}
+  .pill.warn{background:rgba(241,196,15,.16);color:var(--warn)}
+  .pill.fail{background:rgba(231,76,60,.16);color:var(--fail)}
+  /* stats */
+  .top-stats{grid-template-columns:repeat(4,1fr)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:var(--bg2)}
+  .rate{font-weight:600}
+  .rate.ok{color:var(--ok)} .rate.warn{color:var(--warn)} .rate.fail{color:var(--fail)}
+  .barcell{position:relative;width:120px}
+  .bar{height:7px;border-radius:4px;background:var(--bar);min-width:2px}
+  .bar-row{display:flex;align-items:center;gap:8px}
+  .bar-row .lbl{width:150px;color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-row .val{width:54px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
+  .chart-box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px}
+  .chart-box h4{margin:0 0 12px;font-size:13px;color:var(--mut);font-weight:600}
+  .donut-wrap{display:flex;align-items:center;gap:22px}
+  .donut-wrap .legend{font-size:13px;color:var(--mut);display:flex;flex-direction:column;gap:8px}
+  .legend b{color:var(--txt)}
+  .tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;margin:1px 2px 1px 0;
+    background:var(--card2);border:1px solid var(--line);color:var(--mut)}
+  .tag.fail{color:var(--fail);border-color:rgba(231,76,60,.4)}
+  /* recent */
+  .feed{display:flex;flex-direction:column;gap:0}
+  .ev{display:flex;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px solid var(--line);font-size:13px}
+  .ev .t{color:var(--mut);font-variant-numeric:tabular-nums;width:74px;flex:none;font-size:12px}
+  .ev .nm{width:170px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ev .ms{width:78px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums;flex:none}
+  .ev .st{width:18px;flex:none;text-align:center;font-weight:700}
+  .ev .st.ok{color:var(--ok)} .ev .st.fail{color:var(--fail)}
+  .ev .tg{flex:1;color:var(--mut);font-size:12px}
+  .empty{color:var(--mut);padding:24px;text-align:center;font-size:13px}
+  .err{color:var(--fail);padding:10px 0;font-size:13px}
+  @media (max-width:760px){.g-health,.top-stats{grid-template-columns:1fr 1fr}.donut-wrap{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 运行追踪 <span class="ac">仪表盘</span></h1>
+  <div class="head-sp"></div>
+  <div class="head-meta">
+    <span>最后更新 <b id="updated">—</b></span>
+    <label class="switch"><input type="checkbox" id="auto" checked /> 自动刷新 (5s)</label>
+    <a class="btn" href="/">← 返回工作台</a>
+    <button class="btn" id="refresh">↻ 刷新</button>
+  </div>
+</header>
+<main>
+  <section>
+    <h2 class="sec-title">全链路健康度</h2>
+    <div id="health" class="grid g-health"></div>
+    <div style="margin-top:14px">
+      <h4 style="margin:0 0 10px;font-size:13px;color:var(--mut)">外部工具中枢 · 9 MCP</h4>
+      <div id="mcp" class="grid g-mcp"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">工具调用运行追踪</h2>
+    <div id="topstats" class="grid top-stats"></div>
+    <div class="chart-box">
+      <h4>各工具调用次数</h4>
+      <div id="calls-bars" class="bar-row-wrap"></div>
+    </div>
+    <div class="chart-box">
+      <h4>各工具平均耗时 (ms)</h4>
+      <div id="time-bars" class="bar-row-wrap"></div>
+    </div>
+    <div class="chart-box">
+      <h4>明细</h4>
+      <table id="tbl">
+        <thead><tr>
+          <th>工具</th><th class="num">调用</th><th class="num">成功</th><th class="num">失败</th>
+          <th class="num">成功率</th><th>平均耗时</th><th>失败归因</th>
+        </tr></thead>
+        <tbody id="tbl-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">最近事件流 (最近 50)</h2>
+    <div id="feed" class="feed"></div>
+  </section>
+</main>
+
+<script>
+const API_STATS = "/api/stats";
+const API_HEALTH = "/api/health/full";
+const $ = (s)=>document.querySelector(s);
+
+function statusColor(s){return s==="ok"?"var(--ok)":s==="warn"?"var(--warn)":s==="fail"?"var(--fail)":"var(--mut)";}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function fmtTime(ts){if(!ts)return "—";try{return new Date(ts*1000).toLocaleTimeString();}catch(e){return "—";}}
+
+async function loadAll(){
+  try{
+    const [stats, health] = await Promise.all([
+      fetch(API_STATS).then(r=>r.json()),
+      fetch(API_HEALTH).then(r=>r.json()),
+    ]);
+    renderHealth(health);
+    renderStats(stats);
+    $("#updated").textContent = new Date().toLocaleTimeString();
+  }catch(e){
+    $("#health").innerHTML = '<div class="card err">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+
+function renderHealth(h){
+  if(!h){return;}
+  const ov = h.overall||"unknown";
+  const html = `
+    <div class="card stat-lg">
+      <div class="overall-badge"><span class="dot ${ov}"></span>${ov==="ok"?"全链路健康":"状态 "+ov}</div>
+      <div class="kvs">
+        <div class="kv"><span class="k">MCP 服务</span><span class="v">${h.mcp_count||0} 个</span></div>
+        <div class="kv"><span class="k">判定</span><span class="v" style="color:${statusColor(ov)}">${ov}</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="kv"><span class="k">LLM 后端</span><span class="v">${esc(h.llm&&h.llm.backend||"—")}</span></div>
+      <div class="kv"><span class="k">连通</span><span class="v" style="color:${statusColor(h.llm&&h.llm.status)}">${h.llm&&h.llm.status||"—"}</span></div>
+      <div class="kv"><span class="k">延迟</span><span class="v">${h.llm&&h.llm.latency_ms!=null?h.llm.latency_ms+" ms":"—"}</span></div>
+      <div class="dt" style="color:var(--mut);font-size:11px;margin-top:8px">${esc(h.llm&&h.llm.detail||"")}</div>
+    </div>
+    <div class="card">
+      <div class="kv"><span class="k">文件系统根</span><span class="v" style="color:${statusColor(h.filesystem&&h.filesystem.status)}">${h.filesystem&&h.filesystem.status||"—"}</span></div>
+      <div class="dt" style="color:var(--mut);font-size:11px;margin-top:8px">${esc(h.filesystem&&h.filesystem.detail||"")}</div>
+    </div>`;
+  $("#health").innerHTML = html;
+
+  const mcp = (h.mcp_servers||[]).map(m=>`
+    <div class="card mcp-card">
+      <span class="pill ${m.status}">${m.status}</span>
+      <div class="nm"><span class="dot ${m.connected?"ok":"fail"}"></span>${esc(m.name)}</div>
+      <div class="dt">${esc(m.detail||"")}</div>
+      <div class="dt">${m.connected?"已连接":"未连接"}</div>
+    </div>`).join("");
+  $("#mcp").innerHTML = mcp || '<div class="empty">无 MCP 服务</div>';
+}
+
+function rateClass(r){return r>=0.99?"ok":r>=0.8?"warn":"fail";}
+
+function renderStats(s){
+  if(!s){return;}
+  const total = s.total_calls||0;
+  const rate = s.success_rate||0;
+  $("#topstats").innerHTML = `
+    <div class="card stat-lg"><span class="num">${total}</span><span class="lab">总调用次数</span></div>
+    <div class="card stat-lg"><span class="num" style="color:${rateClass(rate)==='ok'?'var(--ok)':rateClass(rate)==='warn'?'var(--warn)':'var(--fail)'}">${(rate*100).toFixed(1)}%</span><span class="lab">整体成功率</span></div>
+    <div class="card stat-lg"><span class="num">${(s.tools||[]).length}</span><span class="lab">已统计工具</span></div>
+    <div class="card stat-lg"><span class="num">${(s.recent||[]).length}</span><span class="lab">最近事件</span></div>`;
+
+  const tools = (s.tools||[]).slice().sort((a,b)=>(b.calls||0)-(a.calls||0));
+  const maxCalls = Math.max(1,...tools.map(t=>t.calls||0));
+  const maxMs = Math.max(1,...tools.map(t=>t.avg_ms||0));
+
+  $("#calls-bars").innerHTML = tools.map(t=>`
+    <div class="bar-row">
+      <span class="lbl">${esc(t.name)}</span>
+      <div class="barcell" style="flex:1"><div class="bar" style="width:${(100*(t.calls||0)/maxCalls).toFixed(1)}%"></div></div>
+      <span class="val">${t.calls||0}</span>
+    </div>`).join("") || '<div class="empty">暂无调用数据</div>';
+
+  $("#time-bars").innerHTML = tools.map(t=>`
+    <div class="bar-row">
+      <span class="lbl">${esc(t.name)}</span>
+      <div class="barcell" style="flex:1"><div class="bar" style="width:${(100*(t.avg_ms||0)/maxMs).toFixed(1)}%;background:var(--warn)"></div></div>
+      <span class="val">${Math.round(t.avg_ms||0)}</span>
+    </div>`).join("") || '<div class="empty">暂无调用数据</div>';
+
+  const rows = tools.map(t=>{
+    const r = (t.calls||0)?(t.ok||0)/(t.calls||0):1;
+    const tags = Object.entries(t.fail_by_tag||{}).map(([k,v])=>`<span class="tag fail">${esc(k)}×${v}</span>`).join("")||'<span class="tag">无</span>';
+    return `<tr>
+      <td>${esc(t.name)}</td>
+      <td class="num">${t.calls||0}</td>
+      <td class="num">${t.ok||0}</td>
+      <td class="num">${t.fail||0}</td>
+      <td class="num rate ${rateClass(r)}">${(r*100).toFixed(1)}%</td>
+      <td>${Math.round(t.avg_ms||0)} ms</td>
+      <td>${tags}</td>
+    </tr>`;
+  }).join("");
+  $("#tbl-body").innerHTML = rows || '<tr><td colspan="7" class="empty">暂无调用数据</td></tr>';
+
+  const recent = (s.recent||[]).slice().reverse();
+  $("#feed").innerHTML = recent.map(e=>`
+    <div class="ev">
+      <span class="t">${esc(fmtTime(e.ts))}</span>
+      <span class="nm">${esc(e.name)}</span>
+      <span class="st ${e.ok?"ok":"fail"}">${e.ok?"✓":"✗"}</span>
+      <span class="ms">${e.ms!=null?e.ms+" ms":"—"}</span>
+      <span class="tg">${e.tag?esc(e.tag):(e.ok?"":"未知错误")}</span>
+    </div>`).join("") || '<div class="empty">暂无事件</div>';
+}
+
+let timer=null;
+function startAuto(){
+  stopAuto();
+  if($("#auto").checked) timer=setInterval(()=>{if(document.visibilityState==="visible")loadAll();},5000);
+}
+function stopAuto(){if(timer){clearInterval(timer);timer=null;}}
+$("#auto").addEventListener("change",startAuto);
+$("#refresh").addEventListener("click",loadAll);
+loadAll(); startAuto();
+</script>
+</body>
+</html>

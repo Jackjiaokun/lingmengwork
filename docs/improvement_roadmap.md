@@ -96,6 +96,15 @@
 
 ---
 
+## 批次 11 — 运行追踪可视化仪表盘（主题 E 可视化开篇）✅ (2026-08-26 完成)
+- [done] **独立可观测仪表盘页 `web/static/observability.html`**: 零依赖自包含(内联 CSS/JS, 无外部 CDN), 消费 `GET /api/stats` + `GET /api/health/full`。含 ①全链路健康度(overall 红绿 + LLM + 9 MCP 网格卡 + 文件系统) ②工具调用运行追踪(总调用/成功率大数字 + 明细表: 工具/调用/成功/失败/成功率/平均耗时/失败归因 + CSS 条形图 调用数/耗时) ③最近事件流(recent, 用 `e.ts` 时间戳格式化)。自动刷新(可见时轮询 5s)。
+- [done] **Web 路由 `GET /observability`**: `do_GET` 加 `if p == "/observability": return self._serve_file("observability.html")`, 与 `/` 同源静态服务。
+- [done] **主面板入口**: `index.html` 侧边栏加「📊 可观测仪表盘」链接(href=/observability), 一键跳转到仪表盘。
+- [done] **字段一致性修复**: recent 事件时间字段真实为 `ts`(unix 秒, 非 `time`), 修正前端 `e.time`→`fmtTime(e.ts)` 显示空 bug。
+- [done] 单测 `tests/test_observability_page.py`(5 例) 覆盖 页面存在+引用两端点 / `/observability` 路由注册 / index 入口 / `health_check` 结构字段齐全 / `get_stats` 聚合结构与 recent 字段; 全量 pytest **258 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。

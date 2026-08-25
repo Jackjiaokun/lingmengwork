@@ -645,6 +645,9 @@ class Handler(SimpleHTTPRequestHandler):
         p = urlparse(self.path).path
         if p in ("/", "/index.html"):
             return self._serve_file("index.html")
+        # ---- 主题 E 可视化 (批次11): 运行追踪仪表盘 ----
+        if p == "/observability":
+            return self._serve_file("observability.html")
         if p == "/api/health":
             cfg = _get_cfg()
             backend = cfg["llm"].get("backend", "ollama")

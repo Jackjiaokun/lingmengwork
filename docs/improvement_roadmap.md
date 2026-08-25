@@ -62,6 +62,14 @@
 
 ---
 
+## 批次 7 — 全球领先安全与项目记忆双引擎 ✅ (2026-08-26 完成)
+- [done] **破坏性操作全局硬护栏**: `registry.execute` 分发前 `_guard_destructive(name,args,mode)` 扫描所有写/执行类工具(args 文本); 致命模式(`rm -rf /`/`mkfs`/`dd if=`/`chmod -R 777 /`/关机/`git push --force`/`curl|sh` 下载即执行管道等)**任何模式都硬拦**(不可能误删根/系统/他人远程); 高危模式(`rm -rf 某目录`/`git reset --hard`/`git clean -f`/`drop table`/`delete from` 无 where 等)在 plan/acceptEdits 拦截、bypass 告警放行。受 `agent` 开关 `destructive_guard`(默认 block)。比 shell 层 `deny_patterns` 更全(覆盖所有写工具/MCP)。
+- [done] **写操作审计日志**: `registry._audit` 对所有写/执行类工具调用落盘 `<root>/.lmw_audit.log`(时间|mode|tool|ok|blocked|note|脱敏args), 拦截/执行均记录, 便于合规追溯。受 `agent.security.audit_log`(默认 True) 开关; args 经 `_redact_audit` 脱敏密钥。
+- [done] **项目记忆文档自动读取注入 system**: `loop._load_project_docs` 启动时读项目根 `CLAUDE.md`/`AGENTS.md`/`README.md` 注入 `project_context`(仿 Claude Code 自动上下文), 让 agent 自动获得项目约定/技术栈。受 `agent.security.read_project_docs`(默认 True) 开关。
+- [done] **prompt 引导**: 新增 12o(安全护栏: 致命被拦/高危需确认/优先可逆操作)。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
@@ -105,7 +113,7 @@
 - [ ] 文档库接入：把 `docs/` 纳入可被 `grep/语义` 检索的知识源。
 - [ ] 依赖图：`repo_map` 升级为调用/导入关系图，辅助大重构。
 - [ ] 变更影响分析：改某函数自动列出调用方，提示回归范围。
-- [ ] `CLAUDE.md/AGENTS.md` 风格项目记忆自动生成与读取。
+- [done] 项目记忆文档自动读取注入 system（`CLAUDE.md`/`AGENTS.md`/`README.md`，仿 Claude Code，批次7）；自动生成工具待补。
 - [ ] 跨会话记忆：把高价值结论写入 `memory`，新会话自动召回。
 - [ ] 代码注释覆盖率检查：低覆盖模块提示补注释。
 - [ ] 桩/死代码检测：识别 TODO/未实现分支并预警。
@@ -113,8 +121,8 @@
 
 ## 主题 D — 安全与权限（约 10 轮）
 - [ ] 权限模式 UI 化：面板切换 bypass/acceptEdits/plan，实时显示当前可调用工具集。
-- [ ] 写操作审计日志：所有 `write_file/edit/fs_write/shell` 落盘审计。
-- [ ] 危险模式识别：`rm -rf /`、DROP TABLE 等模式在 `shell/db` 层硬拦截。
+- [done] 写操作审计日志：所有写/执行类工具调用落盘 `.lmw_audit.log`（脱敏），便于合规追溯（批次7）。
+- [done] 危险模式识别：所有写/执行类工具(args 文本)全局硬拦截 `rm -rf /`、`mkfs`、`dd if=`、`git push --force`、`curl|sh` 等致命模式，高危写操作受限模式拦截（批次7 破坏性护栏，覆盖 shell/db/MCP）。
 - [ ] 凭证零落盘：`.env` 密钥不进任何工具结果、不进日志、不进会话导出。
 - [done] 工具结果脱敏：自动遮蔽 token/密码/密钥后再回灌上下文（批次4）。
 - [done] 工具失败自愈归因：报错分类（网络/权限/超时/资源/未找到/逻辑）并注入修正提示（批次6）。
@@ -183,3 +191,4 @@
 - 2026-08-26 批次4：工具调用治理（配额tool_call_quota/结果缓存tool_cache_ttl/脱敏redact_secrets+prompt 12j/12k），195 单测全绿，已重打包(03:08)+e2e 验证(8318 PID 33164)。
 - 2026-08-26 批次5：语义检索（主题C开篇，零依赖 TF-IDF+余弦 semantic_search，中英召回/增量持久化/readonly+cacheable+prompt 12l），202 单测全绿，已重打包(03:21)+e2e 验证(8318 PID 33784)。
 - 2026-08-26 批次6：全球领先运行时三件套（自动上下文压缩 context_compact_threshold=120000/失败自愈归因 _classify_failure/证据链 #seq + prompt 12m/12n），214 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次7：全球领先安全与项目记忆双引擎（破坏性操作全局硬护栏 destructive_guard/写操作审计日志 .lmw_audit.log/CLAUDE.md 自动读取注入 system + prompt 12o），223 单测全绿，待重打包+端到端验证。

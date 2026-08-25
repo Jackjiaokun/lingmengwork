@@ -1,7 +1,9 @@
 """工具注册表: 定义 / 分发 / 路径与安全上下文。"""
 import os
+import re
 import json
 import time
+import datetime
 
 from .common import ToolError
 from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic
@@ -241,6 +243,72 @@ _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_
 _EXEC_TOOLS = {"run_command", "auto_test", "git_commit"}
 
 
+# —— 全球领先破坏性操作护栏 (批次7) ——
+# 致命模式: 任何权限模式都硬拦截(不可逆/可能破坏系统或他人远程数据)
+_DESTRUCT_CRITICAL = (
+    "rm -rf /", "rm -rf ~", "rm -rf /*", "rm -rf ~/",
+    "mkfs", "dd if=", "dd of=/dev", "> /dev/sda", "> /dev/sdb", "> /dev/sd",
+    "chmod -r 777 /", "chmod -r 777 ~", "chmod 777 /",
+    "shutdown", "reboot", "halt", "poweroff",
+    "git push --force", "git push -f ", "git push -f$",
+    "format c:", "format d:", ":(){", "fork bomb",
+)
+# 高危模式: plan/acceptEdits 模式拦截; bypass 模式告警放行(注入确认提示)
+_DESTRUCT_HIGH = (
+    "rm -rf", "git reset --hard", "git clean -f", "git clean -fd",
+    "drop table", "truncate table", "delete from", "truncate ",
+    "mv / ", "mv /etc",
+)
+
+
+def _args_text(args):
+    """把工具参数摊平成小写文本, 便于危险模式扫描。"""
+    if not args:
+        return ""
+    if isinstance(args, str):
+        return args
+    try:
+        return json.dumps(args, ensure_ascii=False)
+    except Exception:
+        return str(args)
+
+
+def _guard_destructive(name, args, mode, enabled="block"):
+    """破坏性操作护栏。返回 None 表示放行; 否则 (提示文本, 级别)。
+
+    级别: critical=致命(任何模式硬拦), high=高危(受限模式硬拦), high_warn=bypass 放行但告警。
+    """
+    if enabled != "block":
+        return None
+    if name in _READONLY_TOOLS:
+        return None  # 只读工具(含 semantic_search/review_code)永不拦
+    text = _args_text(args).lower()
+    if not text.strip():
+        return None
+    # 远程代码执行管道: curl/wget ... | sh 等 (致命)
+    if re.search(r"\|\s*(sh|bash|pwsh|powershell|cmd)\b", text) and ("curl" in text or "wget" in text):
+        return ("[安全护栏] 已拦截「下载即执行」管道(curl/wget ... | sh), 这是远程代码执行高危模式。请先把脚本下载到本地审查, 再显式执行。", "critical")
+    for pat in _DESTRUCT_CRITICAL:
+        if pat in text:
+            return (f"[安全护栏] 已拦截致命操作(匹配: {pat.strip()}); 该操作不可逆且可能破坏系统/他人数据, 任何模式均不允许。", "critical")
+    for pat in _DESTRUCT_HIGH:
+        if pat in text:
+            if mode in ("plan", "acceptEdits"):
+                return (f"[安全护栏][{mode}] 已拦截高危写操作(匹配: {pat.strip()}); 当前模式禁止破坏性写。如需执行, 切到 bypassPermissions 并显式确认。", "high")
+            return (f"[安全护栏][警告] 检测到高危写操作(匹配: {pat.strip()}); 执行后不可逆, 请确认你确实要这么做。", "high_warn")
+    return None
+
+
+# 审计日志脱敏 (轻量, 避免循环依赖): 遮蔽键值对中的敏感值
+_SECRET_AUDIT_RE = re.compile(
+    r'(?i)("?(?:password|passwd|pwd|token|secret|api[_-]?key|authorization|access[_-]?key)"?\s*[:=]\s*["\']?)[^\s"\',}]{4,}'
+)
+def _redact_audit(text):
+    if not text:
+        return text
+    return _SECRET_AUDIT_RE.sub(lambda m: f"{m.group(1)}***REDACTED***", text)
+
+
 class Registry:
     def __init__(self, roots, deny_patterns=None, dangerously=False, cwd=None, undo_stack=None, permission_mode="bypassPermissions", cfg=None, clients=None):
         self.roots = roots
@@ -323,18 +391,50 @@ class Registry:
                 memory.memory_write(args or {}, self.ctx) if (args or {}).get("action") == "write" else
                 memory.memory_append(args or {}, self.ctx)
             )
+        # —— 全球领先破坏性操作护栏 (批次7) —— 致命项任何模式硬拦; plan/accept 拦高危项; bypass 高危告警放行
+        guard = _guard_destructive(
+            name, args, self.permission_mode,
+            (self.cfg or {}).get("agent", {}).get("security", {}).get("destructive_guard", "block"),
+        )
+        if guard is not None:
+            gtext, glevel = guard
+            self._audit(name, args, False, blocked=True, note=glevel)
+            if glevel in ("critical", "high"):
+                return gtext  # 致命/受限模式高危 -> 硬拦
+            # high_warn (bypass 放行但告警): 继续往下执行, 仅记录
+
         func = _IMPLS.get(name)
         if not func:
             return f"[tool error] 未知工具: {name}"
         try:
             result = func(args or {}, self.ctx)
+            self._audit(name, args, True)
             if _ttl > 0 and name in _CACHEABLE_TOOLS and not str(result).startswith(("[tool error]", "[权限拒绝]")):
                 _cache_put(name, args, result, _ttl)
             return result
         except ToolError as e:
+            self._audit(name, args, False)
             return f"[tool error] {e}"
         except Exception as e:  # 兜底: 让模型看到错误并自我修复
+            self._audit(name, args, False)
             return f"[tool error] {type(e).__name__}: {e}"
+
+
+    def _audit(self, name, args, ok, blocked=False, note=""):
+        """写操作审计日志 (批次7): 落盘 <root>/.lmw_audit.log, 便于合规追溯。脱敏后写入。"""
+        try:
+            sec = (self.cfg or {}).get("agent", {}).get("security", {})
+            if not sec.get("audit_log", True):
+                return
+            root = self.roots[0] if self.roots else "."
+            logp = os.path.join(root, ".lmw_audit.log")
+            ts = datetime.datetime.now().isoformat(timespec="seconds")
+            raw = json.dumps(args, ensure_ascii=False) if args else ""
+            raw = _redact_audit(raw)[:600]
+            with open(logp, "a", encoding="utf-8") as f:
+                f.write(f"{ts}\t{self.permission_mode}\t{name}\tok={ok}\tblocked={blocked}\tnote={note}\t{raw}\n")
+        except Exception:
+            pass
 
 
 def build_registry(cfg, base_dir=None, permission_mode="bypassPermissions", clients=None):

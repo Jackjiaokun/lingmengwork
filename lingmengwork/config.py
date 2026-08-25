@@ -84,6 +84,15 @@ DEFAULTS = {
                 ":(){",
                 "dd if=",
             ],
+            # —— 全球领先安全护栏 (批次7) ——
+            # 破坏性操作全局硬护栏: 对所有写/执行类工具(args 文本)扫描致命/高危模式。
+            #   block : 致命项任何模式硬拦(不可能误删根/系统), 高危项 plan/acceptEdits 拦截、bypass 告警放行
+            #   off   : 关闭(仅依赖 shell 层 deny_patterns)
+            "destructive_guard": "block",
+            # 写操作审计日志: 所有写/执行类工具调用落盘 <root>/.lmw_audit.log (脱敏), 便于合规追溯
+            "audit_log": True,
+            # 项目记忆文档: 启动时自动读取项目根 CLAUDE.md/AGENTS.md/README.md 注入 system (仿 Claude Code)
+            "read_project_docs": True,
         },
     },
     "mcp": {

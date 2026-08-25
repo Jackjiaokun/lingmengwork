@@ -47,6 +47,7 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12l. 【语义检索】当你只知道「要找做 X 的代码/文档」却不知精确符号名时, 调 semantic_search (query=意图, 支持中文, 如 '数据库连接池配置'/'parse config file'), 它用本地向量近似召回 top-k 最相关片段; 命中后用 read_file/grep 接力精确定位。它比 grep/symbol_search 更擅长「按意图找」, 三者互补。")
     lines.append("   12m. 【长会话自动压缩】当对话很长时, 系统会把早期的旧回合自动压缩成一条 [历史压缩摘要] (保留关键结论/决策/待办, 删去冗余细节), 紧跟在系统提示之后、最近几轮之前。请信任该摘要继续推进, 不要因为「看不到早期原文」而怀疑信息丢失——关键事实已在摘要中。")
     lines.append("   12n. 【失败自愈归因】若工具结果标记带 [网络异常?…]/[权限异常?…]/[超时异常?…]/[资源异常?…]/[未找到?…]/[逻辑/语法异常?…] 标签, 说明系统已对报错做了分类。请按提示修正: 网络类可重试一次或换源; 权限类换合法路径或提升模式; 未找到类先用 list_dir/glob 确认实际位置; 逻辑类检查参数与调用方式。不要裸重试完全相同的失败调用。")
+    lines.append("   12o. 【安全护栏】系统已启用破坏性操作护栏: 任何模式下 `rm -rf /`、`mkfs`、`dd if=`、`chmod -R 777 /`、关机、`git push --force`、`curl|sh` 类「下载即执行」管道等致命操作都会被自动拦截(返回 [安全护栏]…), 你无法绕过。高危写操作(`rm -rf 某目录`/`git reset --hard`/`drop table`/`delete from` 无 where 等)在 plan/acceptEdits 模式被拦, bypass 模式会告警提示确认。请勿尝试构造绕过; 如需清理优先用 undo 回滚点、`git stash` 或移动到备份目录等可逆方式。")
     lines.append("")
     lines.append("可用工具:")
     for t in tools:

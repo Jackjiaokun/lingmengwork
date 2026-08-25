@@ -1,6 +1,7 @@
 """Agent 多轮循环: 解析工具调用 -> 执行 -> 回灌 -> 重复, 直至完成或达上限。"""
 import json
 import re
+import os
 import time
 
 from .prompt import build_system_prompt
@@ -339,6 +340,11 @@ class AgentLoop:
                 if roots:
                     self.project_context = build_project_context(roots)
                     self.memory_context = build_memory_context(roots)
+                    # 批次7 — 项目记忆文档自动读取 (CLAUDE.md/AGENTS.md/README.md) 注入 system, 仿 Claude Code
+                    if (cfg["agent"].get("security", {}) or {}).get("read_project_docs", True):
+                        pdocs = self._load_project_docs()
+                        if pdocs:
+                            self.project_context = (self.project_context + "\n\n" + pdocs).strip()
             except Exception:
                 self.project_context = ""
                 self.memory_context = ""
@@ -380,6 +386,30 @@ class AgentLoop:
         # 同时清零 token/成本估算, 让 /clear 后状态条真正归零
         self.est_input_chars = 0
         self.est_output_chars = 0
+
+    def _load_project_docs(self):
+        """启动时读取项目根的项目记忆文档 (CLAUDE.md/AGENTS.md/README.md), 注入 system (仿 Claude Code)。
+
+        返回拼接文本; 无则空串。
+        """
+        try:
+            roots = getattr(self.registry, "roots", None) or []
+            if not roots:
+                return ""
+            root = roots[0]
+            docs = []
+            for fn in ("CLAUDE.md", "AGENTS.md", "README.md"):
+                p = os.path.join(root, fn)
+                if os.path.isfile(p):
+                    try:
+                        txt = open(p, encoding="utf-8", errors="replace").read().strip()
+                    except Exception:
+                        continue
+                    if txt:
+                        docs.append("# 项目记忆文档 %s\n%s" % (fn, txt[:4000]))
+            return "\n\n".join(docs)
+        except Exception:
+            return ""
 
     # —— 自动上下文压缩 (主题 B-Compaction, 全球领先标准) ——
     def _maybe_compact(self):

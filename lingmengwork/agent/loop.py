@@ -7,6 +7,7 @@ import time
 from .prompt import build_system_prompt
 from .context import build_project_context
 from .context import build_memory_context
+from ..llm import pricing as _pricing
 
 # 工具调用围栏: ```tool\n{json}\n```
 TOOL_RE = re.compile(r"```tool\s*\n(.*?)```", re.DOTALL)
@@ -33,6 +34,83 @@ _QUOTA_HINT = (
     "⚠️ 本任务的工具调用次数已达配置上限。请立即停止调用任何工具, "
     "基于已获取的全部工具结果, 用中文直接给出最终结论或交付物。"
 )
+
+
+# —— 主题 B — 计划看板 (批次13): 把计划 markdown 解析为可勾选卡片 (纯函数, 便于单测) ——
+_CHECKBOX_RE = re.compile(r"^\s*[-*]\s*\[( |x|X)\]\s+(.*)$")
+_BULLET_RE = re.compile(r"^\s*[-*]\s+(.*)$")
+_NUMBER_RE = re.compile(r"^\s*\d+[.)]\s+(.*)$")
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+
+
+def _parse_plan_cards(md):
+    """把计划类 markdown 解析为结构化看板数据。
+
+    返回 dict:
+      title:       文档主标题 (# 一级标题或首行)
+      sections:    [{heading, items:[{text, kind:'task'|'note'|'step', checked:bool}]}]
+      tasks:       扁平的可勾选任务列表 (由 checkbox / 编号项聚合), 供进度统计
+      raw:         原始 markdown
+    """
+    if not md:
+        return None
+    lines = str(md).splitlines()
+    title = ""
+    sections = []
+    cur = None           # 当前 section
+    tasks = []           # 扁平可勾选任务
+    # 预扫描: 是否整体为编号/复选框清单 (无标题则单 section)
+    for i, line in enumerate(lines):
+        h = _HEADING_RE.match(line)
+        if h and h.group(1) == "#" and not title:
+            title = h.group(2).strip()
+            continue
+        if h and h.group(1) != "#":
+            if cur:
+                sections.append(cur)
+            cur = {"heading": h.group(2).strip(), "items": []}
+            continue
+        cb = _CHECKBOX_RE.match(line)
+        if cb:
+            checked = cb.group(1).lower() == "x"
+            item = {"text": cb.group(2).strip(), "kind": "task", "checked": checked}
+            if cur is None:
+                cur = {"heading": "", "items": []}
+            cur["items"].append(item)
+            tasks.append(item)
+            continue
+        num = _NUMBER_RE.match(line)
+        if num:
+            item = {"text": num.group(1).strip(), "kind": "step", "checked": False}
+            if cur is None:
+                cur = {"heading": "", "items": []}
+            cur["items"].append(item)
+            tasks.append(item)
+            continue
+        bn = _BULLET_RE.match(line)
+        if bn:
+            item = {"text": bn.group(1).strip(), "kind": "note", "checked": False}
+            if cur is None:
+                cur = {"heading": "", "items": []}
+            cur["items"].append(item)
+            continue
+    if cur:
+        sections.append(cur)
+    if not sections:
+        # 纯段落文本: 作为单个 note section
+        paras = [p.strip() for p in md.split("\n\n") if p.strip()]
+        sections = [{"heading": "", "items": [{"text": p, "kind": "note", "checked": False} for p in paras]}]
+    if not title:
+        # 退而取首段首句
+        first = next((s for s in sections if s.get("items")), None)
+        if first and first["items"]:
+            title = first["items"][0]["text"][:40]
+    return {
+        "title": title,
+        "sections": sections,
+        "tasks": tasks,
+        "raw": md,
+    }
 
 
 # —— 工具结果脱敏 (主题 D): 回灌前自动遮蔽密钥/密码/令牌, 防凭证泄露 ——
@@ -326,6 +404,9 @@ class AgentLoop:
         self._compact_count = 0  # 已发生的压缩次数(供成本/可观测)
         self.session_id = session_id or None
         self.provider = provider
+        self.model = getattr(client, "model", "") or ""
+        # 主题 B — 计划看板 (批次13): 捕获计划模式产物, 供 Web 计划看板可视化
+        self.plan_artifact = None
         override = system_prompt_override if system_prompt_override is not None else cfg["agent"].get("system_prompt")
         if override:
             self.system_prompt = override
@@ -360,18 +441,35 @@ class AgentLoop:
         return int(chars / self._CHAR_PER_TOKEN) if chars else 0
 
     def token_stats(self):
-        """返回估算的 token 用量与成本(按 sensenova flash-lite 约 0.0001 元/千token 估算)。"""
+        """返回估算的 token 用量与成本(按 model 价格档, 见 llm/pricing.py)。"""
         inp = self._est_tokens(self.est_input_chars)
         out = self._est_tokens(self.est_output_chars)
         total = inp + out
-        # 粗略成本: 输入 0.0001 元/千tok, 输出 0.0002 元/千tok (flash-lite 量级)
-        cost = inp / 1000 * 0.0001 + out / 1000 * 0.0002
+        cost = _pricing.cost(inp, out, self.model)
         return {
+            "model": self.model,
             "est_input_tokens": inp,
             "est_output_tokens": out,
             "est_total_tokens": total,
-            "est_cost_cny": round(cost, 5),
+            "est_cost_cny": round(cost, 6),
         }
+
+    def _capture_plan(self, text):
+        """主题 B — 计划看板 (批次13): 计划模式下捕获最终产物。"""
+        if not text:
+            return
+        mode = getattr(getattr(self, "registry", None), "permission_mode", "") or ""
+        if mode != "plan":
+            return
+        if str(text).startswith(("[tool error]", "[权限拒绝]", "[mcp error]")):
+            return
+        self.plan_artifact = text
+
+    def get_plan_cards(self):
+        """返回计划看板结构化数据: 解析 plan_artifact 为可勾选卡片。无产物返回 None。"""
+        if not self.plan_artifact:
+            return None
+        return _parse_plan_cards(self.plan_artifact)
 
     def _full_system(self):
         parts = [self.system_prompt]
@@ -487,6 +585,11 @@ class AgentLoop:
             if on_event:
                 on_event(type_, kw)
 
+        def _emit_done(text, **kw):
+            # 主题 B — 计划看板 (批次13): 计划模式下捕获最终产物, 供 Web 计划看板可视化
+            self._capture_plan(text)
+            emit("done", text=text, **kw)
+
         last = ""
         seq = 0
         chain = []  # 工具调用链 (时序): [{seq, name, kind, ok}] 供前端可视化全链路
@@ -509,7 +612,7 @@ class AgentLoop:
 
             calls = self._parse_tools(assistant)
             if not calls:
-                emit("done", text=assistant, truncated=False, chain=chain, **self.token_stats())
+                _emit_done(assistant, truncated=False, chain=chain, **self.token_stats())
                 return assistant
 
             # 主题 A — 工具调用配额: 达上限即停止执行工具, 落盘续跑点, 强制收尾
@@ -519,7 +622,7 @@ class AgentLoop:
                     self.save_session()
                 except Exception:
                     pass
-                emit("done", text=last, truncated=True, chain=chain,
+                _emit_done(last, truncated=True, chain=chain,
                      resume_available=True, session_id=self.session_id,
                      quota_exceeded=True, **self.token_stats())
                 return last
@@ -574,7 +677,7 @@ class AgentLoop:
             self.save_session()
         except Exception:
             pass
-        emit("done", text=last, truncated=True, chain=chain,
+        _emit_done(last, truncated=True, chain=chain,
              resume_available=True, session_id=self.session_id, **self.token_stats())
         return last
 

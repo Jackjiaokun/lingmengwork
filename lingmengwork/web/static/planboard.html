@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 计划看板</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --card:#1c2230; --card2:#222a3a;
+    --line:#2b3342; --txt:#e6edf3; --mut:#8b97a7; --acc:#4ea1ff;
+    --ok:#2ecc71; --warn:#f1c40f; --fail:#e74c3c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;
+    background:linear-gradient(90deg,#11161f,#161b22);border-bottom:1px solid var(--line)}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  a.btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px;text-decoration:none}
+  a.btn:hover{border-color:var(--acc)}
+  main{max-width:1000px;margin:0 auto;padding:18px 22px 60px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .bar input[type=text]{flex:1;min-width:240px;background:var(--bg2);border:1px solid var(--line);
+    color:var(--txt);padding:8px 12px;border-radius:8px;font-family:monospace;font-size:13px}
+  .bar button{background:var(--acc);border:none;color:#04101f;font-weight:600;padding:8px 16px;border-radius:8px;cursor:pointer}
+  .bar .hint{color:var(--mut);font-size:12px;width:100%}
+  .recent{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .chip{background:var(--card2);border:1px solid var(--line);color:var(--mut);padding:4px 10px;border-radius:20px;
+    font-size:12px;cursor:pointer;font-family:monospace}
+  .chip:hover{border-color:var(--acc);color:var(--txt)}
+  .progress{display:flex;align-items:center;gap:12px;margin:6px 0 18px}
+  .prog-bar{flex:1;height:10px;background:var(--bg2);border-radius:6px;overflow:hidden}
+  .prog-fill{height:100%;background:var(--ok);width:0;transition:width .25s}
+  .prog-num{font-variant-numeric:tabular-nums;font-weight:600}
+  #title{font-size:18px;font-weight:700;margin:0 0 6px}
+  section.sec{margin-bottom:18px}
+  .sec h3{font-size:14px;color:var(--acc);margin:0 0 10px;padding-left:10px;border-left:3px solid var(--acc)}
+  .item{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border:1px solid var(--line);
+    border-radius:9px;margin-bottom:8px;background:var(--card)}
+  .item.note{background:transparent;border-style:dashed;color:var(--mut)}
+  .item input[type=checkbox]{margin-top:3px;accent-color:var(--ok);width:16px;height:16px;cursor:pointer}
+  .item .txt{flex:1}
+  .item.done .txt{text-decoration:line-through;color:var(--mut)}
+  .kind{font-size:10px;padding:1px 6px;border-radius:4px;background:var(--bg2);color:var(--mut);flex:none}
+  .kind.step{background:rgba(78,161,255,.16);color:var(--acc)}
+  .empty{padding:40px;text-align:center;color:var(--mut)}
+  pre.raw{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px;
+    max-height:340px;overflow:auto;white-space:pre-wrap;color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>灵梦work · <span class="ac">计划看板</span></h1>
+  <div class="head-sp"></div>
+  <a class="btn" href="/">← 返回控制台</a>
+</header>
+<main>
+  <div class="bar">
+    <input type="text" id="sid" placeholder="粘贴会话 ID (在控制台发起「计划模式」对话后, 从 /cost 或会话历史取得)" />
+    <button id="load">加载计划</button>
+    <div class="hint">计划看板展示「计划模式 (mode=plan)」下智能体产出的最终方案, 拆为可勾选任务卡。勾选状态按会话保存在本机浏览器。</div>
+  </div>
+  <div class="recent" id="recent"></div>
+
+  <div id="content">
+    <div class="empty">尚无计划。请在控制台用「计划模式」发起对话, 然后把会话 ID 粘贴到上方加载。</div>
+  </div>
+</main>
+<script>
+function $(s){return document.querySelector(s)}
+function esc(s){return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+
+function storageKey(sid){return "lmw_plan_"+sid}
+function loadChecks(sid){try{return JSON.parse(localStorage.getItem(storageKey(sid))||"{}")}catch(e){return {}}}
+function saveChecks(sid,obj){localStorage.setItem(storageKey(sid),JSON.stringify(obj))}
+
+function render(data){
+  const c=$("#content");
+  if(!data.found){c.innerHTML='<div class="empty">未找到该会话的活体计划 (会话需仍在运行且曾以计划模式对话)。</div>';return}
+  if(!data.cards){c.innerHTML='<div class="empty">该会话暂无计划产物 (请先以「计划模式」发起对话)。</div>';return}
+  const cards=data.cards;
+  const checks=loadChecks(data.session_id);
+  let total=cards.tasks.length, done=0;
+  const secHtml=(cards.sections||[]).map((sec,si)=>{
+    const items=(sec.items||[]).map((it,ii)=>{
+      const key=si+"_"+ii;
+      const isCheckable=(it.kind==="task"||it.kind==="step");
+      const checked=!!checks[key];
+      if(isCheckable&&checked)done++;
+      const doneCls=checked?"done":"";
+      if(!isCheckable){
+        return `<div class="item note"><span class="kind">备注</span><div class="txt">${esc(it.text)}</div></div>`;
+      }
+      return `<div class="item ${doneCls}">
+        <input type="checkbox" data-k="${key}" ${checked?"checked":""}/>
+        <span class="kind ${it.kind}">${it.kind==="step"?"步骤":"任务"}</span>
+        <div class="txt">${esc(it.text)}</div>
+      </div>`;
+    }).join("");
+    const h=sec.heading?`<h3>${esc(sec.heading)}</h3>`:"";
+    return `<section class="sec">${h}${items}</section>`;
+  }).join("");
+
+  const pct=total?Math.round(done/total*100):0;
+  c.innerHTML=`
+    <h2 id="title">${esc(cards.title||"计划")}</h2>
+    <div class="progress">
+      <div class="prog-bar"><div class="prog-fill" id="fill" style="width:${pct}%"></div></div>
+      <span class="prog-num" id="pnum">${done}/${total} (${pct}%)</span>
+    </div>
+    ${secHtml}
+    <details style="margin-top:14px"><summary style="color:var(--mut);cursor:pointer">查看原始计划文本</summary>
+      <pre class="raw">${esc(cards.raw||"")}</pre></details>
+  `;
+  c.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.addEventListener("change",()=>{
+      const obj=loadChecks(data.session_id);obj[cb.dataset.k]=cb.checked;saveChecks(data.session_id,obj);
+      cb.closest(".item").classList.toggle("done",cb.checked);
+      const all=c.querySelectorAll('input[type=checkbox]');
+      const d=Array.from(all).filter(x=>x.checked).length;
+      const p=all.length?Math.round(d/all.length*100):0;
+      $("#fill").style.width=p+"%";$("#pnum").textContent=d+"/"+all.length+" ("+p+"%)";
+    });
+  });
+}
+
+async function load(){
+  const sid=$("#sid").value.trim();
+  if(!sid){$("#content").innerHTML='<div class="empty">请输入会话 ID。</div>';return}
+  try{
+    const r=await fetch("/api/planboard?id="+encodeURIComponent(sid));
+    const d=await r.json();
+    render(d);
+  }catch(e){$("#content").innerHTML='<div class="empty">加载失败: '+esc(e)+'</div>'}
+}
+
+async function loadRecent(){
+  try{
+    const r=await fetch("/api/sessions");const d=await r.json();
+    const list=(d.sessions||[]).slice(0,12);
+    $("#recent").innerHTML=list.map(s=>`<span class="chip" data-sid="${esc(s.id)}">${esc(s.id)}</span>`).join("")
+      || '<span class="hint" style="color:var(--mut)">无最近会话</span>';
+    $("#recent").querySelectorAll(".chip").forEach(ch=>{
+      ch.addEventListener("click",()=>{$("#sid").value=ch.dataset.sid;load()});
+    });
+  }catch(e){}
+}
+
+$("#load").addEventListener("click",load);
+$("#sid").addEventListener("keydown",e=>{if(e.key==="Enter")load()});
+loadRecent();
+</script>
+</body>
+</html>

@@ -394,7 +394,9 @@ class Registry:
             res = f"[tool error] {type(e).__name__}: {e}"
             ok, tag = False, _classify_err(e)
         dur = int((time.time() - t0) * 1000)
-        _record(name, ok, dur, tag)
+        # 主题 A — 工具结果结构化 (批次13): 成功结果尝试抽取 JSON 结构, 随事件入统计
+        structured = _extract_struct(res) if ok else None
+        _record(name, ok, dur, tag, structured)
         return res
 
     def _execute_core(self, name, args):
@@ -539,8 +541,92 @@ def _classify_err(e):
     return "logic"
 
 
-def _record(name, ok, dur_ms, tag=None):
-    """记录一次工具调用的统计 (线程安全)。"""
+def _extract_struct(result_text):
+    """主题 A — 工具结果结构化 (批次13): 尝试从工具结果抽取 JSON 结构。
+
+    返回 dict:
+      {is_json:True, kind:'object'|'array'|'scalar', n, keys:[...], sample?}
+      {is_json:False}   (非 JSON 或抽取失败)
+    纯函数, 便于单测; 复杂度 O(n), 不回溯全串。
+    """
+    if not result_text or not isinstance(result_text, str):
+        return {"is_json": False}
+    text = result_text.strip()
+    if not text:
+        return {"is_json": False}
+    data = None
+    try:
+        data = json.loads(text)
+    except Exception:
+        # 从文本中定位首个 { / [ 并抽取「括号平衡」子串 (O(n) 扫描)
+        s = text.find("{"); a = text.find("[")
+        starts = sorted([x for x in (s, a) if x >= 0])
+        if not starts:
+            return {"is_json": False}
+        for st in starts:
+            frag = _extract_balanced(text, st)
+            if frag:
+                try:
+                    data = json.loads(frag)
+                    break
+                except Exception:
+                    data = None
+    if data is None:
+        return {"is_json": False}
+    if isinstance(data, dict):
+        keys = list(data.keys())
+        sample = {k: _truncate_val(data[k]) for k in keys[:12]}
+        return {"is_json": True, "kind": "object", "n": len(keys), "keys": keys[:24], "sample": sample}
+    if isinstance(data, list):
+        n = len(data)
+        keys_union = []
+        if data and isinstance(data[0], dict):
+            for item in data[:50]:
+                if isinstance(item, dict):
+                    for k in item.keys():
+                        if k not in keys_union:
+                            keys_union.append(k)
+        return {"is_json": True, "kind": "array", "n": n, "keys": keys_union[:24]}
+    return {"is_json": True, "kind": "scalar", "n": 1, "keys": []}
+
+
+def _extract_balanced(text, start):
+    """从 start 起, 按括号深度抽取平衡的子串 (支持字符串内引号/转义)。失败返回 None。"""
+    open_ch = text[start]
+    close_ch = "}" if open_ch == "{" else "]"
+    depth = 0
+    instring = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if instring:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                instring = False
+            continue
+        if ch == '"':
+            instring = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _truncate_val(v, maxlen=80):
+    s = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+    if len(s) > maxlen:
+        return s[:maxlen] + "…"
+    return s
+
+
+def _record(name, ok, dur_ms, tag=None, structured=None):
+    """记录一次工具调用的统计 (线程安全)。structured 为 _extract_struct 结果(可选)。"""
     with _STATS_LOCK:
         t = _STATS["tools"].setdefault(name, {"calls": 0, "ok": 0, "fail": 0, "total_ms": 0, "fail_by_tag": {}})
         t["calls"] += 1
@@ -556,7 +642,11 @@ def _record(name, ok, dur_ms, tag=None):
             _STATS["total"]["ok"] += 1
         else:
             _STATS["total"]["fail"] += 1
-        _STATS["recent"].append({"name": name, "ok": ok, "ms": dur_ms, "tag": tag, "ts": int(time.time())})
+        ev = {"name": name, "ok": ok, "ms": dur_ms, "tag": tag, "ts": int(time.time())}
+        if structured is not None and structured.get("is_json"):
+            ev["structured"] = {"is_json": True, "kind": structured.get("kind"), "n": structured.get("n"),
+                                "keys": structured.get("keys", [])[:12]}
+        _STATS["recent"].append(ev)
         if len(_STATS["recent"]) > _STATS_MAX_RECENT:
             _STATS["recent"].pop(0)
         _buf = _DURATIONS.setdefault(name, collections.deque(maxlen=_DUR_MAX))

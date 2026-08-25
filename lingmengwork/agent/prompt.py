@@ -53,7 +53,10 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12r. 【项目文档自动生成】新项目接入或交接时, 调 generate_project_docs 扫描仓库生成 CLAUDE.md/AGENTS.md 草稿(技术栈/关键目录/入口/测试命令/约定), 人工复核后写入项目根 CLAUDE.md, 后续会话会自动加载这份项目记忆, 让agent 快速建立认知。")
     lines.append("   12s. 【可观测性】系统持续统计各工具的调用次数/成功率/平均耗时/失败归因标签(网络/权限/超时/资源/未找到/逻辑)与最近事件, 面板 GET /api/stats 实时展示。若某工具频繁失败或异常慢, 可据此定位根因(网络类换源/权限类换路径/超时类降量), 不要反复裸调同一失败工具。")
     lines.append("   12t. 【健康度自检】面板 GET /api/health/full 对全链路做红绿体检: LLM 后端连通性(含耗时)、9 个 MCP 服务器配置与实时连接状态、文件系统根(allowed_roots)可达性。若某项标红(fail), 优先据此定位失联组件——LLM 红多为 key/网络, MCP 红多为模块缺失或进程未起, filesystem 红多为根目录越界/不存在——再决定重试、换配置或重启面板, 不要盲目继续跑任务。")
-    lines.append("   12u. 【运行追踪可视化】面板 GET /observability 运行追踪仪表盘把 /api/stats + /api/health/full 做成可视化: 全链路健康度红绿卡 + 调用次数/成功率大数字 + 各工具耗时分位(p50/p95/p99)/最大耗时 + 调用时间线瀑布图(每行为一次调用, 横轴为时间, 绿/红条表示成功/失败, 一眼看出慢工具与异常尖刺) + 最近事件流。据此识别长尾慢调用(看 p99 与 avg 差距)与突发失败尖刺, 再决定优化或重试策略。")
+    lines.append("   12u. 【运行追踪可视化】面板 GET /observability 运行追踪仪表盘把 /api/stats + /api/health/full 做成可视化: 全链路健康度红绿卡 + 调用次数/成功率大数字 + 各工具耗时分位(p50/p95/p99)/最大耗时 + 调用时间线瀑布图(每行为一次调用, 横轴为时间, 绿/红条表示成功/失败, 一眼看出慢工具与异常尖刺) + 最近事件流(成功 JSON 结果带 {} 结构化徽标)。据此识别长尾慢调用(看 p99 与 avg 差距)与突发失败尖刺, 再决定优化或重试策略。")
+    lines.append("   12v. 【成本看板】面板 GET /cost 按会话展示估算 token 与成本(输入/输出/总计 + 人民币元, 按模型价目档 sensenova-6.8-flash-lite 等估算, 接口多不返回 usage, 故为字符数×系数的量级估算, 非精确账单)。长会话或高成本任务后, 可据此评估是否该压缩上下文/换更便宜模型/拆小任务, 避免无意义烧 token。")
+    lines.append("   12w. 【计划看板】用「计划模式」(Web 对话选 mode=plan 或 CLI --mode plan)只读出方案、不动手修改, 最终回复即一份完整实施计划。面板 GET /planboard 把这份计划解析为可勾选任务卡(标题/分章节/复选框与编号步骤), 用户可逐项打勾跟踪落地进度。复杂任务先走计划模式产出方案, 让用户确认后再切全放开模式执行, 减少返工。")
+    lines.append("   12x. 【工具结果结构化】许多工具(fsp_grep/glob/list_dir/db_query/MCP 查询等)返回 JSON 或 JSON 片段; 面板 /api/stats 的最近事件会对成功 JSON 结果抽取结构化徽标(类型 object/array + 字段数 + 键名)。当工具返回结构化数据时, 直接基于其中的关键字段推进, 不要重复解析全文, 省 token 且更稳。")
     lines.append("")
     lines.append("可用工具:")
     for t in tools:

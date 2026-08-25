@@ -106,6 +106,7 @@
   .ev .st{width:18px;flex:none;text-align:center;font-weight:700}
   .ev .st.ok{color:var(--ok)} .ev .st.fail{color:var(--fail)}
   .ev .tg{flex:1;color:var(--mut);font-size:12px}
+  .ev .struct{font-size:10px;padding:2px 6px;border-radius:5px;background:rgba(46,204,113,.16);color:var(--ok);flex:none;font-family:monospace;white-space:nowrap}
   .empty{color:var(--mut);padding:24px;text-align:center;font-size:13px}
   .err{color:var(--fail);padding:10px 0;font-size:13px}
   @media (max-width:760px){.g-health,.top-stats{grid-template-columns:1fr 1fr}.donut-wrap{flex-direction:column;align-items:flex-start}}
@@ -285,14 +286,20 @@ function renderStats(s){
   $("#tbl-body").innerHTML = rows || '<tr><td colspan="7" class="empty">暂无调用数据</td></tr>';
 
   const recent = (s.recent||[]).slice().reverse();
-  $("#feed").innerHTML = recent.map(e=>`
-    <div class="ev">
+  $("#feed").innerHTML = recent.map(e=>{
+    let badge="";
+    if(e.structured&&e.structured.is_json){
+      badge=`<span class="struct" title="结构化 JSON: ${esc((e.structured.keys||[]).join(", "))}">{"${esc(e.structured.kind)}"} ×${e.structured.n||0}</span>`;
+    }
+    return `<div class="ev">
       <span class="t">${esc(fmtTime(e.ts))}</span>
       <span class="nm">${esc(e.name)}</span>
       <span class="st ${e.ok?"ok":"fail"}">${e.ok?"✓":"✗"}</span>
       <span class="ms">${e.ms!=null?e.ms+" ms":"—"}</span>
+      ${badge}
       <span class="tg">${e.tag?esc(e.tag):(e.ok?"":"未知错误")}</span>
-    </div>`).join("") || '<div class="empty">暂无事件</div>';
+    </div>`;
+  }).join("") || '<div class="empty">暂无事件</div>';
 
   renderTimeline(s);
 }

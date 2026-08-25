@@ -23,6 +23,7 @@ from urllib.parse import urlparse, parse_qs
 from .. import __version__
 from ..config import load_config
 from ..llm.client import build_client
+from ..llm import pricing as _pricing
 from ..tools.registry import build_registry
 from ..agent.loop import AgentLoop
 from ..agent.pool import TaskPool
@@ -648,6 +649,18 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 主题 E 可视化 (批次11): 运行追踪仪表盘 ----
         if p == "/observability":
             return self._serve_file("observability.html")
+        # ---- 主题 E 成本看板 (批次13): 会话级 token/成本追踪 ----
+        if p == "/cost":
+            return self._serve_file("cost.html")
+        if p == "/api/cost":
+            return self._send_json(self._cost_stats())
+        # ---- 主题 B 计划看板 (批次13): 计划模式产物可视化 ----
+        if p == "/planboard":
+            return self._serve_file("planboard.html")
+        if p == "/api/planboard":
+            q = parse_qs(urlparse(self.path).query)
+            sid = (q.get("id") or [None])[0]
+            return self._send_json(self._planboard(sid))
         if p == "/api/health":
             cfg = _get_cfg()
             backend = cfg["llm"].get("backend", "ollama")
@@ -1764,6 +1777,64 @@ class Handler(SimpleHTTPRequestHandler):
             "results_total": done_count,
             "total_tokens": total_tokens,
             "total_cost_cny": round(total_cost, 6),
+        }
+
+    # ---- 主题 E 成本看板 (批次13): 会话级 token/成本追踪 ----
+    def _cost_stats(self):
+        """遍历活体会话, 汇总每会话估算 token/成本 + 进程总计 + 价目参考。"""
+        sessions = []
+        t_in = t_out = 0
+        t_cost = 0.0
+        for sid, loop in _SESSION_LOOPS.items():
+            try:
+                st = loop.token_stats()
+            except Exception:
+                continue
+            mode = getattr(getattr(loop, "registry", None), "permission_mode", "") or ""
+            sessions.append({
+                "session_id": sid,
+                "backend": loop.provider or "",
+                "model": st.get("model") or "",
+                "est_input_tokens": st.get("est_input_tokens", 0),
+                "est_output_tokens": st.get("est_output_tokens", 0),
+                "est_total_tokens": st.get("est_total_tokens", 0),
+                "est_cost_cny": st.get("est_cost_cny", 0.0),
+                "turns": len(getattr(loop, "messages", []) or []),
+                "plan_mode": (mode == "plan"),
+            })
+            t_in += st.get("est_input_tokens", 0)
+            t_out += st.get("est_output_tokens", 0)
+            t_cost += st.get("est_cost_cny", 0.0)
+        sessions.sort(key=lambda x: -x["est_total_tokens"])
+        return {
+            "sessions": sessions,
+            "total": {
+                "est_input_tokens": t_in,
+                "est_output_tokens": t_out,
+                "est_total_tokens": t_in + t_out,
+                "est_cost_cny": round(t_cost, 6),
+            },
+            "pricing": _pricing.reference_list(),
+            "currency": "CNY",
+        }
+
+    # ---- 主题 B 计划看板 (批次13): 计划模式产物可视化 ----
+    def _planboard(self, sid):
+        """返回某会话的计划看板数据 (仅活体会话; 无产物返回 found=False)。"""
+        loop = _SESSION_LOOPS.get(sid) if sid else None
+        if not loop:
+            return {"session_id": sid, "found": False, "plan": None, "cards": None, "model": ""}
+        cards = None
+        try:
+            cards = loop.get_plan_cards()
+        except Exception:
+            cards = None
+        return {
+            "session_id": sid,
+            "found": True,
+            "plan": getattr(loop, "plan_artifact", None),
+            "cards": cards,
+            "model": getattr(loop, "model", ""),
         }
 
     # ---- 文件树浏览器 (只读, 限定项目根与 HOME) ----

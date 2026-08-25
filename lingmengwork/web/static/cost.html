@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 成本看板</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --card:#1c2230; --card2:#222a3a;
+    --line:#2b3342; --txt:#e6edf3; --mut:#8b97a7; --acc:#4ea1ff;
+    --ok:#2ecc71; --warn:#f1c40f; --fail:#e74c3c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.45}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;
+    background:linear-gradient(90deg,#11161f,#161b22);border-bottom:1px solid var(--line)}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  .head-meta{color:var(--mut);font-size:12px;display:flex;gap:16px;align-items:center}
+  .switch{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px;cursor:pointer}
+  .switch input{accent-color:var(--acc)}
+  a.btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px;text-decoration:none}
+  a.btn:hover{border-color:var(--acc)}
+  main{max-width:1180px;margin:0 auto;padding:20px 22px 60px}
+  section{margin-bottom:26px}
+  .sec-title{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:1px;
+    margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .sec-title::before{content:"";width:3px;height:14px;background:var(--acc);border-radius:2px}
+  .top-cards{grid-template-columns:repeat(4,1fr)}
+  .grid{display:grid;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .stat-lg{display:flex;flex-direction:column;gap:4px}
+  .stat-lg .num{font-size:28px;font-weight:700;line-height:1}
+  .stat-lg .lab{color:var(--mut);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:var(--bg2)}
+  .mode-tag{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;background:rgba(78,161,255,.16);color:var(--acc)}
+  .empty{padding:30px;text-align:center;color:var(--mut)}
+  .pricetbl td.num{font-variant-numeric:tabular-nums}
+  .hint{color:var(--mut);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>灵梦work · <span class="ac">成本看板</span></h1>
+  <div class="head-sp"></div>
+  <div class="head-meta"><span id="meta-time"></span></div>
+  <a class="btn" href="/">← 返回控制台</a>
+  <label class="switch"><input type="checkbox" id="auto" checked /> 自动刷新 (5s)</label>
+</header>
+<main>
+  <section>
+    <h2 class="sec-title">进程总计</h2>
+    <div class="grid top-cards">
+      <div class="card stat-lg"><span class="num" id="t-tok">0</span><span class="lab">估算总 Token</span></div>
+      <div class="card stat-lg"><span class="num" id="t-in">0</span><span class="lab">输入 Token</span></div>
+      <div class="card stat-lg"><span class="num" id="t-out">0</span><span class="lab">输出 Token</span></div>
+      <div class="card stat-lg"><span class="num" id="t-cost">¥0</span><span class="lab">估算总成本</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">各会话用量</h2>
+    <div class="card" style="padding:6px 6px">
+      <table>
+        <thead><tr>
+          <th>会话 ID</th><th>通道</th><th>模型</th>
+          <th class="num">输入</th><th class="num">输出</th><th class="num">总 Token</th>
+          <th class="num">估算成本</th><th class="num">轮次</th><th>模式</th>
+        </tr></thead>
+        <tbody id="sess-body"></tbody>
+      </table>
+      <div id="sess-empty" class="empty" style="display:none">暂无活跃会话。先在控制台发起一次对话, 再回到本页查看用量。</div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">价目参考 (元 / 千 token)</h2>
+    <div class="card" style="padding:6px 6px">
+      <table class="pricetbl">
+        <thead><tr><th>模型</th><th>档位</th><th class="num">输入</th><th class="num">输出</th></tr></thead>
+        <tbody id="price-body"></tbody>
+      </table>
+      <div class="hint">价格为估算量级 (接口多不返回 usage, 走字符数 × 系数), 仅用于成本认知, 非精确账单。</div>
+    </div>
+  </section>
+</main>
+<script>
+function $(s){return document.querySelector(s)}
+function esc(s){return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+function fmtInt(n){n=n||0;return n.toLocaleString("en-US")}
+function fmtCny(v){v=v||0;if(v===0)return "¥0";if(v<0.01)return "¥"+v.toFixed(5);if(v<1)return "¥"+v.toFixed(4);return "¥"+v.toFixed(2)}
+
+async function load(){
+  try{
+    const r=await fetch("/api/cost");const d=await r.json();
+    $("#meta-time").textContent="更新于 "+new Date().toLocaleTimeString("zh-CN");
+    const t=d.total||{};
+    $("#t-tok").textContent=fmtInt(t.est_total_tokens);
+    $("#t-in").textContent=fmtInt(t.est_input_tokens);
+    $("#t-out").textContent=fmtInt(t.est_output_tokens);
+    $("#t-cost").textContent=fmtCny(t.est_cost_cny);
+    const rows=(d.sessions||[]).map(s=>`<tr>
+      <td style="font-family:monospace;font-size:12px">${esc(s.session_id)}</td>
+      <td>${esc(s.backend)}</td>
+      <td>${esc(s.model)}</td>
+      <td class="num">${fmtInt(s.est_input_tokens)}</td>
+      <td class="num">${fmtInt(s.est_output_tokens)}</td>
+      <td class="num">${fmtInt(s.est_total_tokens)}</td>
+      <td class="num">${fmtCny(s.est_cost_cny)}</td>
+      <td class="num">${fmtInt(s.turns)}</td>
+      <td>${s.plan_mode?'<span class="mode-tag">计划</span>':'—'}</td>
+    </tr>`).join("");
+    $("#sess-body").innerHTML=rows||"";
+    $("#sess-empty").style.display=(d.sessions&&d.sessions.length)?"none":"block";
+    const pr=(d.pricing||[]).map(p=>`<tr>
+      <td>${esc(p.model)}</td><td>${esc(p.label)}</td>
+      <td class="num">¥${Number(p.in).toFixed(4)}</td>
+      <td class="num">¥${Number(p.out).toFixed(4)}</td>
+    </tr>`).join("");
+    $("#price-body").innerHTML=pr||'<tr><td colspan="4" class="empty">无</td></tr>';
+  }catch(e){$("#meta-time").textContent="加载失败: "+e}
+}
+let timer=null;
+function start(){stop();load();if($("#auto").checked)timer=setInterval(load,5000)}
+function stop(){if(timer)clearInterval(timer)}
+$("#auto").addEventListener("change",start);
+start();
+</script>
+</body>
+</html>

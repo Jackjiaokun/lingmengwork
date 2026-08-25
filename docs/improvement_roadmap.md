@@ -111,11 +111,20 @@
 
 ---
 
+## 批次 13 — 三路并进：成本看板 + 计划看板 + 工具结果结构化（主题 E/B/A）✅ (2026-08-26 完成)
+- [done] **主题 E 成本看板**: 新建 `llm/pricing.py` 单一价目源(商汤 flash-lite/flash、DeepSeek 等元/千 token 档, 含 `price_for/cost/reference_list/fmt_cny`); `loop.token_stats` 改用共享价目(输出含 model); 新增 `GET /api/cost`(遍历活体会话汇总每会话 est token/成本 + 进程总计 + 价目参考) + 零依赖 `cost.html`(进程总计卡 + 各会话表 + 价目表, 5s 自动刷新); `index.html` 加「💰 成本看板」入口; `prompt 12v`。
+- [done] **主题 B 计划看板**: `loop` 新增 `plan_artifact`(计划模式 `mode=plan` 下捕获最终产物) + `_capture_plan`(仅 plan 模式且非错误文本才存) + 纯函数 `_parse_plan_cards`(markdown→可勾选卡片: 标题/分章节/复选框与编号步骤/备注, 扁平 tasks 供进度); 新增 `GET /api/planboard?id=`(活体会话计划数据) + 零依赖 `planboard.html`(卡片渲染 + checkbox 本机 localStorage 勾选进度持久化 + 最近会话快捷选择); `index.html` 加「🗂️ 计划看板」入口; `prompt 12w`。
+- [done] **主题 A 工具结果结构化**: `registry` 新增 `_extract_struct`(O(n) 括号平衡扫描, 从工具结果抽取 JSON 结构 object/array/scalar + 字段数与键名, 容忍字符串内花括号/转义) 与 `_extract_balanced`; `execute` 成功结果双写结构化到 `recent` 事件(`structured` 含 is_json/kind/n/keys); `observability.html` 事件流新增绿色 `{}` 结构化徽标(悬停显示键名); `prompt 12x`。
+- [done] 单测 17 例: `test_pricing`(价目/成本/参考/格式) + `test_plan_cards`(标题/章节/复选框/编号/纯备注/空 + `_parse_plan_cards` 解析 + 计划捕获仅 plan 模式生效) + `test_structure_extract`(object/array/scalar/嵌入/嵌套括号/非 JSON + 经 registry 端到端 recent 带 structured) + `test_cost_plan_endpoints`(成本聚合/计划 found/未找到); 全量 pytest **285 passed**。
+- [done] plain PyInstaller 重打包(05:54) + 宿主启动 8318(PID 34844); 冻结版含 cost.html/planboard.html; e2e: `/api/cost` 返回 sessions/total/pricing, `/cost` `/planboard` `/observability` 均 200 且标题正确, `/api/planboard` 未知会话优雅返回 found=false。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [done] 工具调用配额：单任务累计工具调用次数上限，防失控循环烧钱（批次4）。
 - [done] 工具结果缓存层：web_search/code_search 等只读搜索类同查询命中内存缓存，省 token 与时延（批次4）。
 - [done] 工具结果脱敏：密钥/密码/令牌在回灌前自动遮蔽，防凭证泄露（批次4）。
-- [ ] 工具结果结构化：MCP 返回 JSON 时自动提取关键字段（如 search 的标题/url、fetch 的正文），而非整页文本。
+- [done] 工具结果结构化：成功 JSON 结果自动抽取结构(object/array/scalar + 字段数与键名)，recent 事件带 `structured` 徽标，面板可一眼识别结构化返回（批次13）。
 - [ ] 工具缓存层：`web_search`/`code_search` 同查询命中缓存，省 token 与时延。
 - [ ] 危险命令沙箱增强：`run_command` 支持允许清单 + 超时 + 资源上限（CPU/内存）。
 - [ ] 工具调用配额：单轮/单任务工具调用次数上限，防失控循环烧钱。
@@ -132,7 +141,7 @@
 - [ ] 工具结果语义压缩：超长输出用 LLM 摘要（可选）代替硬截断。
 
 ## 主题 B — 智能体循环与推理（约 15 轮）
-- [ ] 计划模式产物：把 `think/todo` 输出渲染为可勾选任务卡，完成后自动更新。
+- [done] 计划模式产物：计划模式下捕获最终方案 → 解析为可勾选任务卡(`/planboard` + 零依赖页, 本机勾选进度持久化)（批次13）。
 - [ ] 子代理池：`subagent` 真正扇出并行子任务，结果聚合回主循环。
 - [ ] 反思循环：每 N 轮做一次「目标-进展」自检，偏离则纠偏（超出 `_LOOP_HINT` 范畴）。
 - [ ] 工具结果摘要回灌：长结果先 LLM 摘要再进上下文，省 token。
@@ -177,7 +186,7 @@
 - [done] 运行追踪面板：可视化每轮 token/时延/工具调用瀑布图（批次11 仪表盘 + 批次12 调用时间线瀑布图 + 耗时分位 p50/p95/p99）。
 - [done] 工具调用成功率/耗时指标：长期统计，定位慢/常败工具（批次9 /api/stats + 批次12 全局/每工具耗时分位）。
 - [ ] 评测集：固定编码任务集（写/改/修/测/评），每次升级跑回归打分。
-- [ ] 成本看板：按会话/任务汇总 LLM 花费，超阈值预警。
+- [ ] 成本看板：按会话/任务汇总 LLM 花费，超阈值预警（基础版已落地：`GET /api/cost` + `cost.html` 会话级 token/成本追踪, 批次13）。
 - [ ] 结构化日志：JSON 日志含 event/seq/tool/duration/ok，便于离线分析。
 - [ ] 失败样本库：收集工具/循环失败案例，驱动针对性修复。
 - [ ] 健康度自检：面板启动自检 9 MCP + LLM 连通，红绿状态。

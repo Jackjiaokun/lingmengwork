@@ -52,6 +52,13 @@ DEFAULTS = {
         "concurrency": 0,
         # 工具返回截断: web_fetch/code_search/shell 等可能返回超长内容, 截断以防上下文爆炸。0 = 不截断。
         "tool_result_max_chars": 6000,
+        # 主题 B — 智能体循环与推理增强:
+        # 反思循环: 每 N 轮注入一次自检提示(0=关闭), 抗空转/促收敛。
+        "reflect_every": 0,
+        # 工具结果 LLM 摘要: 超长结果用 LLM 摘要代替硬截断(默认关, 开启会增加一次 LLM 往返)。
+        "summarize_tool_results": False,
+        # 触发摘要的原文长度阈值(字符)。
+        "summarize_max_chars": 3000,
         "security": {
             "allowed_roots": ["."],
             "dangerously_run_commands": False,

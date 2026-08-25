@@ -39,6 +39,9 @@ def build_system_prompt(tools, extra=""):
     lines.append("   12d. 写完关键代码 (新文件/重要改动) 后调 review_code 做评审自检: 若返回 VERDICT: revise, 必须按 ISSUES 修改代码, 然后再次调用 review_code 复评; 最多复评 3 轮, 直到 VERDICT: approve 或已无高严重度问题再交付。这是「写-审-改」质量闭环, 与 12b 的测试自愈互补。")
     lines.append("   12e. 【自动交付闭环】收到「实现 / 修改 / 修复 X」类代码任务时, 默认走完整闭环再汇报: ① 用 write_file 写入代码 (主写工具, 写入项目根内) ② 用 run_command 或 auto_test 跑对应测试(如 pytest tests/ , 失败则读 traceback 自行修代码并重跑, 红→绿自愈) ③ 用 review_code (无 LLM 环境或需确定性结果时, 改用 MCP 版 code_review 工具, 输出同样为 VERDICT/SCORE/ISSUES) 自评估。测试全绿 且 VERDICT: approve 才算完成, 才用中文总结交付; 任一步不通过就回到对应步骤修复重试, 不要中途向用户报「完成」。")
     lines.append("   12f. 需要联网查文档/报错/最新信息时调 web_search; 需要查本地 sqlite 数据时调 db_query / db_list_tables。这些外部工具让你可以「改-跑-查-评」全链路自主完成。")
+    lines.append("   12g. 【自验证】写完/改完关键代码后, 用 symbol_search / grep 自检接口签名与调用处是否一致(有无遗留旧引用、参数是否匹配), 确认无遗漏再交付; 这与 12b 的测试自愈、12d 的评审互补, 构成「写-测-评-验」四重质量闭环。")
+    lines.append("   12h. 【主动澄清】仅在需求确实模糊时才反问(缺明确目标/缺操作对象/存在多种合理解读), 且最多反问一次关键点; 多数情况下基于已有上下文主动推进并说明假设, 不要频繁反问打断节奏。")
+    lines.append("   12i. 【长任务续跑】若任务复杂、迭代较多, 系统可能在达到上限时暂停并保存进度; 此时你只需回复「继续」, 即可基于已有全部工具结果接着推进到最终结论, 无需从头重来。")
     lines.append("")
     lines.append("可用工具:")
     for t in tools:

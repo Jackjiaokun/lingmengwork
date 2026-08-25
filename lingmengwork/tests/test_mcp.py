@@ -16,6 +16,8 @@ from lingmengwork.tools import mcp as mcp_mod
 from lingmengwork.tools.registry import (
     TOOL_SCHEMAS,
     _IMPLS,
+    _READONLY_TOOLS,
+    _WRITE_TOOLS,
     _EXEC_TOOLS,
     build_registry,
 )
@@ -36,6 +38,8 @@ def _reset_mcp_singleton():
         if t.get("mcp"):
             TOOL_SCHEMAS.remove(t)
             _IMPLS.pop(t["name"], None)
+            _READONLY_TOOLS.discard(t["name"])
+            _WRITE_TOOLS.discard(t["name"])
             _EXEC_TOOLS.discard(t["name"])
     yield
     mgr.close_all()
@@ -88,7 +92,8 @@ def test_populate_registry_injects_tools():
     names = {t["name"] for t in TOOL_SCHEMAS if t.get("mcp")}
     assert "demo_echo" in names
     assert "demo_echo" in _IMPLS
-    assert "demo_echo" in _EXEC_TOOLS
+    # demo_echo 为只读型 mcp 工具 -> 注入只读分层 (非 exec)
+    assert "demo_echo" in _READONLY_TOOLS
 
 
 def test_registry_execute_calls_mcp():
@@ -96,9 +101,12 @@ def test_registry_execute_calls_mcp():
     reg = build_registry(cfg, permission_mode="bypassPermissions")
     res = reg.execute("demo_echo", {"text": "端到端"})
     assert "端到端" in res
-    # 权限: plan 模式应拦截外部(mcp)工具
+    # 权限: plan 模式放行只读型 mcp 工具(demo_echo 为只读), 仍应正常执行
     reg2 = build_registry(cfg, permission_mode="plan")
-    blocked = reg2.execute("demo_echo", {"text": "x"})
+    allowed = reg2.execute("demo_echo", {"text": "x"})
+    assert "x" in allowed, "plan 模式应放行只读 mcp 工具"
+    # plan 模式拦截写型内置工具 (write_file), 验证权限分层生效
+    blocked = reg2.execute("write_file", {"path": "a", "content": "b"})
     assert "计划模式" in blocked or "禁止" in blocked
 
 

@@ -27,6 +27,15 @@
 
 ---
 
+## 批次 3 — 智能体循环与推理增强 ✅ (2026-08-26 完成)
+- [done] **长任务断点续跑**: `run()` 命中 `max_iter` 不再硬失败, 自动 `save_session()` 落盘断点并 `emit("done", resume_available=True, session_id=...)`; 新增 `continue_run()`(复用活体状态续跑) 与 `resume_from_disk()`(跨进程从磁盘水合续跑)。Web `_chat_sse` 对「继续/continue」类意图替换为显式续跑提示, 引导模型基于已有工具结果推进到底。
+- [done] **反思循环**: 配置 `agent.reflect_every`(默认 0=关); 每 N 轮注入 `_REFLECT_HINT` 自检提示(目标/进展/下一步), 与收敛护栏、循环检测构成「临近上限→死循环→周期反思」三级引导, 抗空转促收敛。
+- [done] **工具结果 LLM 摘要回灌**: 配置 `agent.summarize_tool_results` + `summarize_max_chars`(默认 3000); 超长结果优先调 `client.chat(stream=False)` 摘要后回灌, 无 LLM/异常自动回退硬截断 (`_post_process_result`)。升级批次1的纯截断, 省 token 且保关键信息。
+- [done] **prompt 引导增强**: 系统提示新增 12g 自验证(symbol_search/grep 自检签名一致性)、12h 主动澄清(仅真模糊时最多反问一次)、12i 长任务续跑说明。
+- [done] 单测 `tests/test_agent_reasoning.py`(7 例) 覆盖反思注入/摘要优先/截断回退/强制结束续跑/continue_run 复用; 顺带修正批次1遗留的 2 处 `test_mcp.py` 过期期望(demo_echo=只读, plan 模式放行只读型 mcp); 全量 pytest **188 passed**。
+
+---
+
 ## 主题 A — 工具体系纵深（约 15 轮）
 - [ ] 工具结果结构化：MCP 返回 JSON 时自动提取关键字段（如 search 的标题/url、fetch 的正文），而非整页文本。
 - [ ] 工具缓存层：`web_search`/`code_search` 同查询命中缓存，省 token 与时延。
@@ -140,3 +149,4 @@
 ## 进度小结
 - 2026-08-26 批次1：工具系统综合硬化（权限分层/截断/repo_map多语言/可视化/prompt），169 单测全绿，已重打包+端到端验证。
 - 2026-08-26 批次2：代码精读/检索/编辑能力增强（grep增强/read行号/edit模糊提示/apply_patch诊断/symbol_search/repo_map gitignore+depth），175 单测全绿，待重打包+端到端验证。
+- 2026-08-26 批次3：智能体循环与推理增强（断点续跑/resume/反思循环/工具结果LLM摘要/prompt自验证+主动澄清），188 单测全绿，待重打包+端到端验证。

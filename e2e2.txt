@@ -1,0 +1,8 @@
+data: {"type": "text", "chunk": "（mock）已收到请求，任务完成。"}
+
+data: {"type": "done", "text": "（mock）已收到请求，任务完成。", "truncated": false, "chain": [], "est_input_tokens": 48241, "est_output_tokens": 73, "est_total_tokens": 48314, "est_cost_cny": 0.00484}
+
+data: {"type": "done", "session_id": "94c642553c25"}
+
+data: {"type":"close"}
+

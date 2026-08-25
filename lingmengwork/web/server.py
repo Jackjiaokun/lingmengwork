@@ -1414,6 +1414,11 @@ class Handler(SimpleHTTPRequestHandler):
             body = {}
         # 兼容 message / prompt 两种键名
         message = (body.get("message") or body.get("prompt") or "").strip()
+        # 「继续 / continue」类续跑意图: 替换为显式续跑提示, 引导模型基于已有工具结果推进到底
+        _CONTINUE_WORDS = {"继续", "continue", "继续任务", "接着来", "继续吧", "resume", "接着干"}
+        if message and message.strip().lower() in {w.lower() for w in _CONTINUE_WORDS}:
+            message = ("请基于已有的全部工具结果与上下文, 继续推进刚才未完成的任务: "
+                       "不要重复已做过的调用, 直接朝着最终结论或交付物推进, 直到真正完成。")
         history = body.get("history") or []
         backend_override = body.get("backend") or None
         mode = body.get("mode") or "bypassPermissions"  # plan | acceptEdits | bypassPermissions

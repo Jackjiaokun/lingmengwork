@@ -21,6 +21,18 @@ _LOOP_HINT = (
     "⚠️ 检测到你正在重复调用完全相同的工具, 没有取得新信息。 "
     "请停止调用工具, 直接基于已有结果给出最终结论, 不要再次发起相同调用。"
 )
+# ③ 反思循环 (主题 B): 周期性自检, 评估「目标 vs 进展」, 偏离则纠偏 (抗空转/促收敛)
+_REFLECT_HINT = (
+    "🤔 阶段性自检: 请花一点时间回顾——你当前的目标是什么? 已通过工具取得了哪些关键事实? "
+    "下一步最该做什么才能逼近最终交付? 若已掌握足够信息, 直接给结论; "
+    "若还需工具, 只调用能带来新信息且必要的工具, 避免无效重复。"
+)
+# 工具结果 LLM 摘要提示 (主题 B): 把超长原始输出压缩为关键要点, 省 token/时延
+_SUMMARIZE_PROMPT = (
+    "你是一个工具结果压缩器。下面是一段过长的工具输出。请提炼对完成当前编程任务"
+    "真正关键的信息: 错误/异常、关键数值、文件路径与行号、函数/符号签名、结论。去除噪声与重复。"
+    "用中文要点输出, 不超过 12 条, 保留原始文件路径与行号原文, 不要编造未出现的内容。"
+)
 
 
 # —— 容忍性工具调用解析 (修复「多工具调用静默失效」) ——
@@ -75,6 +87,32 @@ def _truncate_tool_result(res, limit):
     if len(s) <= limit:
         return res
     return s[:limit] + f"\n... [工具结果已截断: 原文 {len(s)} 字符, 保留前 {limit} 字符]"
+
+
+def _post_process_result(client, res, *, summarize, summarize_max, hard_limit):
+    """长结果处理 (主题 B): 开启 LLM 摘要时优先摘要, 否则硬截断; 无 LLM/异常自动回退截断。
+
+    - summarize=True 且原文超 summarize_max -> 调 client.chat(stream=False) 摘要, 失败回退截断。
+    - 纯函数化调用 (client 传入), 便于单测用假 client 验证摘要路径。
+    """
+    s = str(res)
+    if summarize and len(s) > summarize_max:
+        try:
+            summary = client.chat(
+                [
+                    {"role": "system", "content": _SUMMARIZE_PROMPT},
+                    # 仅取前 8k 提炼, 防止摘要本身撑爆上下文
+                    {"role": "user", "content": s[:8000]},
+                ],
+                stream=False,
+                temperature=0.0,
+            )
+            summary = (summary or "").strip()
+            if summary:
+                return summary + f"\n... [已用 LLM 摘要原始 {len(s)} 字符的工具结果]"
+        except Exception:
+            pass
+    return _truncate_tool_result(res, hard_limit)
 
 
 def _parse_kv_tool(raw):
@@ -185,6 +223,10 @@ class AgentLoop:
         self.cfg = cfg
         self.max_iter = int(cfg["agent"]["max_iterations"])
         self._tool_result_limit = int((cfg["agent"].get("tool_result_max_chars") or 6000))
+        # 主题 B: 反思循环 / 工具结果 LLM 摘要 (默认均关闭, 由 config 开启)
+        self._reflect_every = int(cfg["agent"].get("reflect_every") or 0)
+        self._summarize = bool(cfg["agent"].get("summarize_tool_results") or False)
+        self._summarize_max = int(cfg["agent"].get("summarize_max_chars") or 3000)
         self.session_id = session_id or None
         self.provider = provider
         override = system_prompt_override if system_prompt_override is not None else cfg["agent"].get("system_prompt")
@@ -286,8 +328,13 @@ class AgentLoop:
                     res = "[tool error] %s" % e
                     ok = False
                 dt_ms = int((time.time() - t0) * 1000)
-                # 截断超长返回, 防止上下文爆炸 (web_fetch/code_search/shell 等)
-                res = _truncate_tool_result(res, self._tool_result_limit)
+                # 长结果处理: 优先 LLM 摘要(若开启), 否则硬截断, 防上下文爆炸
+                res = _post_process_result(
+                    self.client, res,
+                    summarize=self._summarize,
+                    summarize_max=self._summarize_max,
+                    hard_limit=self._tool_result_limit,
+                )
                 emit("tool_result", name=name, args=args, output=res, seq=seq, kind=tool_kind(name), ok=ok, duration_ms=dt_ms)
                 results.append(f"[tool result: {name}]\n{res}")
                 chain.append({"seq": seq, "name": name, "kind": tool_kind(name), "ok": ok, "duration_ms": dt_ms})
@@ -301,8 +348,17 @@ class AgentLoop:
                 self.messages.append({"role": "user", "content": _CONVERGE_HINT})
             elif len(self._recent_sigs) >= 3 and len(set(self._recent_sigs[-3:])) == 1:
                 self.messages.append({"role": "user", "content": _LOOP_HINT})
+            elif self._reflect_every and self.iteration % self._reflect_every == 0:
+                # 反思循环 (主题 B): 周期性自检, 抗空转/促收敛
+                self.messages.append({"role": "user", "content": _REFLECT_HINT})
 
-        emit("done", text=last, truncated=True, chain=chain, **self.token_stats())
+        # —— 长任务断点续跑 (主题 B): 命中上限不再硬失败, 落盘断点供「继续」恢复 ——
+        try:
+            self.save_session()
+        except Exception:
+            pass
+        emit("done", text=last, truncated=True, chain=chain,
+             resume_available=True, session_id=self.session_id, **self.token_stats())
         return last
 
     @staticmethod
@@ -344,6 +400,30 @@ class AgentLoop:
         body = [m for m in hist if m.get("role") != "system"]
         self.messages = [{"role": "system", "content": self._full_system()}] + body
         return True
+
+    def continue_run(self, user_message=None, on_event=None):
+        """在已有执行态上续跑 (复用 messages/迭代), 用于「继续」恢复长任务。
+
+        与 run() 区别: 自动以「续跑提示」作为本轮用户意图, 引导模型基于已有工具结果
+        推进到最后结论, 而非重复已做过的调用。活体 loop 对象仍在时直接调用即可。
+        """
+        nudge = user_message or (
+            "请基于已有的全部工具结果继续推进当前任务: 不要重复已做过的调用, "
+            "直接朝着最终结论或交付物推进, 直到真正完成。"
+        )
+        return self.run(nudge, on_event=on_event)
+
+    @classmethod
+    def resume_from_disk(cls, sid, client, registry, cfg, user_message=None, on_event=None):
+        """从磁盘会话恢复 (新进程 / loop 已丢失时), 再续跑。
+
+        成功返回最终文本; 会话不存在/水合失败返回 None。配合 run() 强制结束时的
+        save_session(), 实现跨进程的「继续」断点续跑。
+        """
+        loop = cls(client, registry, cfg, session_id=sid)
+        if not loop.load_session_messages(sid):
+            return None
+        return loop.continue_run(user_message=user_message, on_event=on_event)
 
     @staticmethod
     def _parse_tools(text):

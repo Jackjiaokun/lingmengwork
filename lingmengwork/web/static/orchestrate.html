@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 智能编排</title>
+<style>
+  :root{
+    --bg:#070a14; --card:rgba(20,27,48,.62); --card2:#1a2238;
+    --line:rgba(126,146,210,.16); --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff;
+    --ok:#34e0a1; --warn:#ffb454; --fail:#ff5c7c; --brand2:#4dd0e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:rgba(14,20,36,.7);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  a.btn{background:linear-gradient(135deg,#7c5cff,#5b8bff);border:1px solid transparent;color:#fff;padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;box-shadow:0 6px 20px rgba(124,92,255,.3)}
+  a.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);box-shadow:none}
+  main{max-width:1080px;margin:0 auto;padding:18px 22px 60px}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+  .sec h2{font-size:14px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .sec h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc)}
+  input[type=text],textarea{width:100%;background:#0a0f1d;border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:10px 12px;font-size:13.5px;font-family:inherit}
+  textarea{min-height:64px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .acts{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+  .btn.sm{padding:7px 15px;font-size:12.5px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(124,92,255,.12);color:#c9bbff}
+  .btn.sm:hover{border-color:var(--acc);color:#fff}
+  .btn.sm.green{background:linear-gradient(135deg,#34e0a1,#2bbf88);color:#04210f;box-shadow:0 6px 20px rgba(52,224,161,.25);border-color:transparent}
+  .hint{color:var(--mut);font-size:12px}
+  /* 依赖树分层 */
+  .layers{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+  .layer{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+  .layer-tag{flex:0 0 46px;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;font-size:11px;color:var(--mut);border-right:1px dashed var(--line);padding-right:6px}
+  .step{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:11px 13px;flex:1;min-width:230px;transition:.15s}
+  .step:hover{border-color:var(--acc)}
+  .step .st-head{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+  .step .st-id{font-family:ui-monospace,monospace;font-size:11px;color:var(--mut)}
+  .step .st-title{font-size:13.5px;font-weight:600}
+  .step .st-detail{font-size:12px;color:var(--mut);line-height:1.5}
+  .step .st-foot{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .badge{font-size:11px;padding:2px 8px;border-radius:12px;border:1px solid var(--line);color:var(--mut)}
+  .badge.dom-code{color:#9db4ff;border-color:rgba(91,139,255,.4);background:rgba(91,139,255,.1)}
+  .badge.dom-audio{color:#34e0a1;border-color:rgba(52,224,161,.4);background:rgba(52,224,161,.1)}
+  .badge.dom-image{color:#ff9ecb;border-color:rgba(255,92,157,.4);background:rgba(255,92,157,.1)}
+  .badge.dom-video{color:#c9a6ff;border-color:rgba(124,92,255,.4);background:rgba(124,92,255,.1)}
+  .badge.dom-any{color:var(--mut)}
+  .arrow{color:var(--mut);font-size:12px}
+  .empty{color:var(--mut);font-size:13px;padding:10px 0}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(20,27,48,.96);border:1px solid var(--line);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .25s;z-index:30;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+  <header>
+    <a class="btn ghost" href="/">← 返回面板</a>
+    <h1>🧩 智能<span class="ac">编排</span></h1>
+    <div class="head-sp"></div>
+    <span class="hint">层级任务分解 · 依赖图 · 跨域路由 · 派发并行</span>
+  </header>
+  <main>
+    <section class="sec">
+      <h2><span class="dot"></span>目标输入</h2>
+      <input type="text" id="goal" placeholder="描述一个高层目标, 如: 做一个能自动生成带配音配图的短视频 Agent" />
+      <textarea id="ctx" placeholder="补充上下文/约束(可选)" style="margin-top:10px"></textarea>
+      <div class="acts">
+        <button class="btn sm green" id="decBtn">🧠 层级分解</button>
+        <span class="hint" id="decHint"></span>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2><span class="dot"></span>分解结果 · 依赖分层</h2>
+      <div id="tree"><p class="empty">输入目标并点击「层级分解」。</p></div>
+      <div class="acts" id="treeActs" style="display:none">
+        <button class="btn sm" id="savePlan">📐 存为计划书</button>
+        <button class="btn sm" id="dispatch">🚀 派发并行任务池</button>
+      </div>
+    </section>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let LAST = null;
+function toast(m, ok=true){ const t=$("#toast"); t.textContent=m; t.style.borderColor=ok?"var(--ok)":"var(--fail)"; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2200); }
+async function api(url, opt){ const r=await fetch(url,opt); const d=await r.json().catch(()=>({error:"解析失败"})); if(d.error) throw new Error(d.error); return d; }
+const DOM_LABEL={code:"🟣编程",audio:"🟢音频",image:"🌸图片",video:"🔵视频",any:"⚪通用"};
+
+$("#decBtn").onclick=async()=>{
+  const g=$("#goal").value.trim(); if(!g){toast("请填写目标",false);return;}
+  $("#decHint").textContent="分解中…";
+  try{
+    const d=await api("/api/decompose",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal:g,context:$("#ctx").value.trim()})});
+    LAST=d; renderTree(d); $("#treeActs").style.display="flex"; $("#decHint").textContent="";
+    toast("已分解为 "+d.steps.length+" 步 (执行序: "+d.execution_order.join(" → ")+")");
+  }catch(e){ $("#decHint").textContent=""; toast(e.message,false); }
+};
+
+function renderTree(d){
+  const layers={};
+  d.steps.forEach(s=>{ const L=s.layer||0; (layers[L]=layers[L]||[]).push(s); });
+  const maxL=Math.max(0,...Object.keys(layers).map(Number));
+  let html='<div class="layers">';
+  for(let L=0;L<=maxL;L++){
+    const steps=layers[L]||[]; if(!steps.length) continue;
+    html+='<div class="layer"><div class="layer-tag">第 '+(L+1)+' 层</div>';
+    steps.forEach(s=>{
+      const dep=s.depends&&s.depends.length?('依赖 '+s.depends.join(',')):'无前置';
+      html+='<div class="step"><div class="st-head"><span class="st-id">'+s.id+'</span><span class="st-title">'+esc(s.title)+'</span></div>'
+        +'<div class="st-detail">'+(s.detail?esc(s.detail):'')+'</div>'
+        +'<div class="st-foot"><span class="badge dom-'+s.domain+'">'+DOM_LABEL[s.domain]+'</span>'
+        +'<span class="badge">'+esc(dep)+'</span>'
+        +(s.estimate?('<span class="badge">⏱ '+esc(s.estimate)+'</span>'):'')+'</div></div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  $("#tree").innerHTML=html;
+}
+function esc(s){ return (s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+$("#savePlan").onclick=async()=>{ if(!LAST)return; try{
+  const d=await api("/api/plans",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({title:LAST.plan.title,content:LAST.plan.content,tasks:LAST.plan.tasks,status:"todo"})});
+  toast("已存为计划书"); if(confirm("已存入计划书, 前往查看?")) location.href="/plans";
+}catch(e){ toast(e.message,false); } };
+
+$("#dispatch").onclick=async()=>{ if(!LAST)return; try{
+  const prompts=LAST.steps.map(s=>("["+s.domain+"] "+s.title+": "+(s.detail||"")).slice(0,400));
+  const d=await api("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompts})});
+  toast("已派发 "+prompts.length+" 个并行任务到任务池");
+}catch(e){ toast(e.message,false); } };
+</script>
+</body>
+</html>

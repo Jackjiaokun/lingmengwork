@@ -1129,6 +1129,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("docs.html")
         if p == "/api/docs":
             return self._send_json(self._docs_get())
+        # ---- 多智能体编排页面 ----
+        if p == "/orchestrate":
+            return self._serve_file("orchestrate.html")
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()
@@ -1323,6 +1326,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._plans_delete()
         if p == "/api/plans/task":
             return self._plans_task()
+        # ---- 层级任务分解 / 多智能体编排 (LLM 驱动) ----
+        if p == "/api/decompose":
+            return self._decompose_api()
         # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
         if p == "/api/context/compress":
             return self._context_op("compress")
@@ -3185,6 +3191,26 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             return self._send_json({"error": "保存失败: %s" % e}, status=500)
         return self._send_json({"ok": True, "plan": obj})
+
+    def _decompose_api(self):
+        """POST /api/decompose {goal, context?} -> 层级任务分解(LLM 驱动 + 规则兜底)。"""
+        from .. import decompose_engine as _de
+        body = self._read_json({})
+        goal = (body.get("goal") or "").strip()
+        if not goal:
+            return self._send_json({"error": "缺少 goal"}, status=400)
+        try:
+            steps = _de.decompose(goal, text=body.get("context") or "", llm_call=self._make_llm_call())
+            payload = _de.to_plan_payload(goal, steps, title=goal)
+            order = _de.execution_order(steps)
+            return self._send_json({
+                "ok": True, "goal": goal, "steps": steps,
+                "execution_order": order, "plan": payload,
+            })
+        except Exception as e:
+            from .. import errorlog as _el
+            _el.record(os.getcwd(), "decompose", "任务分解失败: %s" % e, source="api:/api/decompose", detail=str(e))
+            return self._send_json({"error": "分解失败: %s" % e}, status=500)
 
     def _plans_delete(self):
         """POST /api/plans/delete {id} -> 删除计划。"""

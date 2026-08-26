@@ -2833,6 +2833,7 @@ const COMMANDS = [
   { id: "p-plan", title: "打开 · 计划看板", run: () => gotoPage("/planboard") },
   { id: "p-settings", title: "打开 · 设置中心", run: () => gotoPage("/settings") },
   { id: "p-sandbox", title: "打开 · 工作区沙箱", run: () => gotoPage("/sandbox") },
+  { id: "p-orchestrate", title: "打开 · 编排中枢", run: () => gotoPage("/orchestrate") },
   { id: "theme-code", title: "主题 · 编码", run: () => setTheme("code") },
   { id: "theme-audio", title: "主题 · 音频", run: () => setTheme("audio") },
   { id: "theme-image", title: "主题 · 图片", run: () => setTheme("image") },

@@ -1135,6 +1135,8 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 四大创作域 统一创作工作台 ----
         if p == "/studio":
             return self._serve_file("studio.html")
+        if p == "/autonomous":
+            return self._serve_file("autonomous.html")
         if p == "/api/creation/domains":
             from .. import creation_domains as _cd
             return self._send_json({"ok": True, "domains": _cd.list_domains()})
@@ -1338,6 +1340,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 四大创作域 统一创作工作台 (LLM 驱动) ----
         if p == "/api/creation/dispatch":
             return self._creation_dispatch()
+        # ---- 自主模式: 目标驱动自驱循环 (Phase 5) ----
+        if p == "/api/autonomous":
+            return self._autonomous_run()
         # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
         if p == "/api/context/compress":
             return self._context_op("compress")
@@ -3244,6 +3249,25 @@ class Handler(SimpleHTTPRequestHandler):
             from .. import errorlog as _el
             _el.record(os.getcwd(), "creation", "创作分发失败: %s" % e, source="api:/api/creation/dispatch", detail=str(e))
             return self._send_json({"error": "分发失败: %s" % e}, status=500)
+
+    def _autonomous_run(self):
+        """POST /api/autonomous {goal, context?, max_iter?} -> 自主自驱循环(规划/观察/Critic/反思)。"""
+        from .. import autonomous as _au
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            if not goal:
+                return self._send_json({"error": "缺少 goal"}, status=400)
+            try:
+                max_iter = int(body.get("max_iter") or 6)
+            except (TypeError, ValueError):
+                max_iter = 6
+            result = _au.run(goal, llm_call=self._make_llm_call(), context=body.get("context") or "", max_iter=max_iter)
+            return self._send_json(result)
+        except Exception as e:
+            from .. import errorlog as _el
+            _el.record(os.getcwd(), "autonomous", "自主循环失败: %s" % e, source="api:/api/autonomous", detail=str(e))
+            return self._send_json({"error": "自主循环失败: %s" % e}, status=500)
 
     def _plans_delete(self):
         """POST /api/plans/delete {id} -> 删除计划。"""

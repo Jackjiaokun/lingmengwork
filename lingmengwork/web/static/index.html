@@ -1,11 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="code">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>灵梦work · LingMeng Work</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <script>
+    /* 主题早应用: 在样式渲染前设置 data-theme, 避免切换主题时白屏闪烁 */
+    (function(){
+      try {
+        var t = localStorage.getItem("lmw_theme");
+        if (t && ["code","audio","image","video"].indexOf(t) >= 0) {
+          document.documentElement.setAttribute("data-theme", t);
+        }
+      } catch(e){}
+    })();
+  </script>
   <style>
     .enhance-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
     .enh-chip{font-size:11px;padding:1px 8px;border-radius:10px;background:rgba(124,92,255,.16);
@@ -66,6 +77,9 @@
           <div class="nav-group-body">
             <a class="nav-item" href="/notes"><span class="nav-ico">📝</span><span class="nav-label">笔记</span></a>
             <a class="nav-item" href="/todos"><span class="nav-ico">✅</span><span class="nav-label">待办清单</span></a>
+            <a class="nav-item" href="/memory"><span class="nav-ico">🧠</span><span class="nav-label">记忆中枢</span></a>
+            <a class="nav-item" href="/plans"><span class="nav-ico">📐</span><span class="nav-label">计划书·任务</span></a>
+            <a class="nav-item" href="/docs"><span class="nav-ico">📚</span><span class="nav-label">技术文档</span></a>
             <a class="nav-item" href="/snippets"><span class="nav-ico">📎</span><span class="nav-label">代码片段</span></a>
             <a class="nav-item" href="/templates"><span class="nav-ico">📋</span><span class="nav-label">提示词模板</span></a>
             <a class="nav-item" href="/enhance"><span class="nav-ico">🧠</span><span class="nav-label">专家·技能</span></a>
@@ -98,6 +112,7 @@
             <a class="nav-item" href="/observability"><span class="nav-ico">📊</span><span class="nav-label">可观测仪表盘</span></a>
             <a class="nav-item" href="/cost"><span class="nav-ico">💰</span><span class="nav-label">成本看板</span></a>
             <a class="nav-item" href="/planboard"><span class="nav-ico">🗂️</span><span class="nav-label">计划看板</span></a>
+            <a class="nav-item" href="/errors"><span class="nav-ico">🛑</span><span class="nav-label">错误日志</span></a>
           </div>
         </div>
       </nav>
@@ -136,6 +151,13 @@
           <span class="topbar-sub">本地优先 · 多通道 · 全链路可观测</span>
         </div>
       <div class="topbar-right">
+        <div class="theme-switcher" id="theme-switcher" title="主题切换">
+          <span class="ts-ico">🎨</span>
+          <button class="theme-btn" data-theme="code" title="编码主题 (紫青)">编码</button>
+          <button class="theme-btn" data-theme="audio" title="音频主题 (青绿)">音频</button>
+          <button class="theme-btn" data-theme="image" title="图片主题 (粉橙)">图片</button>
+          <button class="theme-btn" data-theme="video" title="视频主题 (蓝紫)">视频</button>
+        </div>
         <span id="sandbox-chip" class="sandbox-chip" title="工作区沙箱状态">🛡️ 沙箱 …</span>
         <button id="btn-stars" class="btn-ghost btn-icon" title="收藏夹 (跨会话)">⭐ 收藏</button>
         <button id="btn-cmd" class="btn-ghost btn-icon" title="命令面板 (⌘K / Ctrl+K)">⌘K</button>
@@ -193,6 +215,13 @@
           <span class="as-text">正在思考…</span>
           <div class="as-bar"><div class="as-fill indet"></div></div>
         </div>
+        <div id="ctx-bar" class="ctx-bar">
+          <span class="ctx-label">上下文</span>
+          <select id="ctx-session" class="ctx-sel" title="选择要处理的会话"></select>
+          <button id="ctx-compress" class="cs-btn" title="压缩当前会话上下文为浓缩摘要">🗜 压缩</button>
+          <button id="ctx-organize" class="cs-btn" title="把上下文整理为结构化笔记">🗂 整理</button>
+          <button id="ctx-decompose" class="cs-btn" title="把目标拆解为可执行子任务清单">🧩 拆解</button>
+        </div>
         <div id="composer" class="composer">
           <div id="quote-bar" class="quote-bar" hidden>
             <span class="quote-ico">↩</span>
@@ -214,6 +243,23 @@
           </div>
         </div>
       </section>
+
+      <!-- 上下文操作结果弹窗 -->
+      <div id="ctx-modal" class="ctx-modal" hidden>
+        <div class="ctx-box">
+          <div class="ctx-head">
+            <span id="ctx-modal-title" class="ctx-title">上下文结果</span>
+            <span class="editor-spacer"></span>
+            <button id="ctx-modal-close" class="cs-btn">✕</button>
+          </div>
+          <pre id="ctx-result" class="ctx-result"></pre>
+          <div class="ctx-foot">
+            <button id="ctx-to-memory" class="btn-primary btn-sm">🧠 存入记忆</button>
+            <button id="ctx-to-plan" class="btn-primary btn-sm">📐 存入计划书</button>
+            <button id="ctx-copy" class="cs-btn">📋 复制</button>
+          </div>
+        </div>
+      </div>
 
 
       <section id="panel-results" class="panel">

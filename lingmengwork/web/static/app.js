@@ -2810,6 +2810,10 @@ const COMMANDS = [
   { id: "p-plan", title: "打开 · 计划看板", run: () => gotoPage("/planboard") },
   { id: "p-settings", title: "打开 · 设置中心", run: () => gotoPage("/settings") },
   { id: "p-sandbox", title: "打开 · 工作区沙箱", run: () => gotoPage("/sandbox") },
+  { id: "theme-code", title: "主题 · 编码", run: () => setTheme("code") },
+  { id: "theme-audio", title: "主题 · 音频", run: () => setTheme("audio") },
+  { id: "theme-image", title: "主题 · 图片", run: () => setTheme("image") },
+  { id: "theme-video", title: "主题 · 视频", run: () => setTheme("video") },
   { id: "stars", title: "打开收藏夹 (跨会话)", run: openStars },
 ];
 
@@ -3094,6 +3098,122 @@ document.addEventListener("keydown", (e) => {
       head.setAttribute("aria-expanded", String(willOpen));
       save();
     });
+  });
+})();
+
+// ===================================================================
+// 上下文操作工具栏: 压缩 / 整理 / 拆解 当前会话上下文
+// ===================================================================
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const ctxSel = $("#ctx-session");
+  const modal = $("#ctx-modal");
+  let lastMd = "";
+
+  async function loadCtxSessions() {
+    try {
+      const r = await fetch("/api/sessions");
+      const d = await r.json();
+      ctxSel.innerHTML = "";
+      (d.sessions || []).forEach((s) => {
+        const o = document.createElement("option");
+        o.value = s.id;
+        const sum = (s.summary || s.id || "").slice(0, 40);
+        o.textContent = (sum || s.id) + " · " + (s.messages || 0) + "条";
+        ctxSel.appendChild(o);
+      });
+      if (!ctxSel.options.length) {
+        const o = document.createElement("option");
+        o.value = "";
+        o.textContent = "(无历史会话)";
+        ctxSel.appendChild(o);
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  async function runCtxOp(kind) {
+    const sid = ctxSel.value;
+    if (!sid) { alert("请先在左侧选择一个会话"); return; }
+    try {
+      const r = await fetch("/api/context/" + kind, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
+      const d = await r.json();
+      if (d.error) { alert(d.error); return; }
+      lastMd = d.markdown || "";
+      $("#ctx-result").textContent = lastMd;
+      $("#ctx-modal-title").textContent = {
+        compress: "🗜 上下文压缩报告",
+        organize: "🗂 上下文整理笔记",
+        decompose: "🧩 上下文任务拆解",
+      }[kind] || "上下文结果";
+      modal.hidden = false;
+    } catch (e) { alert("操作失败: " + e); }
+  }
+
+  $("#ctx-compress").onclick = () => runCtxOp("compress");
+  $("#ctx-organize").onclick = () => runCtxOp("organize");
+  $("#ctx-decompose").onclick = () => runCtxOp("decompose");
+  $("#ctx-modal-close").onclick = () => { modal.hidden = true; };
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
+  $("#ctx-copy").onclick = async () => { try { await navigator.clipboard.writeText(lastMd); } catch (e) {} };
+  $("#ctx-to-memory").onclick = async () => {
+    try {
+      await fetch("/api/memory", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "append", title: "上下文操作结果", content: lastMd }),
+      });
+      alert("已存入记忆中枢");
+    } catch (e) { alert("失败: " + e); }
+  };
+  $("#ctx-to-plan").onclick = async () => {
+    const title = prompt("计划书标题:", "上下文拆解计划");
+    if (!title) return;
+    try {
+      await fetch("/api/plans", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title, content: lastMd, status: "todo" }),
+      });
+      if (confirm("已存入计划书, 前往查看?")) location.href = "/plans";
+    } catch (e) { alert("失败: " + e); }
+  };
+  loadCtxSessions();
+})();
+
+/* ============================ 主题切换 (编码/音频/图片/视频) ============================ */
+(function () {
+  const THEMES = ["code", "audio", "image", "video"];
+  const KEY = "lmw_theme";
+  const switcher = document.getElementById("theme-switcher");
+  function current() {
+    const t = document.documentElement.getAttribute("data-theme");
+    return THEMES.indexOf(t) >= 0 ? t : "code";
+  }
+  function paint(theme) {
+    if (!switcher) return;
+    switcher.querySelectorAll(".theme-btn").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-theme") === theme);
+    });
+  }
+  window.setTheme = function (theme) {
+    if (THEMES.indexOf(theme) < 0) return;
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem(KEY, theme); } catch (e) {}
+    paint(theme);
+    const meta = { code: "编码", audio: "音频", image: "图片", video: "视频" };
+    toast("已切换主题 · " + (meta[theme] || theme), "ok");
+  };
+  if (switcher) {
+    switcher.querySelectorAll(".theme-btn").forEach((b) => {
+      b.addEventListener("click", () => window.setTheme(b.getAttribute("data-theme")));
+    });
+  }
+  // 初始高亮 + 跨标签页同步
+  paint(current());
+  window.addEventListener("storage", (e) => {
+    if (e.key === KEY && e.newValue) { document.documentElement.setAttribute("data-theme", e.newValue); paint(e.newValue); }
   });
 })();
 

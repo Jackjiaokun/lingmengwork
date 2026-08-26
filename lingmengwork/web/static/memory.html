@@ -71,6 +71,19 @@
       <div class="acts"><button class="btn sm green" id="appendLog">📝 写入今日日志</button></div>
       <div id="logView" style="margin-top:12px"></div>
     </section>
+
+    <section class="sec">
+      <h2><span class="dot"></span>语义记忆 · 智能抽取与召回</h2>
+      <p class="hint" style="margin-top:0">从一段文本中由 LLM 抽取「约定/决策/偏好/事实/风险」并写入长期记忆(无 key 时走规则兜底, 自动去重)。</p>
+      <textarea id="capText" style="min-height:90px" placeholder="粘贴一段对话/笔记, 点击抽取将自动提炼关键记忆 ..."></textarea>
+      <div class="acts"><button class="btn sm green" id="capBtn">🧠 智能抽取并记忆</button><span class="hint" id="capHint"></span></div>
+      <div style="height:14px"></div>
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="retrieQ" placeholder="输入查询, 如: 部署约定 / 商汤 key" style="flex:1;min-width:240px" />
+        <button class="btn sm" id="retrieBtn">🔎 语义召回</button>
+      </div>
+      <div id="retrieRes"></div>
+    </section>
   </main>
   <div class="toast" id="toast"></div>
 
@@ -95,6 +108,10 @@ $("#saveMem").onclick=async()=>{ try{ await api("/api/memory",{method:"POST",hea
 $("#reloadMem").onclick=()=>loadMemory();
 $("#appendMem").onclick=async()=>{ const t=$("#noteBody").value.trim(); if(!t){toast("请填写内容",false);return;} try{ await api("/api/memory",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"append",title:$("#noteTitle").value.trim(),content:t})}); toast("已追加到记忆"); $("#noteBody").value=""; $("#noteTitle").value=""; loadMemory(); }catch(e){ toast(e.message,false); } };
 $("#appendLog").onclick=async()=>{ const t=$("#logBody").value.trim(); if(!t){toast("请填写内容",false);return;} try{ await api("/api/memory",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"log",title:$("#logTitle").value.trim(),content:t})}); toast("已写入今日日志"); $("#logBody").value=""; $("#logTitle").value=""; loadMemory(); }catch(e){ toast(e.message,false); } };
+
+// ---- 语义记忆: 智能抽取 + 召回 ----
+$("#capBtn").onclick=async()=>{ const t=$("#capText").value.trim(); if(!t){toast("请粘贴待抽取文本",false);return;} $("#capHint").textContent="抽取中…"; try{ const d=await api("/api/memory",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"capture",content:t})}); const n=(d.captured||[]).length; $("#capHint").textContent="已抽取 "+n+" 条"+(n?("; 累计 "+d.total+" 条"):""); toast(n?("已抽取 "+n+" 条关键记忆"):"未识别到可记忆信息"); $("#capText").value=""; loadMemory(); }catch(e){ $("#capHint").textContent=""; toast(e.message,false); } };
+$("#retrieBtn").onclick=async()=>{ const q=$("#retrieQ").value.trim(); if(!q){toast("请输入查询",false);return;} try{ const d=await api("/api/memory/retrieve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q,k:6})}); const rr=d.results||[]; const box=$("#retrieRes"); if(!rr.length){ box.innerHTML='<p class="hint" style="margin:6px 0">未召回相关记忆。</p>'; return; } box.innerHTML='<div style="margin:8px 0 4px;color:var(--mut);font-size:12px">召回 '+rr.length+' 条 (按相关度排序):</div>'+ rr.map(r=>'<div style="background:#0a0f1d;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0"><div style="font-size:11px;color:var(--acc);margin-bottom:4px">📎 '+(r.source||"")+' · 相关度 '+(r.score||0)+'</div><div style="font-size:12.5px;white-space:pre-wrap;word-break:break-word">'+((r.snippet||"").replace(/</g,"&lt;"))+'</div></div>').join(""); }catch(e){ toast(e.message,false); } };
 loadMemory();
 </script>
 </body>

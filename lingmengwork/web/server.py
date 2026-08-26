@@ -1311,9 +1311,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self._todos_status()
         if p == "/api/todos/delete":
             return self._todos_delete()
-        # ---- 记忆中枢: 更新记忆 / 写日志 ----
+        # ---- 记忆中枢: 更新记忆 / 写日志 / 语义召回 ----
         if p == "/api/memory":
             return self._memory_update()
+        if p == "/api/memory/retrieve":
+            return self._memory_retrieve()
         # ---- 计划书: 保存/删除/任务 ----
         if p == "/api/plans":
             return self._plans_save()
@@ -3112,11 +3114,12 @@ class Handler(SimpleHTTPRequestHandler):
         })
 
     def _memory_update(self):
-        """POST /api/memory {mode:'replace'|'append'|'log', content, title?, date?}
+        """POST /api/memory {mode:'replace'|'append'|'log'|'capture', content, title?, date?}
 
         - replace: 整体覆盖 MEMORY.md
-        - append: 向 MEMORY.md 追加一条带时间戳笔记
-        - log:    向每日日志追加一段
+        - append:  向 MEMORY.md 追加一条带时间戳笔记
+        - log:     向每日日志追加一段
+        - capture: 从文本 LLM 抽取关键事实并写入语义记忆(无 key 走规则兜底)
         """
         from .. import memory_mgr as _mm
         body = self._read_json({})
@@ -3131,10 +3134,28 @@ class Handler(SimpleHTTPRequestHandler):
             if not content:
                 return self._send_json({"error": "log 模式需要 content"}, status=400)
             return self._send_json(_mm.append_log(os.getcwd(), content, title=title, date=body.get("date")))
+        if mode == "capture":
+            if not content:
+                return self._send_json({"error": "capture 模式需要 content"}, status=400)
+            return self._send_json(_mm.capture(os.getcwd(), content, llm_call=self._make_llm_call()))
         # 默认 append
         if not content:
             return self._send_json({"error": "append 模式需要 content"}, status=400)
         return self._send_json(_mm.append_memory(os.getcwd(), content, title=title))
+
+    def _memory_retrieve(self):
+        """POST /api/memory/retrieve {query, k?} -> 语义召回相关记忆片段。"""
+        from .. import memory_mgr as _mm
+        body = self._read_json({})
+        query = (body.get("query") or "").strip()
+        if not query:
+            return self._send_json({"error": "缺少 query"}, status=400)
+        k = body.get("k") or 5
+        try:
+            k = int(k)
+        except Exception:
+            k = 5
+        return self._send_json(_mm.retrieve(os.getcwd(), query, k=max(1, min(20, k))))
 
     # ===================================================================
     # 计划书 + 任务清单

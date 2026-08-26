@@ -541,13 +541,18 @@ def _classify_err(e):
     return "logic"
 
 
+_STRUCT_PREVIEW_ROWS = 8  # 数组类型「表格化对比」预览的最大行数 (控制透传体积)
+
+
 def _extract_struct(result_text):
-    """主题 A — 工具结果结构化 (批次13): 尝试从工具结果抽取 JSON 结构。
+    """主题 A — 工具结果结构化 (批次13/本次增强): 尝试从工具结果抽取 JSON 结构。
 
     返回 dict:
-      {is_json:True, kind:'object'|'array'|'scalar', n, keys:[...], sample?}
-      {is_json:False}   (非 JSON 或抽取失败)
-    纯函数, 便于单测; 复杂度 O(n), 不回溯全串。
+      {is_json:True, kind:'object', n, keys:[...], sample:{k:v,...}}          (对象)
+      {is_json:True, kind:'array',  n, keys:[...], preview:[row...], preview_n} (数组, 行级对比)
+      {is_json:True, kind:'scalar', n:1, keys:[], value:str}                  (标量)
+      {is_json:False}                                                          (非 JSON)
+    纯函数, 便于单测; 复杂度 O(n), 不回溯全串。preview/value 仅携带有限预览, 控制 SSE 体积。
     """
     if not result_text or not isinstance(result_text, str):
         return {"is_json": False}
@@ -580,14 +585,29 @@ def _extract_struct(result_text):
     if isinstance(data, list):
         n = len(data)
         keys_union = []
-        if data and isinstance(data[0], dict):
-            for item in data[:50]:
-                if isinstance(item, dict):
-                    for k in item.keys():
-                        if k not in keys_union:
-                            keys_union.append(k)
-        return {"is_json": True, "kind": "array", "n": n, "keys": keys_union[:24]}
-    return {"is_json": True, "kind": "scalar", "n": 1, "keys": []}
+        preview = []
+        # 抽取前若干元素做「表格化对比」预览 (限制行数/字段数/值长, 控制透传体积)
+        for item in data[:_STRUCT_PREVIEW_ROWS]:
+            if isinstance(item, dict):
+                row = {}
+                for k in list(item.keys())[:12]:
+                    if k not in keys_union:
+                        keys_union.append(k)
+                    row[k] = _truncate_val(item[k])
+                preview.append(row)
+            else:
+                if "#" not in keys_union:
+                    keys_union.append("#")
+                preview.append({"#": _truncate_val(item)})
+        # 补全字段并集 (覆盖前 50 个元素, 维持原行为, 供列头完整)
+        for item in data[:50]:
+            if isinstance(item, dict):
+                for k in item.keys():
+                    if k not in keys_union:
+                        keys_union.append(k)
+        return {"is_json": True, "kind": "array", "n": n,
+                "keys": keys_union[:24], "preview": preview, "preview_n": len(preview)}
+    return {"is_json": True, "kind": "scalar", "n": 1, "keys": [], "value": _truncate_val(data)}
 
 
 def _extract_balanced(text, start):

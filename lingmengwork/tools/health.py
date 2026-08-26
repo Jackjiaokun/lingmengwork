@@ -61,11 +61,14 @@ def _module_file(server):
     return None
 
 
-def probe_llm(cfg, timeout=6.0):
+def probe_llm(cfg, timeout=20.0):
     """真实最小 LLM 连通探针: 发起一次极短 chat, 线程超时保护, 绝不阻塞 HTTP 处理。
 
     返回 (ok: bool, detail: str, latency_ms: float|None)。
     mock 后端直接视为可用, 不消耗外部额度。
+
+    超时默认 20s: 云端 LLM 冷启动首调含 TLS 握手/模型预热, 实测常需 6-12s;
+    6s 会误判为超时(false negative)。20s 既能覆盖冷启动, 又能在真正不可达时及时失败。
     """
     try:
         from ..llm.client import build_client

@@ -17,11 +17,25 @@ def test_array():
     assert r["kind"] == "array"
     assert r["n"] == 2
     assert set(r["keys"]) >= {"id", "k"}
+    # 增强: 数组携带「表格化对比」预览 (前若干元素, 值经 _truncate_val 字符串化)
+    assert r["preview_n"] == 2
+    assert r["preview"][0]["id"] == "1"
+    assert r["preview"][1]["k"] == "v"
+
+
+def test_array_scalar_items():
+    # 数组元素为非对象时, 用 "#" 列承载标量值
+    r = _extract_struct("[1, 2, 3]")
+    assert r["is_json"] is True and r["kind"] == "array"
+    assert r["n"] == 3
+    assert "#" in r["keys"]
+    assert r["preview"][0]["#"] == "1"
 
 
 def test_scalar():
     r = _extract_struct('42')
     assert r["is_json"] is True and r["kind"] == "scalar"
+    assert r["value"] == "42"
 
 
 def test_embedded_json_in_text():

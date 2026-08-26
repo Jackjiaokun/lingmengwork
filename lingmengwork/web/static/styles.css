@@ -107,6 +107,30 @@ body {
 .struct-sample .sk { color: var(--muted); font-family: ui-monospace, monospace; white-space: nowrap; width: 1%; }
 .struct-sample .sv { color: var(--text); word-break: break-all; }
 
+/* 结构化面板增强: 表格化对比 / 标量值 / 一键展开原始 */
+.struct-raw-btn {
+  margin-left: auto; font-size: 10px; flex: none; cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ok); background: transparent; border: 1px solid rgba(61,220,132,.4);
+  border-radius: 5px; padding: 1px 7px;
+}
+.struct-raw-btn:hover { background: rgba(61,220,132,.12); }
+.struct-table-wrap { overflow-x: auto; margin-top: 4px; }
+.struct-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+.struct-table th, .struct-table td {
+  padding: 2px 6px; vertical-align: top; text-align: left;
+  border-top: 1px solid rgba(61,220,132,.16); border-left: 1px solid rgba(61,220,132,.10);
+}
+.struct-table th { color: var(--muted); font-family: ui-monospace, monospace; white-space: nowrap; background: rgba(61,220,132,.06); }
+.struct-table .sk { color: var(--muted); white-space: nowrap; width: 1%; }
+.struct-table .sv { color: var(--text); word-break: break-all; }
+.struct-scalar { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text); word-break: break-all; margin-top: 4px; }
+.struct-raw {
+  margin-top: 6px; max-height: 320px; overflow: auto; white-space: pre;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px; font-size: 10.5px; line-height: 1.5; color: var(--text);
+}
+
 /* —— 多工具调用链可视化 (全链路时序节点) —— */
 .chain-strip {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;

@@ -2834,6 +2834,7 @@ const COMMANDS = [
   { id: "p-settings", title: "打开 · 设置中心", run: () => gotoPage("/settings") },
   { id: "p-sandbox", title: "打开 · 工作区沙箱", run: () => gotoPage("/sandbox") },
   { id: "p-orchestrate", title: "打开 · 编排中枢", run: () => gotoPage("/orchestrate") },
+  { id: "p-studio", title: "打开 · 创作工作台", run: () => gotoPage("/studio") },
   { id: "theme-code", title: "主题 · 编码", run: () => setTheme("code") },
   { id: "theme-audio", title: "主题 · 音频", run: () => setTheme("audio") },
   { id: "theme-image", title: "主题 · 图片", run: () => setTheme("image") },

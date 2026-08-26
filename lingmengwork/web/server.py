@@ -1132,6 +1132,12 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 多智能体编排页面 ----
         if p == "/orchestrate":
             return self._serve_file("orchestrate.html")
+        # ---- 四大创作域 统一创作工作台 ----
+        if p == "/studio":
+            return self._serve_file("studio.html")
+        if p == "/api/creation/domains":
+            from .. import creation_domains as _cd
+            return self._send_json({"ok": True, "domains": _cd.list_domains()})
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()
@@ -1329,6 +1335,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 层级任务分解 / 多智能体编排 (LLM 驱动) ----
         if p == "/api/decompose":
             return self._decompose_api()
+        # ---- 四大创作域 统一创作工作台 (LLM 驱动) ----
+        if p == "/api/creation/dispatch":
+            return self._creation_dispatch()
         # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
         if p == "/api/context/compress":
             return self._context_op("compress")
@@ -3211,6 +3220,30 @@ class Handler(SimpleHTTPRequestHandler):
             from .. import errorlog as _el
             _el.record(os.getcwd(), "decompose", "任务分解失败: %s" % e, source="api:/api/decompose", detail=str(e))
             return self._send_json({"error": "分解失败: %s" % e}, status=500)
+
+    # ---- 四大创作域 统一创作工作台 (终极蓝图 Phase 4) ----
+    def _creation_domains(self):
+        """GET /api/creation/domains -> 四域元信息。"""
+        from .. import creation_domains as _cd
+        return self._send_json({"ok": True, "domains": _cd.list_domains()})
+
+    def _creation_dispatch(self):
+        """POST /api/creation/dispatch {domain, brief, context?} -> 路由到创作域产出蓝图。"""
+        from .. import creation_domains as _cd
+        try:
+            body = self._read_json({})
+            domain = (body.get("domain") or "").strip()
+            brief = (body.get("brief") or "").strip()
+            if not domain or not brief:
+                return self._send_json({"error": "domain 与 brief 必填"}, status=400)
+            result = _cd.dispatch(domain, brief, context=body.get("context") or "", llm_call=self._make_llm_call())
+            return self._send_json(result)
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        except Exception as e:
+            from .. import errorlog as _el
+            _el.record(os.getcwd(), "creation", "创作分发失败: %s" % e, source="api:/api/creation/dispatch", detail=str(e))
+            return self._send_json({"error": "分发失败: %s" % e}, status=500)
 
     def _plans_delete(self):
         """POST /api/plans/delete {id} -> 删除计划。"""

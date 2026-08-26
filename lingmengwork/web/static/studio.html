@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>统一创作工作台 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:rgba(255,255,255,.04); --panel-2:rgba(255,255,255,.06);
+    --stroke:rgba(255,255,255,.10); --txt:#e6e9f2; --muted:#9aa3b8;
+    --brand:#8b5cf6; --brand-2:#22d3ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1100px 600px at 12% -8%, rgba(139,92,246,.18), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,.14), transparent 55%),
+      var(--bg);
+    color:var(--txt);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    min-height:100vh}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px}
+  header h1{margin:0 0 4px;font-size:23px;letter-spacing:.5px;
+    background:linear-gradient(90deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  header p{margin:0 0 18px;color:var(--muted)}
+  .domains{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  .dom{flex:1 1 160px;min-width:150px;border:1px solid var(--stroke);background:var(--panel);
+    border-radius:14px;padding:12px 14px;cursor:pointer;transition:.18s;position:relative;overflow:hidden}
+  .dom:hover{transform:translateY(-2px);background:var(--panel-2)}
+  .dom.active{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 8px 26px -12px var(--c)}
+  .dom .e{font-size:20px}
+  .dom .n{font-weight:700;margin-top:4px}
+  .dom .d{color:var(--muted);font-size:12px;margin-top:2px}
+  .dom .pill{position:absolute;top:10px;right:10px;font-size:10px;padding:2px 7px;border-radius:999px;
+    background:rgba(255,255,255,.08);color:var(--muted)}
+  .dom .pill.ready{background:rgba(34,211,238,.16);color:#7df}
+  .card{background:var(--panel);border:1px solid var(--stroke);border-radius:16px;padding:16px 18px;margin-bottom:16px}
+  label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:.6px}
+  textarea{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--stroke);border-radius:10px;
+    color:var(--txt);padding:10px 12px;font:inherit;resize:vertical;outline:none}
+  textarea:focus{border-color:var(--brand)}
+  #brief{min-height:84px} #ctx{min-height:56px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  button{cursor:pointer;border:1px solid var(--stroke);background:var(--panel-2);color:var(--txt);
+    padding:9px 15px;border-radius:10px;font:inherit;transition:.16s}
+  button:hover{background:rgba(255,255,255,.12)}
+  button.primary{background:linear-gradient(90deg,var(--brand),var(--brand-2));border:none;color:#06121f;font-weight:700}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .result{display:none}
+  .badge{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:15px;
+    padding:6px 12px;border-radius:999px;background:var(--panel-2);border:1px solid var(--stroke)}
+  .hint{margin:10px 0;font-size:12.5px;color:#fbbf24;background:rgba(251,191,36,.10);
+    border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:8px 12px;display:none}
+  .md{margin-top:6px}
+  .md-h{margin:16px 0 6px;color:#fff;border-left:3px solid var(--brand);padding-left:10px}
+  .md-p{margin:6px 0}
+  .md-li{margin:3px 0 3px 18px;list-style:none;position:relative}
+  .md-li::before{content:"▸";position:absolute;left:-16px;color:var(--brand-2)}
+  .md-code{background:rgba(0,0,0,.4);border:1px solid var(--stroke);border-radius:10px;padding:12px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  .md-ic{background:rgba(139,92,246,.18);border-radius:5px;padding:1px 5px;font-family:ui-monospace,monospace;font-size:12.5px}
+  .md-sp{height:6px}
+  .status{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>统一创作工作台</h1>
+    <p>四大创作域（编程 / 音频 / 图片 / 视频）共享同一上下文与记忆，可串联为跨域流水线。</p>
+  </header>
+
+  <div class="domains" id="domains"><div class="dom">加载中…</div></div>
+
+  <div class="card">
+    <label>创作需求</label>
+    <textarea id="brief" placeholder="例如：做一个自动把长文转成带配音的短视频的工具"></textarea>
+    <label style="margin-top:12px">补充上下文（可选）</label>
+    <textarea id="ctx" placeholder="技术栈约束 / 目标平台 / 参考链接等"></textarea>
+    <div class="row">
+      <button class="primary" id="gen">⚡ 生成创作蓝图</button>
+      <button id="toPlan">📐 存入计划</button>
+      <button id="toOrch">🧭 派发到编排</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card result" id="result">
+    <div class="badge" id="badge"></div>
+    <div class="hint" id="hint"></div>
+    <div class="md" id="md"></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const DOM = { domain: "code" };
+let lastRes = null, lastBrief = "";
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadDomains(){
+  try{
+    const r = await fetch("/api/creation/domains");
+    const j = await r.json();
+    if(!j.ok){ return; }
+    renderDomains(j.domains);
+  }catch(e){ $("#domains").innerHTML = '<div class="dom">域加载失败</div>'; }
+}
+
+function renderDomains(list){
+  const wrap = $("#domains"); wrap.innerHTML = "";
+  list.forEach(d => {
+    const el = document.createElement("div");
+    el.className = "dom" + (d.id === DOM.domain ? " active" : "");
+    el.style.setProperty("--c", d.theme);
+    el.innerHTML = `<div class="e">${esc(d.emoji)}</div><div class="n">${esc(d.name)}</div>`
+      + `<div class="d">${esc(d.desc)}</div>`
+      + `<div class="pill ${d.status === 'ready' ? 'ready' : ''}">${esc(d.adapter === 'native' ? '内置' : '预留接入')}</div>`;
+    el.onclick = () => { DOM.domain = d.id; document.querySelectorAll(".dom").forEach(x=>x.classList.remove("active")); el.classList.add("active"); };
+    wrap.appendChild(el);
+  });
+}
+
+function inlineMd(t){
+  let s = esc(t);
+  s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  s = s.replace(/`([^`]+?)`/g, '<code class="md-ic">$1</code>');
+  return s;
+}
+
+function renderMd(src){
+  const lines = String(src).split(/\r?\n/);
+  let html = "", inCode = false, buf = [];
+  const flush = () => { if(buf.length){ html += '<pre class="md-code"><code>'+esc(buf.join("\n"))+'</code></pre>'; buf = []; } };
+  for(const line of lines){
+    if(/^\s*```/.test(line)){
+      if(inCode){ flush(); inCode = false; } else { inCode = true; }
+      continue;
+    }
+    if(inCode){ buf.push(line); continue; }
+    let m;
+    if((m = line.match(/^(#{2,4})\s+(.*)$/))){
+      html += `<h${m[1].length} class="md-h">${inlineMd(m[2])}</h${m[1].length}>`; continue;
+    }
+    if(/^\d+[.、]\s+/.test(line)){
+      html += '<div class="md-li">'+inlineMd(line.replace(/^\d+[.、]\s+/, ""))+'</div>'; continue;
+    }
+    if(/^[-*]\s+/.test(line)){
+      html += '<div class="md-li">'+inlineMd(line.replace(/^[-*]\s+/, ""))+'</div>'; continue;
+    }
+    if(line.trim() === ""){ html += '<div class="md-sp"></div>'; continue; }
+    html += '<p class="md-p">'+inlineMd(line)+'</p>';
+  }
+  if(inCode) flush();
+  return html;
+}
+
+async function gen(){
+  const brief = $("#brief").value.trim();
+  const ctx = $("#ctx").value.trim();
+  if(!brief){ $("#status").textContent = "请填写创作需求"; return; }
+  const btn = $("#gen"); btn.disabled = true; $("#status").textContent = "正在生成创作蓝图…";
+  try{
+    const r = await fetch("/api/creation/dispatch", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ domain: DOM.domain, brief, context: ctx })
+    });
+    const j = await r.json();
+    if(!j.ok && !j.plan){ $("#status").textContent = "生成失败: " + (j.error || r.status); return; }
+    lastRes = j; lastBrief = brief;
+    $("#badge").innerHTML = `${esc(j.emoji||"")} ${esc(j.domain_name||"")} <span style="color:var(--muted);font-weight:400">· ${esc(j.adapter==='native'?'内置执行':'预留 MCP/API 接入')}</span>`;
+    const hint = $("#hint");
+    if(j.adapter_hint){ hint.style.display = "block"; hint.textContent = "⚠ " + j.adapter_hint; }
+    else { hint.style.display = "none"; }
+    $("#md").innerHTML = renderMd(j.plan || "");
+    $("#result").style.display = "block";
+    $("#status").textContent = "已生成「" + (j.domain_name||"") + "」创作蓝图";
+  }catch(e){
+    $("#status").textContent = "请求异常: " + e.message;
+  }finally{ btn.disabled = false; }
+}
+
+async function toPlan(){
+  if(!lastRes){ $("#status").textContent = "请先生成创作蓝图"; return; }
+  const title = `[${lastRes.domain_name}] ${lastBrief.slice(0,40)}`;
+  const body = {
+    title,
+    content: lastRes.plan || "",
+    tasks: [{ title: lastBrief.slice(0,80), note: (lastRes.plan||"").slice(0,300) }]
+  };
+  try{
+    const r = await fetch("/api/plans", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+    const j = await r.json();
+    $("#status").textContent = j.ok ? "已存入计划：" + (j.plan && j.plan.id || "") : ("存入失败: " + (j.error||r.status));
+  }catch(e){ $("#status").textContent = "存入异常: " + e.message; }
+}
+
+function toOrch(){ window.location.href = "/orchestrate"; }
+
+$("#gen").onclick = gen;
+$("#toPlan").onclick = toPlan;
+$("#toOrch").onclick = toOrch;
+loadDomains();
+</script>
+</body>
+</html>

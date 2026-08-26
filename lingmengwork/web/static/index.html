@@ -134,17 +134,6 @@
       </section>
 
       <section id="panel-tasks" class="panel">
-        <div class="orch-zone">
-          <div class="orch-head">⚡ 并行编排 <span class="orch-hint">每行一个独立任务，一次性扇出多路并发</span></div>
-          <textarea id="orch-prompts" placeholder="第1路: 给 utils.py 加 retry 装饰器&#10;第2路: 给 models.py 加 created_at 字段&#10;第3路: 写 tests/test_utils.py 覆盖 retry" rows="3"></textarea>
-          <div class="orch-row">
-            <button id="orch-run" class="btn-accent">⚡ 扇出并行</button>
-            <div id="orch-progress" class="orch-progress" style="display:none;">
-              <div class="progress-bar"><div id="orch-fill" class="progress-fill"></div></div>
-              <span id="orch-stat" class="orch-stat"></span>
-            </div>
-          </div>
-        </div>
         <div class="task-bar">
           <textarea id="task-prompt" placeholder="新建并发编程任务，例如：给 utils.py 加一个 retry 装饰器" rows="2"></textarea>
           <select id="task-provider"><option value="">自动轮询通道</option></select>

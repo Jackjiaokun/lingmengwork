@@ -12,14 +12,6 @@ const taskCountEl = $("task-count");
 const taskPromptEl = $("task-prompt");
 const taskProviderEl = $("task-provider");
 const taskAddBtn = $("task-add");
-const orchPromptsEl = $("orch-prompts");
-const orchRunBtn = $("orch-run");
-const orchProgressEl = $("orch-progress");
-const orchFillEl = $("orch-fill");
-const orchStatEl = $("orch-stat");
-
-const activeOrchs = [];  // 进行中的编排 id (轮询聚合进度)
-let orchTimer = null;
 
 const dashTasksEl = $("dash-tasks");
 const dashRunningEl = $("dash-running");
@@ -716,81 +708,6 @@ async function loadTasks() {
   } catch (e) {}
 }
 
-// ---------- 并行编排 (扇出多路并发任务 + 聚合看板) ----------
-async function runOrchestration() {
-  const lines = (orchPromptsEl.value || "").split("\n").map((s) => s.trim()).filter(Boolean);
-  if (!lines.length) {
-    toast("请至少填写一行任务", "warn");
-    return;
-  }
-  orchPromptsEl.value = "";
-  orchProgressEl.style.display = "flex";
-  try {
-    const r = await fetch("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompts: lines }),
-    });
-    const d = await r.json();
-    if (d.error) {
-      toast("编排失败: " + d.error, "warn");
-      return;
-    }
-    (d.tasks || []).forEach((t) => {
-      upsertTask(t);
-      subscribeTask(t.id);
-    });
-    const oid = d.orchestration_id;
-    if (oid && !activeOrchs.includes(oid)) activeOrchs.push(oid);
-    toast(`⚡ 已扇出 ${lines.length} 路并行任务`, "info");
-    startOrchPolling();
-    refreshOrchestrations();
-  } catch (e) {
-    toast("编排失败: " + e, "warn");
-  }
-}
-
-async function refreshOrchestrations() {
-  if (!activeOrchs.length) return;
-  let stillActive = [];
-  for (const oid of activeOrchs) {
-    try {
-      const r = await fetch(`/api/orchestrations/${oid}`);
-      const agg = await r.json();
-      if (!agg || agg.error) continue;
-      const done = agg.done || 0;
-      const total = agg.total || 0;
-      const pct = total ? Math.round((done / total) * 100) : 0;
-      orchFillEl.style.width = pct + "%";
-      orchStatEl.textContent =
-        `完成 ${done}/${total} · 运行 ${agg.running || 0} · 失败 ${agg.error || 0}` +
-        ` · Token ${agg.est_tokens || 0} · ¥${(agg.est_cost_cny || 0).toFixed(5)}`;
-      if (agg.status === "done") {
-        toast(`✅ 编排 ${oid} 全部完成 (${total} 路)`, "info");
-      } else {
-        stillActive.push(oid);
-      }
-    } catch (e) {
-      stillActive.push(oid);
-    }
-  }
-  // 仅保留仍在跑的; 全完成则隐藏进度条
-  activeOrchs.length = 0;
-  activeOrchs.push(...stillActive);
-  if (!activeOrchs.length) {
-    orchProgressEl.style.display = "none";
-    if (orchTimer) {
-      clearInterval(orchTimer);
-      orchTimer = null;
-    }
-  }
-}
-
-function startOrchPolling() {
-  if (orchTimer) return;
-  orchTimer = setInterval(refreshOrchestrations, 1500);
-}
-
 // ---------- Tab 切换 ----------
 document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -798,7 +715,7 @@ document.querySelectorAll(".tab").forEach((btn) => {
     document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
     $(`panel-${btn.dataset.tab}`).classList.add("active");
-    if (btn.dataset.tab === "tasks") { loadTasks(); if (activeOrchs.length) refreshOrchestrations(); }
+    if (btn.dataset.tab === "tasks") { loadTasks(); }
     if (btn.dataset.tab === "results") loadResults();
     if (btn.dataset.tab === "files") loadFiles(".");
     if (btn.dataset.tab === "sessions") loadSessions();
@@ -995,10 +912,6 @@ inputEl.addEventListener("keydown", (e) => {
 taskAddBtn.addEventListener("click", createTask);
 taskPromptEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); createTask(); }
-});
-orchRunBtn.addEventListener("click", runOrchestration);
-orchPromptsEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runOrchestration(); }
 });
 reviewBackBtn.addEventListener("click", () => {
   reviewDetailEl.style.display = "none";

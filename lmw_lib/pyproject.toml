@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "lmw-lib"
+version = "0.1.0"
+description = "零依赖通用 Python 函数库"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "LingMeng Work" }]
+
+[tool.setuptools.packages.find]
+include = ["lmw_lib*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

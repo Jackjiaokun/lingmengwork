@@ -72,6 +72,12 @@
   .delivery{background:rgba(0,0,0,.22);border:1px solid var(--stroke);border-radius:12px;padding:14px 16px;max-height:520px;overflow:auto}
   .actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
   .hidden{display:none}
+  .mem{border:1px solid var(--stroke);border-radius:10px;padding:10px 12px;background:rgba(34,211,238,.06);margin-top:10px}
+  .mem h4{margin:0 0 6px;font-size:12px;color:var(--brand-2);letter-spacing:.5px}
+  .mem .item{font-size:12.5px;color:var(--muted);padding:4px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
+  .mem .item:last-child{border-bottom:none}
+  .mem .src{color:var(--brand-2);font-size:11px}
+  .learn-badge{font-size:11px;color:#bbf7d0;background:rgba(16,185,129,.14);padding:2px 9px;border-radius:999px;margin-left:8px}
 </style>
 </head>
 <body>
@@ -94,8 +100,10 @@
         <option value="6">6 步（深入）</option>
       </select>
       <button class="primary" id="run">🚀 运行全链路</button>
+      <button id="recallBtn">🧠 预览记忆喂入</button>
     </div>
     <div class="status" id="status"></div>
+    <div class="mem hidden" id="memPrev"></div>
   </div>
 
   <div class="flow hidden" id="flow"></div>
@@ -165,11 +173,21 @@ async function run(){
 function renderAll(j){
   renderFlow(STAGES.length-1);
   const out = $("#out"); out.className=""; out.innerHTML="";
-  // 理解
-  let h = '<div class="stage"><h3><span class="n">1</span>理解</h3>'
+  // 理解 (+ Phase 9 跨会话记忆喂入可视化)
+  const mem = j.understand.memory||[];
+  let memHtml = "";
+  if(j.understand.memory_recalled){
+    memHtml = '<div class="mem"><h4>🧠 已喂入 '+j.understand.memory_recalled+' 条跨会话记忆（历史偏好 / 决策一致性）</h4>';
+    mem.forEach(m=>{ memHtml += '<div class="item"><span class="src">'+esc(m.source||"")+' · '+esc(m.score??"")+'</span><br>'+esc(m.snippet||"")+'</div>'; });
+    memHtml += '</div>';
+  }
+  const learnBadge = (j.learned && (j.learned.captured||[]).length)
+    ? ' <span class="learn-badge">✅ 已写回记忆 '+j.learned.captured.length+' 条</span>' : '';
+  let h = '<div class="stage"><h3><span class="n">1</span>理解'+learnBadge+'</h3>'
         + '<div class="md"><p class="md-p">'+inlineMd(j.understand.goal)+'</p>'
         + (j.understand.context ? '<p class="md-p tag">补充上下文：'+inlineMd(j.understand.context)+'</p>' : '')
-        + '<p class="tag">捕获于 '+esc(j.understand.captured_at)+'</p></div></div>';
+        + '<p class="tag">捕获于 '+esc(j.understand.captured_at)+'</p>'
+        + memHtml + '</div></div>';
   // 拆解
   h += '<div class="stage"><h3><span class="n">2</span>拆解 · '+ (j.decompose.count) +' 步</h3>';
   (j.decompose.steps||[]).forEach(s=>{
@@ -229,6 +247,24 @@ function renderAll(j){
     navigator.clipboard?.writeText(j.delivery||"").then(()=>{ $("#planMsg").textContent="✅ 交付稿已复制"; });
   };
 }
+$("#recallBtn").onclick = async () => {
+  const goal = $("#goal").value.trim();
+  if(!goal){ $("#status").textContent="请先填写目标再预览记忆"; return; }
+  const box = $("#memPrev"); box.className="mem";
+  box.innerHTML = "<h4>🧠 记忆召回中…</h4>";
+  try{
+    const r = await fetch("/api/pipeline/recall",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ goal, k: 6 })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!j.ok){ box.innerHTML="<h4>记忆预览</h4><div class='item'>暂无相关记忆或召回失败</div>"; return; }
+    let hh = "<h4>🧠 将喂入流水线的跨会话记忆（"+j.count+" 条）</h4>";
+    if(!j.count){ hh += "<div class='item'>（暂无相关记忆，将仅基于当前目标运行）</div>"; }
+    (j.memory||[]).forEach(m=>{ hh += "<div class='item'><span class='src'>"+esc(m.source||"")+" · "+esc(m.score??"")+"</span><br>"+esc(m.snippet||"")+"</div>"; });
+    box.innerHTML = hh;
+  }catch(e){ box.innerHTML = "<h4>记忆预览</h4><div class='item'>异常: "+esc(e.message)+"</div>"; }
+};
 $("#run").onclick = run;
 </script>
 </body>

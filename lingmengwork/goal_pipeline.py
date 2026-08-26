@@ -21,6 +21,7 @@ import time
 from . import decompose_engine as de
 from . import creation_domains as cd
 from . import multimodal_adapters as ma
+from . import memory_mgr as mm
 
 # 域元信息兜底(含 any)
 _DOM_META = {
@@ -67,6 +68,27 @@ def _parallel_groups(steps):
         layer = s.get("layer", 0)
         groups.setdefault(layer, []).append(s["id"])
     return [groups[k] for k in sorted(groups)]
+
+
+def _recall_memory(goal, base_dir, k=6):
+    """跨会话语义召回: 取与当前目标最相关的历史记忆片段 (Phase 9)。"""
+    try:
+        res = mm.retrieve(base_dir or os.getcwd(), goal, k=k)
+        return res.get("results", []) or []
+    except Exception:
+        return []
+
+
+def _format_memory_context(recalled):
+    """把召回记忆拼成紧凑上下文串, 注入拆解/派发提示, 使计划带历史偏好与决策一致性。"""
+    if not recalled:
+        return ""
+    out = ["【历史记忆 / 用户偏好（仅供参考：与当前目标冲突时以当前目标为准）】"]
+    for r in recalled:
+        snip = (r.get("snippet") or "").strip().replace("\n", " ")
+        if snip:
+            out.append("- %s" % snip[:240])
+    return "\n".join(out)
 
 
 def _self_check(goal, steps, executions, llm_call=None):
@@ -134,7 +156,8 @@ def _assemble_delivery(goal, steps, executions, selfcheck):
     return "\n".join(lines)
 
 
-def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=True, do_render=True):
+def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=True,
+                 do_render=True, memory_dir=None, do_learn=True):
     """执行全链路流水线, 返回结构化结果 dict。
 
     goal: 用户模糊目标
@@ -143,19 +166,30 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
     max_dispatch: 最多为前 N 个步骤生成执行蓝图 (控制 LLM fan-out 时延)
     do_selfcheck: 是否执行 LLM Critic 自检
     do_render: 是否对 image/audio/video 域调用多模态适配层真实产出媒体文件
+    memory_dir: 语义记忆根目录 (默认 cwd 下 .lmw_memory); 跨会话偏好喂入与写回
+    do_learn: 流水线结束后是否把本次目标/域偏好写回记忆 (越用越聪明)
     """
     started = time.time()
     ctx = (context or "").strip()
 
-    # Stage 1 · 理解
+    # Stage 1 · 理解 (含跨会话记忆召回 · Phase 9)
+    recalled = _recall_memory(goal, memory_dir, k=6)
+    mem_ctx = _format_memory_context(recalled)
     understand = {
         "goal": goal,
         "context": ctx,
+        "memory_recalled": len(recalled),
+        "memory": [{"source": r.get("source"), "snippet": r.get("snippet"), "score": r.get("score")}
+                   for r in recalled],
         "captured_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
+    # 富上下文: 用户补充 + 召回记忆一起注入下游 (拆解/派发/多模态)
+    ctx_rich = ctx
+    if mem_ctx:
+        ctx_rich = (ctx + "\n\n" + mem_ctx).strip()
 
-    # Stage 2 · 拆解
-    steps = de.decompose(goal, ctx, llm_call=llm_call)
+    # Stage 2 · 拆解 (记忆经 system_extra 注入, 仅 LLM 路径可见, 不影响规则兜底扫描)
+    steps = de.decompose(goal, ctx, llm_call=llm_call, system_extra=mem_ctx or None)
     order = de.execution_order(steps)
     exec_steps = steps[:max_dispatch] if max_dispatch else steps
 
@@ -181,7 +215,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         brief = "%s\n%s" % (s.get("title", ""), s.get("detail", ""))
         plan = ""
         try:
-            res = cd.dispatch(dom, brief, ctx, llm_call=llm_call)
+            res = cd.dispatch(dom, brief, ctx_rich, llm_call=llm_call)
             plan = res.get("plan", "")
         except Exception as e:
             plan = "（执行方案生成失败: %s）" % e
@@ -189,7 +223,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         artifact = None
         if do_render and dom in ("image", "audio", "video"):
             try:
-                artifact = ma.render(dom, brief, plan, ctx)
+                artifact = ma.render(dom, brief, plan, ctx_rich)
                 if artifact and artifact.get("file"):
                     artifact["url"] = "/outputs/" + os.path.basename(artifact["file"])
             except Exception:
@@ -210,9 +244,18 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
     selfcheck = (_self_check(goal, steps, executions, llm_call=llm_call)
                  if do_selfcheck else {"ok": True, "score": 100, "gaps": [], "notes": ["自检已跳过"], "mode": "skip"})
 
-    # Stage 6 · 交付
+    # Stage 6 · 交付 (+ Phase 9 跨会话学习: 把本次目标/域偏好写回记忆, 越用越聪明)
     delivery = _assemble_delivery(goal, steps, executions, selfcheck)
     plan_payload = de.to_plan_payload(goal, steps)
+    learned = None
+    if do_learn:
+        try:
+            cov_names = "、".join(_dom_meta(c)["name"] for c in coverage) or "通用/编程"
+            learn_text = ("目标: %s\n覆盖域: %s\n步骤数: %d\n前序关键步骤: %s"
+                          % (goal, cov_names, len(steps), "；".join(s["title"] for s in steps[:3])))
+            learned = mm.capture(memory_dir or os.getcwd(), learn_text, llm_call=llm_call)
+        except Exception:
+            learned = None
 
     return {
         "ok": True,
@@ -225,5 +268,6 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         "selfcheck": selfcheck,
         "delivery": delivery,
         "plan_payload": plan_payload,
+        "learned": learned,
         "elapsed_sec": round(time.time() - started, 1),
     }

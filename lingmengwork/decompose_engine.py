@@ -110,10 +110,17 @@ def _parse_llm_steps(raw):
     return out or None
 
 
-def decompose(goal, text="", llm_call=None):
-    """层级分解: 返回步骤树(list of step dict)。LLM 优先, 规则兜底。"""
+def decompose(goal, text="", llm_call=None, system_extra=None):
+    """层级分解: 返回步骤树(list of step dict)。LLM 优先, 规则兜底。
+
+    system_extra: 额外系统提示(如跨会话记忆上下文), 仅注入 LLM 路径的 system,
+    不参与规则兜底的文本扫描(避免记忆文本被误判为步骤)。
+    """
     if llm_call:
-        raw = _ask_llm(llm_call, _DECOMPOSE_SYS, "目标: %s\n%s" % (goal, text[:4000]))
+        sys = _DECOMPOSE_SYS
+        if system_extra:
+            sys = sys + "\n\n" + system_extra
+        raw = _ask_llm(llm_call, sys, "目标: %s\n%s" % (goal, text[:4000]))
         steps = _parse_llm_steps(raw)
         if steps:
             return _validate_dag(steps)

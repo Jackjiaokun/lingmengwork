@@ -226,8 +226,14 @@ def _ask_llm(llm_call, system, user):
 
 
 def _tokenize(s):
-    # 简易中文/英文分词(按非词字符切), 用于重叠打分
-    return set(w for w in re.split(r"[\s,，。、；;:.：:！!？?()（）\[\]【】\"'\"'/\\]+", (s or "").lower()) if len(w) >= 1)
+    # 西文/数字按非词字符切; 中文运行字符二元组(bigram)切, 解决连续中文被当成单 token 导致召回全失的问题
+    base = set(w for w in re.split(r"[\s,，。、；;:.：:！!？?()（）\[\]【】\"'\"'/\\]+", (s or "").lower()) if len(w) >= 1)
+    cjk = "".join(ch for ch in (s or "") if "\u4e00" <= ch <= "\u9fff")
+    if cjk:
+        bg = set(cjk[i:i + 2] for i in range(len(cjk) - 1))
+        bg.add(cjk[0])  # 单字兜底(覆盖 1 字串)
+        base |= bg
+    return base
 
 
 def retrieve(base_dir, query, k=5):

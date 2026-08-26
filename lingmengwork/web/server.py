@@ -1356,9 +1356,11 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 自主模式: 目标驱动自驱循环 (Phase 5) ----
         if p == "/api/autonomous":
             return self._autonomous_run()
-        # ---- 全链路目标驱动流水线 (Phase 7) ----
+        # ---- 全链路目标驱动流水线 (Phase 7) + 跨会话记忆喂入 (Phase 9) ----
         if p == "/api/pipeline":
             return self._pipeline_api()
+        if p == "/api/pipeline/recall":
+            return self._pipeline_recall()
         # ---- 真实多模态适配层 (Phase 8) ----
         if p == "/api/multimodal/render":
             return self._multimodal_render()
@@ -3316,12 +3318,33 @@ class Handler(SimpleHTTPRequestHandler):
             except (TypeError, ValueError):
                 max_dispatch = 4
             result = _gp.run_pipeline(goal, context=body.get("context") or "",
-                                     llm_call=self._make_llm_call(), max_dispatch=max_dispatch)
+                                     llm_call=self._make_llm_call(), max_dispatch=max_dispatch,
+                                     memory_dir=os.getcwd(),
+                                     do_learn=bool(body.get("do_learn", True)))
             return self._send_json(result)
         except Exception as e:
             from .. import errorlog as _el
             _el.record(os.getcwd(), "pipeline", "目标流水线失败: %s" % e, source="api:/api/pipeline", detail=str(e))
             return self._send_json({"error": "流水线执行失败: %s" % e}, status=500)
+
+    def _pipeline_recall(self):
+        """POST /api/pipeline/recall {goal, k?} -> 预览将喂入流水线的跨会话记忆 (Phase 9 透明化)。"""
+        from .. import goal_pipeline as _gp
+        from .. import memory_mgr as _mm
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            if not goal:
+                return self._send_json({"error": "缺少 goal"}, status=400)
+            try:
+                k = int(body.get("k") or 6)
+            except (TypeError, ValueError):
+                k = 6
+            res = _mm.retrieve(os.getcwd(), goal, k=k)
+            return self._send_json({"ok": True, "goal": goal,
+                                    "count": len(res.get("results", [])), "memory": res.get("results", [])})
+        except Exception as e:
+            return self._send_json({"error": "记忆召回失败: %s" % e}, status=500)
 
     def _multimodal_render(self):
         """POST /api/multimodal/render {domain, brief, blueprint?} -> 真实媒体文件(落 outputs/multimodal)。"""

@@ -55,43 +55,51 @@
 
       <div id="status" class="status">连接中…</div>
 
-      <nav class="side-nav">
-        <a class="nav-item" href="/observability">
-          <span class="nav-ico">📊</span><span class="nav-label">可观测仪表盘</span>
-        </a>
-        <a class="nav-item" href="/cost">
-          <span class="nav-ico">💰</span><span class="nav-label">成本看板</span>
-        </a>
-        <a class="nav-item" href="/planboard">
-          <span class="nav-ico">🗂️</span><span class="nav-label">计划看板</span>
-        </a>
-        <a class="nav-item" href="/settings">
-          <span class="nav-ico">⚙️</span><span class="nav-label">设置中心</span>
-        </a>
-        <a class="nav-item" href="/sandbox">
-          <span class="nav-ico">🛡️</span><span class="nav-label">工作区沙箱</span>
-        </a>
-        <a class="nav-item" href="/enhance">
-          <span class="nav-ico">🧠</span><span class="nav-label">专家·技能</span>
-        </a>
-        <a class="nav-item" href="/backups">
-          <span class="nav-ico">📦</span><span class="nav-label">备份与回滚</span>
-        </a>
-        <a class="nav-item" href="/templates">
-          <span class="nav-ico">📋</span><span class="nav-label">提示词模板</span>
-        </a>
-        <a class="nav-item" href="/secrets">
-          <span class="nav-ico">🔐</span><span class="nav-label">密钥保险箱</span>
-        </a>
-        <a class="nav-item" href="/snippets">
-          <span class="nav-ico">📎</span><span class="nav-label">代码片段</span>
-        </a>
-        <a class="nav-item" href="/notes">
-          <span class="nav-ico">📝</span><span class="nav-label">笔记</span>
-        </a>
-        <a class="nav-item" href="/todos">
-          <span class="nav-ico">✅</span><span class="nav-label">待办清单</span>
-        </a>
+      <nav class="side-nav" id="side-nav">
+        <!-- 分组一：用户个人的知识 / 生产力资产 -->
+        <div class="nav-group" data-group="workspace">
+          <button class="nav-group-head" type="button" aria-expanded="true">
+            <span class="ng-chev" aria-hidden="true">▾</span>
+            <span class="ng-ico">🧩</span>
+            <span class="ng-label">智能工作区</span>
+          </button>
+          <div class="nav-group-body">
+            <a class="nav-item" href="/notes"><span class="nav-ico">📝</span><span class="nav-label">笔记</span></a>
+            <a class="nav-item" href="/todos"><span class="nav-ico">✅</span><span class="nav-label">待办清单</span></a>
+            <a class="nav-item" href="/snippets"><span class="nav-ico">📎</span><span class="nav-label">代码片段</span></a>
+            <a class="nav-item" href="/templates"><span class="nav-ico">📋</span><span class="nav-label">提示词模板</span></a>
+            <a class="nav-item" href="/enhance"><span class="nav-ico">🧠</span><span class="nav-label">专家·技能</span></a>
+          </div>
+        </div>
+
+        <!-- 分组二：凭证 / 备份 / 沙箱 / 配置 -->
+        <div class="nav-group" data-group="security">
+          <button class="nav-group-head" type="button" aria-expanded="true">
+            <span class="ng-chev" aria-hidden="true">▾</span>
+            <span class="ng-ico">🔒</span>
+            <span class="ng-label">安全与系统</span>
+          </button>
+          <div class="nav-group-body">
+            <a class="nav-item" href="/secrets"><span class="nav-ico">🔐</span><span class="nav-label">密钥保险箱</span></a>
+            <a class="nav-item" href="/backups"><span class="nav-ico">📦</span><span class="nav-label">备份与回滚</span></a>
+            <a class="nav-item" href="/sandbox"><span class="nav-ico">🛡️</span><span class="nav-label">工作区沙箱</span></a>
+            <a class="nav-item" href="/settings"><span class="nav-ico">⚙️</span><span class="nav-label">设置中心</span></a>
+          </div>
+        </div>
+
+        <!-- 分组三：监控 / 成本 / 计划 看板 -->
+        <div class="nav-group" data-group="ops">
+          <button class="nav-group-head" type="button" aria-expanded="true">
+            <span class="ng-chev" aria-hidden="true">▾</span>
+            <span class="ng-ico">📈</span>
+            <span class="ng-label">运营看板</span>
+          </button>
+          <div class="nav-group-body">
+            <a class="nav-item" href="/observability"><span class="nav-ico">📊</span><span class="nav-label">可观测仪表盘</span></a>
+            <a class="nav-item" href="/cost"><span class="nav-ico">💰</span><span class="nav-label">成本看板</span></a>
+            <a class="nav-item" href="/planboard"><span class="nav-ico">🗂️</span><span class="nav-label">计划看板</span></a>
+          </div>
+        </div>
       </nav>
 
       <div class="side-explorer">

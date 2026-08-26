@@ -78,6 +78,8 @@
   <div class="head-sp"></div>
   <button id="btn-add" class="btn">+ 新建模板</button>
 </header>
+  <div id="sibnav"></div>
+
 <main>
   <div class="bar">
     <span class="hint">可复用提示词片段库 — 在对话输入框点「📋 模板」即可一键插入。数据存于工作区 <code>.lmw_templates.json</code>。</span>
@@ -203,5 +205,6 @@ $("#btn-save").addEventListener("click", async () => {
 
 loadList();
 </script>
+  <script src="/static/subnav.js"></script>
 </body>
 </html>

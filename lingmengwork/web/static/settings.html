@@ -64,6 +64,8 @@
   <span class="path" id="path">…</span>
   <span class="badge" id="ver"></span>
 </header>
+  <div id="sibnav"></div>
+
 <div class="tabs">
   <div class="tab active" data-view="form" onclick="switchTab('form')">表单视图</div>
   <div class="tab" data-view="raw" onclick="switchTab('raw')">高级 · 原始 TOML</div>
@@ -163,5 +165,6 @@ function switchTab(v){
 function hideResult(){$('#result').className='result';$('#result2').className='result';}
 load();
 </script>
+  <script src="/static/subnav.js"></script>
 </body>
 </html>

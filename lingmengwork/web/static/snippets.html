@@ -84,6 +84,8 @@
   <div class="head-sp"></div>
   <button id="btn-add" class="btn">+ 新建片段</button>
 </header>
+  <div id="sibnav"></div>
+
 <main>
   <div class="bar">
     <span class="hint">可复用代码碎片库 — 在对话输入框点「📎 片段」即可一键插入到光标处。数据存于工作区 <code>.lmw_snippets.json</code>。</span>
@@ -236,5 +238,6 @@ $("#btn-save").addEventListener("click", async ()=>{
 fillLangSelect($("#f-language"),"python");
 loadList();
 </script>
+  <script src="/static/subnav.js"></script>
 </body>
 </html>

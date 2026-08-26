@@ -2609,3 +2609,42 @@ document.addEventListener("keydown", (e) => {
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
 })();
 
+/* 分组可折叠导航：折叠/展开交互 + 当前页自动展开 + 状态持久化 */
+(function setupNavGroups() {
+  const KEY = "lmw_nav_state";
+  const groups = Array.from(document.querySelectorAll(".nav-group"));
+  if (!groups.length) return;
+  const cur = location.pathname;
+  let activeGroup = null;
+  groups.forEach(g => {
+    const link = g.querySelector('.nav-item[href="' + cur + '"]');
+    if (link) { link.classList.add("active"); activeGroup = g; }
+  });
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { saved = null; }
+  function save() {
+    const st = {};
+    groups.forEach(g => { st[g.dataset.group] = g.classList.contains("collapsed") ? "closed" : "open"; });
+    try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {}
+  }
+  groups.forEach(g => {
+    let open;
+    if (saved && (g.dataset.group in saved)) open = saved[g.dataset.group] !== "closed";
+    else if (activeGroup) open = (g === activeGroup);
+    else open = true;
+    g.classList.toggle("collapsed", !open);
+    const head = g.querySelector(".nav-group-head");
+    if (head) head.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  groups.forEach(g => {
+    const head = g.querySelector(".nav-group-head");
+    if (!head) return;
+    head.addEventListener("click", () => {
+      const willOpen = g.classList.contains("collapsed");
+      g.classList.toggle("collapsed", !willOpen);
+      head.setAttribute("aria-expanded", String(willOpen));
+      save();
+    });
+  });
+})();
+

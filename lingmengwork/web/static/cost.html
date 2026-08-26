@@ -76,6 +76,8 @@
   <a class="btn" href="/">← 返回控制台</a>
   <label class="switch"><input type="checkbox" id="auto" checked /> 自动刷新 (5s)</label>
 </header>
+  <div id="sibnav"></div>
+
 <main>
   <section>
     <h2 class="sec-title">进程总计</h2>
@@ -161,5 +163,6 @@ function stop(){if(timer)clearInterval(timer)}
 $("#auto").addEventListener("change",start);
 start();
 </script>
+  <script src="/static/subnav.js"></script>
 </body>
 </html>

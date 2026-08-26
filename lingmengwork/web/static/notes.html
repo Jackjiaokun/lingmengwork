@@ -79,6 +79,8 @@
   <div class="head-sp"></div>
   <button id="btn-add" class="btn">+ 新建笔记</button>
 </header>
+  <div id="sibnav"></div>
+
 <main>
   <div class="bar">
     <span class="hint">工作区内轻量 Markdown 笔记 — 与对话解耦、可长期留存。数据存于工作区 <code>.lmw_notes.json</code>。点击卡片可编辑。</span>
@@ -192,5 +194,6 @@ $("#btn-save").addEventListener("click", async ()=>{
 
 loadList();
 </script>
+  <script src="/static/subnav.js"></script>
 </body>
 </html>

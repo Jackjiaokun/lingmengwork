@@ -67,6 +67,8 @@
   <div class="head-sp"></div>
   <a class="btn" href="/">← 返回控制台</a>
 </header>
+  <div id="sibnav"></div>
+
 <main>
   <div class="bar">
     <input type="text" id="sid" placeholder="粘贴会话 ID (在控制台发起「计划模式」对话后, 从 /cost 或会话历史取得)" />
@@ -163,5 +165,6 @@ $("#load").addEventListener("click",load);
 $("#sid").addEventListener("keydown",e=>{if(e.key==="Enter")load()});
 loadRecent();
 </script>
+  <script src="/static/subnav.js"></script>
 </body>
 </html>

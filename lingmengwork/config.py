@@ -44,6 +44,15 @@ DEFAULTS = {
         # 每项为 {"name", "type": ollama|openai|mock, "model", "base_url"?, "api_key"?/api_key_env?}
         # 未配置时 build_clients() 回退为单 backend。
         "providers": [],
+        # 故障转移(单路): 当一个模型未响应(超时/网络错误/HTTP 错误/空回复)时,
+        # 自动轮换到列表中的下一个候选。顺序即优先级: 主 backend 始终排第一, 其后追加本列表。
+        # 每项复用 provider 规格: {"type": ollama|openai|sensenova|mock, "model"?, "base_url"?, "api_key"?, "api_key_env"?}
+        # 例: 商汤为主, 挂掉时自动切 DeepSeek —
+        #   failover = [
+        #     {type="openai", model="deepseek-chat", base_url="https://api.deepseek.com/v1", api_key_env="DEEPSEEK_API_KEY"},
+        #   ]
+        # 留空 [] 表示关闭故障转移(默认行为)。
+        "failover": [],
     },
     "agent": {
         "max_iterations": 32,

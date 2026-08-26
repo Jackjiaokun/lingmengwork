@@ -71,15 +71,20 @@
       </div>
     </aside>
 
+    <div id="sidebar-overlay"></div>
+
     <!-- ============ 主区 ============ -->
     <main id="chat">
       <header class="topbar">
-        <div class="topbar-left">
-          <h1 class="topbar-title">工作台</h1>
+      <div class="topbar-left">
+        <button id="btn-menu" class="btn-ghost btn-icon" title="菜单 (侧栏)">☰</button>
+        <h1 class="topbar-title">工作台</h1>
           <span class="topbar-sub">本地优先 · 多通道 · 全链路可观测</span>
         </div>
       <div class="topbar-right">
         <span id="sandbox-chip" class="sandbox-chip" title="工作区沙箱状态">🛡️ 沙箱 …</span>
+        <button id="btn-stars" class="btn-ghost btn-icon" title="收藏夹 (跨会话)">⭐ 收藏</button>
+        <button id="btn-cmd" class="btn-ghost btn-icon" title="命令面板 (⌘K / Ctrl+K)">⌘K</button>
         <label class="mode-select" title="智能体自主度：计划=只读出方案 / 接受编辑=可写文件但禁执行 / 全放开=可写可执行">
             <span class="mode-ico">🎛️</span>
             <select id="agent-mode">
@@ -104,7 +109,6 @@
 
       <div class="tabs">
         <button class="tab active" data-tab="chat">对话</button>
-        <button class="tab" data-tab="tasks">多路任务 <span id="task-count" class="badge">0</span></button>
         <button class="tab" data-tab="results">结果回看</button>
         <button class="tab" data-tab="files">文件树</button>
         <button class="tab" data-tab="terminal">终端</button>
@@ -116,6 +120,19 @@
       </div>
 
       <section id="panel-chat" class="panel active">
+        <div id="session-tabs" class="session-tabs">
+          <div id="session-tab-list" class="session-tab-list"></div>
+          <button id="session-tab-new" class="session-tab-new" title="新建会话 (Ctrl+Shift+O)">＋</button>
+          <button id="session-export" class="session-tab-new" title="导出当前对话为 Markdown">⬇</button>
+        </div>
+        <div id="chat-search" class="chat-search" hidden>
+          <span class="cs-ico">🔍</span>
+          <input id="cs-input" class="cs-input" type="text" placeholder="搜索当前对话…" />
+          <span id="cs-count" class="cs-count"></span>
+          <button id="cs-prev" class="cs-btn" title="上一处 (Shift+Enter)">↑</button>
+          <button id="cs-next" class="cs-btn" title="下一处 (Enter)">↓</button>
+          <button id="cs-close" class="cs-btn" title="关闭 (Esc)">✕</button>
+        </div>
         <div id="messages" class="messages"></div>
         <div id="agent-status" class="agent-status" hidden>
           <span class="as-ico">💭</span>
@@ -123,6 +140,12 @@
           <div class="as-bar"><div class="as-fill indet"></div></div>
         </div>
         <div id="composer" class="composer">
+          <div id="quote-bar" class="quote-bar" hidden>
+            <span class="quote-ico">↩</span>
+            <span id="quote-text" class="quote-text"></span>
+            <span class="editor-spacer"></span>
+            <button id="quote-clear" class="cs-btn" title="取消引用">✕</button>
+          </div>
           <div class="composer-input-wrap">
             <textarea id="input" placeholder="描述你的编码任务，例如：在 src 下新建一个 hello.py 并打印版本号" rows="2"></textarea>
             <button id="send" class="btn-primary btn-send">发送 <span class="send-ico">➤</span></button>
@@ -133,14 +156,6 @@
         </div>
       </section>
 
-      <section id="panel-tasks" class="panel">
-        <div class="task-bar">
-          <textarea id="task-prompt" placeholder="新建并发编程任务，例如：给 utils.py 加一个 retry 装饰器" rows="2"></textarea>
-          <select id="task-provider"><option value="">自动轮询通道</option></select>
-          <button id="task-add" class="btn-primary">＋ 新建任务</button>
-        </div>
-        <div id="task-list" class="task-list"></div>
-      </section>
 
       <section id="panel-results" class="panel">
         <div id="result-list" class="card-list"></div>
@@ -253,6 +268,41 @@
     </main>
   </div>
   <div id="toast" class="toast"></div>
+
+  <!-- 全局命令面板 (P0 交互飞跃) -->
+  <div id="cmd-palette" class="cmd-palette" hidden>
+    <div class="cmd-box">
+      <div class="cmd-input-row">
+        <span class="cmd-ico">⌘</span>
+        <input id="cmd-input" class="cmd-input" placeholder="输入命令或搜索… (↑↓ 选择 · Enter 执行 · Esc 关闭)" autocomplete="off" spellcheck="false" />
+        <kbd class="cmd-esc">Esc</kbd>
+      </div>
+      <ul id="cmd-list" class="cmd-list"></ul>
+      <div class="cmd-foot">
+        <span><kbd>⌘K</kbd> 面板</span>
+        <span><kbd>⌘N</kbd> 新建</span>
+        <span><kbd>⌘L</kbd> 清空</span>
+        <span><kbd>⌘E</kbd> 评审</span>
+        <span><kbd>⌘/</kbd> 快捷键</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 收藏夹 (P2h) -->
+  <div id="stars-modal" class="stars-modal" hidden>
+    <div class="stars-box">
+      <div class="stars-head">
+        <span class="stars-title">⭐ 收藏夹</span>
+        <span class="editor-spacer"></span>
+        <button id="stars-close" class="cs-btn" title="关闭">✕</button>
+      </div>
+      <div id="stars-list" class="stars-list"></div>
+      <div class="stars-foot">
+        <span class="stars-hint">点击条目跳转到对应会话与消息 · 收藏数据存于本地浏览器 (localStorage)</span>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/structview.js"></script>
   <script src="/static/app.js"></script>
 </body>

@@ -61,14 +61,25 @@ def _module_file(server):
     return None
 
 
+def _stream_first(client):
+    """与真实对话一致的 streaming 路径: 取首个 chunk 即判定连通(首 token 最快)。
+
+    非流式完整响应在某些后端冷启动/网络下偶发 >20s, 导致探针误判 fail(false negative);
+    streaming 首 token 通常秒级到达, 与 /api/chat 真实路径一致且更稳健。
+    """
+    gen = client.chat([{"role": "user", "content": "ping"}], stream=True)
+    return next(gen, None)
+
+
 def probe_llm(cfg, timeout=20.0):
     """真实最小 LLM 连通探针: 发起一次极短 chat, 线程超时保护, 绝不阻塞 HTTP 处理。
 
     返回 (ok: bool, detail: str, latency_ms: float|None)。
     mock 后端直接视为可用, 不消耗外部额度。
 
-    超时默认 20s: 云端 LLM 冷启动首调含 TLS 握手/模型预热, 实测常需 6-12s;
-    6s 会误判为超时(false negative)。20s 既能覆盖冷启动, 又能在真正不可达时及时失败。
+    走 **streaming 首 chunk** 路径(与 /api/chat 一致): 首 token 到达即判定连通,
+    避免非流式完整响应冷启动偶发 >20s 的误判。超时默认 20s 覆盖冷启动 TLS 握手/模型预热,
+    又能在真正不可达时及时失败。
     """
     try:
         from ..llm.client import build_client
@@ -79,11 +90,11 @@ def probe_llm(cfg, timeout=20.0):
             return True, "backend=mock (offline) ok", 0.0
         t0 = time.time()
         with ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(client.chat, [{"role": "user", "content": "ping"}], stream=False)
+            fut = ex.submit(_stream_first, client)
             try:
-                res = fut.result(timeout=timeout)
+                first = fut.result(timeout=timeout)
                 dt = (time.time() - t0) * 1000
-                ok = bool(res)
+                ok = bool(first)
                 return ok, f"backend={backend} ok", round(dt, 1)
             except Exception as e:
                 return False, f"{type(e).__name__}: {e}", None

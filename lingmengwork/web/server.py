@@ -662,6 +662,8 @@ _SETTINGS_SCHEMA = [
          "label": "上下文压缩阈值字符(0=关闭)", "restart": False},
         {"key": "agent.context_keep_recent", "section": "agent", "type": "int",
          "label": "压缩时保留最近轮数", "restart": False},
+        {"key": "agent.cost_alert_threshold", "section": "agent", "type": "float",
+         "label": "成本预警阈值(元, 超阈值红色告警)", "restart": False},
         {"key": "agent.system_prompt", "section": "agent", "type": "string",
          "label": "自定义系统提示(留空=默认)", "restart": False},
     ]},
@@ -1918,7 +1920,16 @@ class Handler(SimpleHTTPRequestHandler):
 
     # ---- 主题 E 成本看板 (批次13): 会话级 token/成本追踪 ----
     def _cost_stats(self):
-        """遍历活体会话, 汇总每会话估算 token/成本 + 进程总计 + 价目参考。"""
+        """遍历活体会话, 汇总每会话估算 token/成本 + 进程总计 + 价目参考。
+
+        成本看板预警(批次17): 读取 agent.cost_alert_threshold, 对每个会话与进程总额
+        标注 over_threshold 与阈值 threshold, 前端据此红色高亮。
+        """
+        try:
+            _cfg = _get_cfg()
+            threshold = float(_cfg_get(_cfg, "agent.cost_alert_threshold") or 1.0)
+        except Exception:
+            threshold = 1.0
         sessions = []
         t_in = t_out = 0
         t_cost = 0.0
@@ -1928,6 +1939,7 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 continue
             mode = getattr(getattr(loop, "registry", None), "permission_mode", "") or ""
+            cost = st.get("est_cost_cny", 0.0)
             sessions.append({
                 "session_id": sid,
                 "backend": loop.provider or "",
@@ -1935,13 +1947,15 @@ class Handler(SimpleHTTPRequestHandler):
                 "est_input_tokens": st.get("est_input_tokens", 0),
                 "est_output_tokens": st.get("est_output_tokens", 0),
                 "est_total_tokens": st.get("est_total_tokens", 0),
-                "est_cost_cny": st.get("est_cost_cny", 0.0),
+                "est_cost_cny": cost,
                 "turns": len(getattr(loop, "messages", []) or []),
                 "plan_mode": (mode == "plan"),
+                "threshold": threshold,
+                "over_threshold": bool(cost > threshold),
             })
             t_in += st.get("est_input_tokens", 0)
             t_out += st.get("est_output_tokens", 0)
-            t_cost += st.get("est_cost_cny", 0.0)
+            t_cost += cost
         sessions.sort(key=lambda x: -x["est_total_tokens"])
         return {
             "sessions": sessions,
@@ -1950,6 +1964,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "est_output_tokens": t_out,
                 "est_total_tokens": t_in + t_out,
                 "est_cost_cny": round(t_cost, 6),
+                "threshold": threshold,
+                "over_threshold": bool(t_cost > threshold),
             },
             "pricing": _pricing.reference_list(),
             "currency": "CNY",

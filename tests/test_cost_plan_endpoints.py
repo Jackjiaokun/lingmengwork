@@ -58,6 +58,29 @@ def test_cost_stats_aggregates():
         # 价目参考非空
         assert len(d["pricing"]) >= 1
         assert d["currency"] == "CNY"
+        # 批次17 — 成本预警默认阈值 1.0 元已注入
+        assert abs(d["total"]["threshold"] - 1.0) < 1e-9
+        for s in d["sessions"]:
+            assert "over_threshold" in s and "threshold" in s
+            assert s["over_threshold"] is False
+    finally:
+        S._SESSION_LOOPS.clear(); S._SESSION_LOOPS.update(saved)
+
+
+def test_cost_stats_threshold():
+    """批次17 — 单会话/进程总额超阈值标注 over_threshold=True。"""
+    saved = _inject({
+        "s1": _FakeLoop("s1", "sensenova", "m", 1000, 500, 0.0002, "bypassPermissions"),
+        "s2": _FakeLoop("s2", "sensenova", "m", 3000, 1000, 5.0, "bypassPermissions"),
+    })
+    try:
+        d = S.Handler._cost_stats(None)
+        assert abs(d["total"]["threshold"] - 1.0) < 1e-9
+        s1 = [s for s in d["sessions"] if s["session_id"] == "s1"][0]
+        s2 = [s for s in d["sessions"] if s["session_id"] == "s2"][0]
+        assert s1["over_threshold"] is False
+        assert s2["over_threshold"] is True
+        assert d["total"]["over_threshold"] is True
     finally:
         S._SESSION_LOOPS.clear(); S._SESSION_LOOPS.update(saved)
 

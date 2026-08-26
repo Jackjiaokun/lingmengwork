@@ -45,6 +45,15 @@
   .empty{padding:30px;text-align:center;color:var(--mut)}
   .pricetbl td.num{font-variant-numeric:tabular-nums}
   .hint{color:var(--mut);font-size:12px;margin-top:8px}
+  /* 批次17 — 成本预警 */
+  .stat-lg.alert{border-color:var(--fail);box-shadow:0 0 0 1px var(--fail) inset}
+  .stat-lg.alert .num{color:var(--fail)}
+  .alert-badge{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:20px;
+    font-size:11px;font-weight:700;background:rgba(231,76,60,.18);color:var(--fail);vertical-align:middle}
+  .thresh-note{color:var(--mut);font-size:12px;margin:-4px 0 14px}
+  tr.over td{background:rgba(231,76,60,.12)}
+  tr.over td.num:last-child{color:var(--fail);font-weight:700}
+  .warn-ico{margin-left:5px}
 </style>
 </head>
 <body>
@@ -62,8 +71,9 @@
       <div class="card stat-lg"><span class="num" id="t-tok">0</span><span class="lab">估算总 Token</span></div>
       <div class="card stat-lg"><span class="num" id="t-in">0</span><span class="lab">输入 Token</span></div>
       <div class="card stat-lg"><span class="num" id="t-out">0</span><span class="lab">输出 Token</span></div>
-      <div class="card stat-lg"><span class="num" id="t-cost">¥0</span><span class="lab">估算总成本</span></div>
+      <div class="card stat-lg" id="t-cost-card"><span class="num" id="t-cost">¥0</span><span class="alert-badge" id="t-badge" style="display:none">⚠ 超阈值</span><span class="lab">估算总成本</span></div>
     </div>
+    <div class="thresh-note" id="thresh-note"></div>
   </section>
 
   <section>
@@ -107,14 +117,19 @@ async function load(){
     $("#t-in").textContent=fmtInt(t.est_input_tokens);
     $("#t-out").textContent=fmtInt(t.est_output_tokens);
     $("#t-cost").textContent=fmtCny(t.est_cost_cny);
-    const rows=(d.sessions||[]).map(s=>`<tr>
+    const thr=(t.threshold!=null)?t.threshold:1.0;
+    const over=!!t.over_threshold;
+    $("#t-cost-card").classList.toggle("alert",over);
+    $("#t-badge").style.display=over?"inline-block":"none";
+    $("#thresh-note").textContent="成本预警阈值：¥"+Number(thr).toFixed(4)+(over?"　⚠ 进程总额已超阈值，请关注用量":"");
+    const rows=(d.sessions||[]).map(s=>`<tr class="${s.over_threshold?'over':''}">
       <td style="font-family:monospace;font-size:12px">${esc(s.session_id)}</td>
       <td>${esc(s.backend)}</td>
       <td>${esc(s.model)}</td>
       <td class="num">${fmtInt(s.est_input_tokens)}</td>
       <td class="num">${fmtInt(s.est_output_tokens)}</td>
       <td class="num">${fmtInt(s.est_total_tokens)}</td>
-      <td class="num">${fmtCny(s.est_cost_cny)}</td>
+      <td class="num">${fmtCny(s.est_cost_cny)}${s.over_threshold?' <span class="warn-ico">⚠</span>':''}</td>
       <td class="num">${fmtInt(s.turns)}</td>
       <td>${s.plan_mode?'<span class="mode-tag">计划</span>':'—'}</td>
     </tr>`).join("");

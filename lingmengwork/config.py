@@ -72,6 +72,8 @@ DEFAULTS = {
         "context_compact_threshold": 120000,
         # 压缩时保留最近的 N 个消息(回合)不压缩, 保证当前任务连续性。
         "context_keep_recent": 6,
+        # 成本看板预警阈值 (元): 单会话估算成本或进程总额超过此值, 前端成本看板红色高亮告警。
+        "cost_alert_threshold": 1.0,
         "security": {
             "allowed_roots": ["."],
             "dangerously_run_commands": False,

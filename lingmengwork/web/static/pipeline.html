@@ -57,6 +57,12 @@
   .art-prev .note{font-size:12px;color:var(--muted)}
   .art-prev .dl{color:#fff;font-size:12px;text-decoration:none;padding:6px 14px;border-radius:8px;background:rgba(139,92,246,.3);border:1px solid var(--stroke)}
   .art-prev .dl:hover{background:rgba(139,92,246,.5)}
+  .au-card{margin-top:10px;border:1px solid rgba(16,185,129,.35);border-radius:10px;padding:10px;background:rgba(16,185,129,.06)}
+  .au-card .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .au-files{margin-top:6px;font-size:13px;color:var(--muted)}
+  .au-files code{background:rgba(0,0,0,.35);padding:2px 7px;border-radius:6px;margin:0 3px;color:#cbd5e1;font-size:12px}
+  .au-files .dl{display:inline-block;margin-left:6px;color:#fff;font-size:12px;text-decoration:none;padding:3px 10px;border-radius:7px;background:rgba(16,185,129,.3);border:1px solid var(--stroke)}
+  .au-warn{margin-top:6px;font-size:12px;color:#fde68a}
   .md{margin-top:4px}
   .md-h{margin:12px 0 5px;color:#fff;border-left:3px solid var(--brand);padding-left:10px;font-size:14px}
   .md-h2{margin:10px 0 4px;color:#fff;font-size:13.5px;font-weight:700}
@@ -214,10 +220,25 @@ function renderAll(j){
       + (art.note ? '<div class="note">'+esc(art.note)+'</div>' : '')
       + '<a class="dl" href="'+esc(art.url)+'" target="_blank">⬇ 下载</a></div>';
   };
+  const renderAutonomous = (ex)=>{
+    const au = ex.autonomous; if(!au || !au.files || !au.files.length) return '';
+    const rv = au.review||{};
+    const badge = au.reached ? '<span class="art-badge real">✅ 自主达成</span>' : '<span class="art-badge fake">🔄 未达成</span>';
+    let s = '<div class="au-card"><div class="top">🤖 自主回路 '+badge
+          + '<span class="tag">'+au.iterations+' 轮 · 编译校验 '+rv.passed+'/'+rv.checked+' 通过</span></div>'
+          + '<div class="au-files"><b>生成文件：</b>'
+          + au.files.map(f=>'<code>'+esc(f)+'</code>').join(' ')
+          + (rv.dir ? ' · <a class="dl" href="'+esc(rv.dir)+'" target="_blank">⬇ 目录</a>' : '') + '</div>';
+    const fails = (rv.details||[]).filter(d=>!d.ok);
+    if(fails.length){ s += '<div class="au-warn">⚠️ '+fails.length+' 个文件编译未通过（需人工复核）</div>'; }
+    s += '</div>';
+    return s;
+  };
   (j.execute||[]).forEach(ex=>{
     h += '<div class="exec"><div class="top"><span class="badge dom" style="background:'+esc(ex.theme)+'">'+esc(ex.emoji)+' '+esc(ex.domain_name)+'</span>'
        + '<span class="t">'+esc(ex.title)+'</span>'
        + renderArtifactTag(ex.artifact) + '</div>'
+       + renderAutonomous(ex)
        + '<div class="md">'+renderMd(ex.plan)+'</div>'
        + renderArtifact(ex.artifact) + '</div>';
   });

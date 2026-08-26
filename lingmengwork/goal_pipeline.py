@@ -22,6 +22,7 @@ from . import decompose_engine as de
 from . import creation_domains as cd
 from . import multimodal_adapters as ma
 from . import memory_mgr as mm
+from . import autonomous as au
 
 # 域元信息兜底(含 any)
 _DOM_META = {
@@ -91,6 +92,93 @@ def _format_memory_context(recalled):
     return "\n".join(out)
 
 
+# ---- Phase 11: 流水线 × 自主深度融合 ----
+# 让「执行」阶段对编程域真正驱动自主回路: 规划->观察->Critic->反思,
+# 抽取生成代码落盘, 并以编译校验作为评审门, 形成「蓝图->真实交付」闭环。
+_EXT_MAP = {
+    "python": "py", "py": "py", "javascript": "js", "js": "js", "typescript": "ts", "ts": "ts",
+    "html": "html", "css": "css", "json": "json", "bash": "sh", "sh": "sh", "shell": "sh",
+    "sql": "sql", "yaml": "yaml", "yml": "yaml", "xml": "xml", "c": "c", "cpp": "cpp",
+    "c++": "cpp", "java": "java", "go": "go", "rust": "rs", "ruby": "rb", "r": "r",
+}
+
+
+def _extract_code_blocks(text):
+    """从 Markdown 文本抽取所有围栏代码块, 返回 [(lang, code), ...]。"""
+    if not text:
+        return []
+    out = []
+    for lang, code in re.findall(r"```([A-Za-z0-9_+#.-]*)\n(.*?)```", text, re.DOTALL):
+        code = code.strip()
+        if code:
+            out.append((lang.strip().lower(), code))
+    return out
+
+
+def _slugify(s, maxlen=40):
+    s = re.sub(r"[^\w\u4e00-\u9fff]+", "_", (s or "").strip())[:maxlen]
+    return s.strip("_") or "task"
+
+
+def _autonomous_execute(goal, ctx, llm_call, max_iter, out_root):
+    """对编程域跑自主回路, 抽取代码落盘并以编译校验作为评审门。
+
+    返回 {reached, iterations, conclusion, files:[name...], review:{...}}。
+    无 LLM(llm_call=None)或没抽到代码时 files 为空, 由调用方回退到 dispatch 蓝图。
+    """
+    res = au.run(goal, llm_call, context=ctx, max_iter=max_iter)
+    iterations = res.get("iterations", []) or []
+    corpus = []
+    for it in iterations:
+        corpus.append(it.get("plan", "") or "")
+        corpus.append(it.get("observation", "") or "")
+        corpus.append(it.get("reflection", "") or "")
+    corpus.append(res.get("conclusion", "") or "")
+    blocks = []
+    for c in corpus:
+        blocks.extend(_extract_code_blocks(c))
+
+    files, review = [], {"checked": 0, "passed": 0, "failed": 0, "details": []}
+    if blocks and llm_call:
+        slug = _slugify(goal)
+        out_dir = os.path.join(out_root, "code", slug)
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except Exception:
+            out_dir = None
+        for i, (lang, code) in enumerate(blocks, 1):
+            if not out_dir:
+                break
+            ext = _EXT_MAP.get(lang, "txt")
+            fname = "%02d.%s" % (i, ext)
+            fpath = os.path.join(out_dir, fname)
+            try:
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(code + "\n")
+                files.append(fname)
+                if ext == "py":
+                    review["checked"] += 1
+                    try:
+                        import py_compile
+                        py_compile.compile(fpath, doraise=True)
+                        review["passed"] += 1
+                        review["details"].append({"file": fname, "ok": True})
+                    except Exception as e:
+                        review["failed"] += 1
+                        review["details"].append({"file": fname, "ok": False, "error": str(e)[:200]})
+            except Exception:
+                pass
+        if files:
+            review["dir"] = "/outputs/code/" + slug
+    return {
+        "reached": res.get("reached", False),
+        "iterations": len(iterations),
+        "conclusion": res.get("conclusion", ""),
+        "files": files,
+        "review": review,
+    }
+
+
 def _self_check(goal, steps, executions, llm_call=None):
     """LLM Critic 评审流水线的完整性与缺口, 失败/无 key 回退规则版。"""
     gaps, notes, score = [], [], 100
@@ -143,6 +231,15 @@ def _assemble_delivery(goal, steps, executions, selfcheck):
     for ex in executions:
         lines.append("### %s 〔%s %s〕" % (ex["title"], ex["emoji"], ex["domain_name"]))
         lines.append(ex.get("plan", "") or "（无）")
+        au = ex.get("autonomous")
+        if au and au.get("files"):
+            rv = au["review"]
+            lines.append("")
+            lines.append("- 🤖 **自主执行**: %d 轮 · 达成=%s · 生成文件 `%s` · 编译校验 %d/%d 通过"
+                         % (au["iterations"], "是" if au["reached"] else "否",
+                            "、".join(au["files"]), rv["passed"], rv["checked"]))
+            if rv.get("dir"):
+                lines.append("- 代码目录: `%s`" % rv["dir"])
         lines.append("")
     lines += ["## 五、自检结论", ""]
     sc = selfcheck
@@ -157,7 +254,8 @@ def _assemble_delivery(goal, steps, executions, selfcheck):
 
 
 def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=True,
-                 do_render=True, memory_dir=None, do_learn=True):
+                 do_render=True, memory_dir=None, do_learn=True, do_autonomous=True,
+                 max_autonomous_iter=4):
     """执行全链路流水线, 返回结构化结果 dict。
 
     goal: 用户模糊目标
@@ -168,6 +266,8 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
     do_render: 是否对 image/audio/video 域调用多模态适配层真实产出媒体文件
     memory_dir: 语义记忆根目录 (默认 cwd 下 .lmw_memory); 跨会话偏好喂入与写回
     do_learn: 流水线结束后是否把本次目标/域偏好写回记忆 (越用越聪明)
+    do_autonomous: 是否对编程域步骤驱动自主回路 (Phase 11: 真实代码生成+编译评审门)
+    max_autonomous_iter: 单个编程域步骤的自主最大自驱轮次
     """
     started = time.time()
     ctx = (context or "").strip()
@@ -205,7 +305,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         "execution_order": order,
     }
 
-    # Stage 4 · 执行 (每步按其域产出可执行蓝图, 创作域再真实产出媒体文件)
+    # Stage 4 · 执行 (每步按其域产出可执行蓝图; 编程域驱动自主回路真实生成代码; 创作域再真实产出媒体文件)
     executions = []
     for s in exec_steps:
         dom = s.get("domain") or "any"
@@ -214,11 +314,21 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         meta = _dom_meta(dom)
         brief = "%s\n%s" % (s.get("title", ""), s.get("detail", ""))
         plan = ""
-        try:
-            res = cd.dispatch(dom, brief, ctx_rich, llm_call=llm_call)
-            plan = res.get("plan", "")
-        except Exception as e:
-            plan = "（执行方案生成失败: %s）" % e
+        autonomous = None
+        # Phase 11 · 编程域驱动自主回路 (真实代码生成 + 编译评审门); 无产出则回退 dispatch 蓝图
+        if dom == "code" and do_autonomous:
+            try:
+                autonomous = _autonomous_execute(brief, ctx_rich, llm_call, max_autonomous_iter, os.getcwd())
+            except Exception:
+                autonomous = None
+        if autonomous and autonomous.get("files"):
+            plan = autonomous.get("conclusion") or "（自主模式已生成 %d 个代码文件，详见交付稿与 outputs/code/）" % len(autonomous["files"])
+        else:
+            try:
+                res = cd.dispatch(dom, brief, ctx_rich, llm_call=llm_call)
+                plan = res.get("plan", "")
+            except Exception as e:
+                plan = "（执行方案生成失败: %s）" % e
         # Phase 8 · 真实多模态适配层: 创作域自动落真实媒体文件
         artifact = None
         if do_render and dom in ("image", "audio", "video"):
@@ -237,6 +347,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
             "theme": meta["theme"],
             "adapter": meta["adapter"],
             "plan": plan,
+            "autonomous": autonomous,
             "artifact": artifact,
         })
 

@@ -3450,7 +3450,9 @@ class Handler(SimpleHTTPRequestHandler):
                 md = int(body.get("max_dispatch") or 4)
                 result = _gp.run_pipeline(goal, context=body.get("context") or "", llm_call=llm,
                                           max_dispatch=md, memory_dir=os.getcwd(),
-                                          do_learn=bool(body.get("do_learn", True)))
+                                          do_learn=bool(body.get("do_learn", True)),
+                                          do_autonomous=bool(body.get("do_autonomous", True)),
+                                          max_autonomous_iter=int(body.get("max_autonomous_iter") or 4))
             elif engine == "autonomous":
                 if not goal:
                     return self._send_json({"error": "自主模式需要 goal"}, status=400)

@@ -1140,6 +1140,16 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 全链路目标驱动流水线 (Phase 7) ----
         if p == "/pipeline":
             return self._serve_file("pipeline.html")
+        # ---- 真实多模态适配层 (Phase 8) ----
+        if p == "/multimodal":
+            return self._serve_file("multimodal.html")
+        if p.startswith("/outputs/"):
+            from urllib.parse import unquote
+            name = unquote(os.path.basename(p[len("/outputs/"):]))
+            fpath = os.path.join(os.getcwd(), "outputs", "multimodal", name)
+            if os.path.isfile(fpath):
+                return self._serve_data_file(fpath)
+            return self.send_error(404)
         if p == "/api/creation/domains":
             from .. import creation_domains as _cd
             return self._send_json({"ok": True, "domains": _cd.list_domains()})
@@ -1349,6 +1359,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 全链路目标驱动流水线 (Phase 7) ----
         if p == "/api/pipeline":
             return self._pipeline_api()
+        # ---- 真实多模态适配层 (Phase 8) ----
+        if p == "/api/multimodal/render":
+            return self._multimodal_render()
         # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
         if p == "/api/context/compress":
             return self._context_op("compress")
@@ -2001,6 +2014,21 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             return self.send_error(404)
         ctype = "text/html; charset=utf-8" if name.endswith(".html") else "text/plain; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_data_file(self, path):
+        """按扩展名 mime 发送任意二进制文件(用于 /outputs/ 真实媒体交付)。"""
+        import mimetypes
+        try:
+            with open(path, "rb") as f:
+                body = f.read()
+        except Exception:
+            return self.send_error(404)
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -3294,6 +3322,28 @@ class Handler(SimpleHTTPRequestHandler):
             from .. import errorlog as _el
             _el.record(os.getcwd(), "pipeline", "目标流水线失败: %s" % e, source="api:/api/pipeline", detail=str(e))
             return self._send_json({"error": "流水线执行失败: %s" % e}, status=500)
+
+    def _multimodal_render(self):
+        """POST /api/multimodal/render {domain, brief, blueprint?} -> 真实媒体文件(落 outputs/multimodal)。"""
+        from .. import multimodal_adapters as _ma
+        try:
+            body = self._read_json({})
+            domain = (body.get("domain") or "").strip().lower()
+            brief = (body.get("brief") or "").strip()
+            blueprint = body.get("blueprint") or ""
+            if domain not in _ma.available_domains():
+                return self._send_json({"error": "不支持的域: %s (可选: %s)" % (domain, ", ".join(_ma.available_domains()))}, status=400)
+            if not brief:
+                return self._send_json({"error": "缺少 brief"}, status=400)
+            art = _ma.render(domain, brief, blueprint, "")
+            if not art:
+                return self._send_json({"error": "适配失败"}, status=500)
+            fname = os.path.basename(art.get("file") or "")
+            if fname:
+                art["url"] = "/outputs/" + fname
+            return self._send_json({"ok": True, **art})
+        except Exception as e:
+            return self._send_json({"error": "多模态渲染失败: %s" % e}, status=500)
 
     def _plans_delete(self):
         """POST /api/plans/delete {id} -> 删除计划。"""

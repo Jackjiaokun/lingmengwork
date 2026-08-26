@@ -14,11 +14,13 @@
 """
 
 import json
+import os
 import re
 import time
 
 from . import decompose_engine as de
 from . import creation_domains as cd
+from . import multimodal_adapters as ma
 
 # 域元信息兜底(含 any)
 _DOM_META = {
@@ -132,13 +134,15 @@ def _assemble_delivery(goal, steps, executions, selfcheck):
     return "\n".join(lines)
 
 
-def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=True):
+def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=True, do_render=True):
     """执行全链路流水线, 返回结构化结果 dict。
 
     goal: 用户模糊目标
     context: 可选补充上下文
     llm_call: llm_call(prompt, system=None)->str|None
     max_dispatch: 最多为前 N 个步骤生成执行蓝图 (控制 LLM fan-out 时延)
+    do_selfcheck: 是否执行 LLM Critic 自检
+    do_render: 是否对 image/audio/video 域调用多模态适配层真实产出媒体文件
     """
     started = time.time()
     ctx = (context or "").strip()
@@ -167,7 +171,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         "execution_order": order,
     }
 
-    # Stage 4 · 执行 (每步按其域产出可执行蓝图)
+    # Stage 4 · 执行 (每步按其域产出可执行蓝图, 创作域再真实产出媒体文件)
     executions = []
     for s in exec_steps:
         dom = s.get("domain") or "any"
@@ -181,6 +185,15 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
             plan = res.get("plan", "")
         except Exception as e:
             plan = "（执行方案生成失败: %s）" % e
+        # Phase 8 · 真实多模态适配层: 创作域自动落真实媒体文件
+        artifact = None
+        if do_render and dom in ("image", "audio", "video"):
+            try:
+                artifact = ma.render(dom, brief, plan, ctx)
+                if artifact and artifact.get("file"):
+                    artifact["url"] = "/outputs/" + os.path.basename(artifact["file"])
+            except Exception:
+                artifact = None
         executions.append({
             "step_id": s["id"],
             "title": s.get("title", ""),
@@ -190,6 +203,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
             "theme": meta["theme"],
             "adapter": meta["adapter"],
             "plan": plan,
+            "artifact": artifact,
         })
 
     # Stage 5 · 自检

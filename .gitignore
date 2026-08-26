@@ -21,6 +21,7 @@ spec/
 .lmw_index/
 .lmw_memory/
 logs/errors/*.json
+outputs/
 *.bak_*
 *.log
 

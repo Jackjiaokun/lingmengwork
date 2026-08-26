@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>多模态实验室 · 灵梦work</title>
+<style>
+:root{
+  --bg:#0b0a1f; --panel:rgba(22,18,48,.72); --panel-2:rgba(30,24,64,.6);
+  --line:rgba(139,92,246,.22); --txt:#e9e6ff; --muted:#a79fd6; --brand:#8b5cf6;
+  --cyan:#22d3ee; --pink:#f472b6; --green:#10b981; --blue:#6366f1;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 800px at 80% -10%,rgba(139,92,246,.18),transparent),
+  radial-gradient(900px 700px at -10% 110%,rgba(34,211,238,.12),transparent),var(--bg);
+  color:var(--txt);font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh;padding:32px 20px}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:30px;margin:0 0 4px;background:linear-gradient(90deg,#a78bfa,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--muted);margin:0 0 24px;font-size:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:20px;backdrop-filter:blur(10px)}
+.lbl{font-size:13px;color:var(--muted);margin:0 0 8px;letter-spacing:.04em}
+.domrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.dom{cursor:pointer;flex:1;min-width:150px;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;
+  padding:16px;display:flex;align-items:center;gap:12px;transition:.18s;user-select:none}
+.dom:hover{transform:translateY(-2px);border-color:rgba(139,92,246,.5)}
+.dom.on{border-color:var(--accent,#8b5cf6);box-shadow:0 0 0 1px var(--accent,#8b5cf6),0 8px 26px rgba(139,92,246,.18)}
+.dom .ico{font-size:26px}
+.dom .nm{font-weight:700;font-size:15px}
+.dom .ds{font-size:12px;color:var(--muted)}
+textarea{width:100%;background:rgba(10,8,26,.6);border:1px solid var(--line);border-radius:12px;color:var(--txt);
+  padding:12px;font-size:14px;font-family:inherit;resize:vertical;min-height:90px;outline:none}
+textarea:focus{border-color:rgba(139,92,246,.55)}
+.btn{margin-top:16px;display:inline-flex;align-items:center;gap:8px;cursor:pointer;border:none;border-radius:12px;
+  padding:12px 22px;font-size:15px;font-weight:700;color:#fff;background:linear-gradient(90deg,#8b5cf6,#6366f1);
+  box-shadow:0 8px 24px rgba(139,92,246,.3);transition:.18s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(139,92,246,.42)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.out{margin-top:6px}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid var(--line)}
+.state.real{color:#bbf7d0;border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.1)}
+.state.fake{color:#fde68a;border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.1)}
+.meta{color:var(--muted);font-size:12px;margin:8px 0 0}
+.note{color:#cbb8ff;font-size:13px;margin:6px 0 0}
+.prev{margin-top:16px;border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(10,8,26,.5);
+  display:flex;flex-direction:column;align-items:center;gap:12px}
+.prev img{max-width:100%;border-radius:10px}
+.prev audio{width:100%}
+.dl{color:#fff;font-size:13px;text-decoration:none;padding:8px 16px;border-radius:10px;background:rgba(139,92,246,.25);border:1px solid var(--line)}
+.dl:hover{background:rgba(139,92,246,.4)}
+.err{color:#fca5a5;font-size:13px;margin-top:10px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎬 多模态实验室</h1>
+  <p class="sub">真实多模态适配层 (Phase 8) · 把创作域从「蓝图产出」升级为「真实媒体文件交付」 — 图片(PNG)/音频(MP3·降级占位)/视频(GIF)</p>
+
+  <div class="card">
+    <p class="lbl">选择创作域</p>
+    <div class="domrow" id="domRow">
+      <div class="dom on" data-dom="image" style="--accent:#f472b6"><span class="ico">🖼️</span><span><span class="nm">图片</span><br><span class="ds">Pillow 真实 PNG 信息图</span></span></div>
+      <div class="dom" data-dom="audio" style="--accent:#10b981"><span class="ico">🎙️</span><span><span class="nm">音频</span><br><span class="ds">edge_tts 真实 MP3 / 降级占位</span></span></div>
+      <div class="dom" data-dom="video" style="--accent:#6366f1"><span class="ico">🎞️</span><span><span class="nm">视频</span><br><span class="ds">Pillow 真实 GIF 动图</span></span></div>
+    </div>
+
+    <p class="lbl">创作需求 (brief)</p>
+    <textarea id="brief" placeholder="例如：为金融科技品牌做一张深空蓝紫科技感主视觉海报，主题是「灵梦磐石·智能体 OS」"></textarea>
+
+    <p class="lbl" style="margin-top:14px">创作蓝图 (可选，填入将提升产出针对性)</p>
+    <textarea id="blueprint" placeholder="可粘贴 /api/creation/dispatch 产出的蓝图，留空则由适配层自动抽取要点"></textarea>
+
+    <button class="btn" id="genBtn">⚡ 生成真实媒体</button>
+  </div>
+
+  <div class="card out hidden" id="outCard">
+    <p class="lbl">产出</p>
+    <div id="badges"></div>
+    <div class="meta" id="metaLine"></div>
+    <div class="note" id="noteLine"></div>
+    <div class="prev" id="prev"></div>
+    <div class="err hidden" id="errLine"></div>
+  </div>
+</div>
+
+<script>
+let curDom = "image";
+const domRow = document.getElementById("domRow");
+domRow.querySelectorAll(".dom").forEach(el => {
+  el.onclick = () => {
+    domRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
+    el.classList.add("on");
+    curDom = el.dataset.dom;
+  };
+});
+
+const genBtn = document.getElementById("genBtn");
+const outCard = document.getElementById("outCard");
+const badges = document.getElementById("badges");
+const metaLine = document.getElementById("metaLine");
+const noteLine = document.getElementById("noteLine");
+const prev = document.getElementById("prev");
+const errLine = document.getElementById("errLine");
+
+genBtn.onclick = async () => {
+  const brief = document.getElementById("brief").value.trim();
+  const blueprint = document.getElementById("blueprint").value.trim();
+  if (!brief) { flashErr("请填写创作需求 (brief)"); return; }
+  genBtn.disabled = true; genBtn.textContent = "⏳ 生成中…";
+  outCard.classList.remove("hidden"); errLine.classList.add("hidden");
+  badges.innerHTML = ""; metaLine.textContent = ""; noteLine.textContent = ""; prev.innerHTML = "";
+  try {
+    const r = await fetch("/api/multimodal/render", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({domain: curDom, brief, blueprint})
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) { flashErr(j.error || ("HTTP " + r.status)); return; }
+    renderResult(j);
+  } catch (e) { flashErr("请求失败: " + e.message); }
+  finally { genBtn.disabled = false; genBtn.textContent = "⚡ 生成真实媒体"; }
+};
+
+function renderResult(j) {
+  const real = j.real;
+  badges.innerHTML = '<span class="state ' + (real ? "real" : "fake") + '">' +
+    (real ? "✅ 真实媒体文件" : "⚠️ 降级占位") + " · " + (j.mime || "") + '</span>';
+  const m = j.meta || {};
+  metaLine.textContent = Object.entries(m).map(([k,v]) => k + ": " + v).join("  ·  ") || "—";
+  if (j.note) noteLine.textContent = "说明: " + j.note;
+
+  const url = j.url;
+  if (!url) { prev.innerHTML = '<div class="meta">未产出可访问文件</div>'; return; }
+  if ((j.mime || "").startsWith("audio")) {
+    prev.innerHTML = '<audio controls src="' + url + '"></audio>';
+  } else {
+    prev.innerHTML = '<img src="' + url + '" alt="preview" />';
+  }
+  const a = document.createElement("a");
+  a.className = "dl"; a.href = url; a.textContent = "⬇ 下载文件"; a.target = "_blank";
+  prev.appendChild(a);
+}
+
+function flashErr(msg) {
+  outCard.classList.remove("hidden");
+  errLine.classList.remove("hidden"); errLine.textContent = msg;
+}
+</script>
+</body>
+</html>

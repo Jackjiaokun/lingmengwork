@@ -45,8 +45,18 @@
   .step-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,.07)}
   .step-row:last-child{border-bottom:none}
   .exec{border:1px solid var(--stroke);border-radius:12px;padding:12px 14px;margin-bottom:12px;background:var(--panel)}
-  .exec .top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .exec .top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
   .exec .t{font-weight:700;color:#fff}
+  .art-badge{font-size:12px;padding:2px 9px;border-radius:999px}
+  .art-badge.real{color:#bbf7d0;background:rgba(16,185,129,.14)}
+  .art-badge.fake{color:#fde68a;background:rgba(245,158,11,.14)}
+  .art-prev{margin-top:10px;border:1px solid var(--stroke);border-radius:10px;padding:10px;background:rgba(0,0,0,.22);
+    display:flex;flex-direction:column;align-items:center;gap:8px}
+  .art-prev img{max-width:100%;border-radius:6px}
+  .art-prev audio{width:100%}
+  .art-prev .note{font-size:12px;color:var(--muted)}
+  .art-prev .dl{color:#fff;font-size:12px;text-decoration:none;padding:6px 14px;border-radius:8px;background:rgba(139,92,246,.3);border:1px solid var(--stroke)}
+  .art-prev .dl:hover{background:rgba(139,92,246,.5)}
   .md{margin-top:4px}
   .md-h{margin:12px 0 5px;color:#fff;border-left:3px solid var(--brand);padding-left:10px;font-size:14px}
   .md-h2{margin:10px 0 4px;color:#fff;font-size:13.5px;font-weight:700}
@@ -177,11 +187,21 @@ function renderAll(j){
      + '<p class="md-p tag">执行序：'+esc((j.orchestrate.execution_order||[]).join(" → "))+'</p></div></div>';
   // 执行
   h += '<div class="stage"><h3><span class="n">4</span>执行 · 各域创作蓝图</h3>';
+  const renderArtifactTag = (art)=> art ? '<span class="art-badge '+(art.real?'real':'fake')+'">'+(art.real?'✅ 真实媒体':'⚠️ 降级占位')+'</span>' : '';
+  const renderArtifact = (art)=>{
+    if(!art || !art.url) return '';
+    const isAudio = (art.mime||'').startsWith('audio');
+    const media = isAudio ? '<audio controls src="'+esc(art.url)+'"></audio>' : '<img src="'+esc(art.url)+'" alt="preview" />';
+    return '<div class="art-prev">'+media
+      + (art.note ? '<div class="note">'+esc(art.note)+'</div>' : '')
+      + '<a class="dl" href="'+esc(art.url)+'" target="_blank">⬇ 下载</a></div>';
+  };
   (j.execute||[]).forEach(ex=>{
     h += '<div class="exec"><div class="top"><span class="badge dom" style="background:'+esc(ex.theme)+'">'+esc(ex.emoji)+' '+esc(ex.domain_name)+'</span>'
        + '<span class="t">'+esc(ex.title)+'</span>'
-       + (ex.adapter==='mcp' ? '<span class="tag">（真实生成需接入适配层）</span>' : '') + '</div>'
-       + '<div class="md">'+renderMd(ex.plan)+'</div></div>';
+       + renderArtifactTag(ex.artifact) + '</div>'
+       + '<div class="md">'+renderMd(ex.plan)+'</div>'
+       + renderArtifact(ex.artifact) + '</div>';
   });
   h += '</div>';
   // 自检

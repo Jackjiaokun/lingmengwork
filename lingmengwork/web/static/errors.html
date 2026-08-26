@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 错误日志与汇总</title>
+<style>
+  :root{
+    --bg:#070a14; --card:rgba(20,27,48,.62); --card2:#1a2238;
+    --line:rgba(126,146,210,.16); --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff;
+    --ok:#34e0a1; --warn:#ffb454; --fail:#ff5c7c; --brand2:#4dd0e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:rgba(14,20,36,.7);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600} header h1 .ac{color:var(--fail)}
+  .head-sp{flex:1}
+  a.btn{background:linear-gradient(135deg,#7c5cff,#5b8bff);border:1px solid transparent;color:#fff;padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;box-shadow:0 6px 20px rgba(124,92,255,.3)}
+  a.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);box-shadow:none}
+  a.btn.ghost:hover{border-color:var(--acc)}
+  main{max-width:1000px;margin:0 auto;padding:18px 22px 60px}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:16px}
+  .grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{flex:1;min-width:90px;text-align:center;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 6px}
+  .pill .n{font-size:20px;font-weight:700} .pill .l{font-size:11px;color:var(--mut)}
+  .erow{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;border-left:3px solid var(--mut)}
+  .erow.error{border-left-color:var(--fail)} .erow.warn{border-left-color:var(--warn)} .erow.fatal{border-left-color:#ff2d2d} .erow.info{border-left-color:var(--brand2)}
+  .erow .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .erow .ty{font-weight:700;font-size:13px;color:var(--fail)}
+  .erow .src{font-size:11px;color:var(--mut)}
+  .erow .msg{font-size:13px;margin-top:4px;word-break:break-word}
+  .erow .dt{font-size:11px;color:var(--mut);margin-left:auto}
+  .acts{display:flex;gap:9px;flex-wrap:wrap;margin-top:10px}
+  .btn.sm{padding:6px 14px;font-size:12.5px}
+  .btn.green{background:linear-gradient(135deg,#34e0a1,#2bbf88);box-shadow:0 6px 20px rgba(52,224,161,.25)}
+  input,textarea,select{background:#0a0f1d;border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:8px 11px;font-size:13px;font-family:inherit;width:100%}
+  textarea{min-height:70px;resize:vertical}
+  .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+  .row .f{flex:1;min-width:140px}
+  pre.md{white-space:pre-wrap;background:#0a0f1d;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12.5px;max-height:360px;overflow:auto;line-height:1.5}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(20,27,48,.96);border:1px solid var(--line);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .25s;z-index:30;pointer-events:none}
+  .toast.show{opacity:1}
+  .hint{color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+  <header>
+    <a class="btn ghost" href="/">← 返回面板</a>
+    <h1>🛑 错误<span class="ac">日志</span>与汇总</h1>
+    <div class="head-sp"></div>
+    <span class="hint">归集于 logs/errors/ · 对话异常自动记录</span>
+  </header>
+  <main>
+    <section class="sec">
+      <h2 style="font-size:14px;margin:0 0 12px">📊 错误汇总</h2>
+      <div class="grid" id="sumGrid"></div>
+      <div class="acts"><button class="btn sm" id="refreshSum">↻ 刷新汇总</button><button class="btn sm green" id="copyMd">📋 复制汇总报告</button></div>
+      <pre class="md" id="sumMd" style="margin-top:12px"></pre>
+    </section>
+
+    <section class="sec">
+      <h2 style="font-size:14px;margin:0 0 12px">📋 错误流水</h2>
+      <div id="errList"></div>
+    </section>
+
+    <section class="sec">
+      <h2 style="font-size:14px;margin:0 0 12px">✍️ 手动记录错误</h2>
+      <div class="row"><div class="f"><input id="rType" placeholder="类型, 如 build_error" /></div>
+        <div class="f"><input id="rSrc" placeholder="来源, 如 agent_loop" /></div>
+        <div class="f"><select id="rSev"><option value="error">error</option><option value="warn">warn</option><option value="fatal">fatal</option><option value="info">info</option></select></div></div>
+      <textarea id="rMsg" placeholder="错误描述 ..."></textarea>
+      <div class="acts"><button class="btn sm green" id="recErr">＋ 记录</button></div>
+    </section>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+const $=(s)=>document.querySelector(s);
+function toast(m,ok=true){const t=$("#toast");t.textContent=m;t.style.borderColor=ok?"var(--ok)":"var(--fail)";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
+async function api(u,o){const r=await fetch(u,o);const d=await r.json().catch(()=>({error:"解析失败"}));if(d.error)throw new Error(d.error);return d;}
+async function loadSummary(){
+  const d=await api("/api/errors/summary");
+  const g=$("#sumGrid"); g.innerHTML=
+    "<div class='pill'><div class='n'>"+(d.total||0)+"</div><div class='l'>错误总数</div></div>"+
+    Object.entries(d.by_severity||{}).map(([k,v])=>"<div class='pill'><div class='n'>"+v+"</div><div class='l'>"+k+"</div></div>").join("")+
+    Object.entries(d.by_type||{}).slice(0,3).map(([k,v])=>"<div class='pill'><div class='n'>"+v+"</div><div class='l'>"+k+"</div></div>").join("");
+  $("#sumMd").textContent=d.markdown||"(无)";
+}
+async function loadList(){
+  const d=await api("/api/errors"); const box=$("#errList"); box.innerHTML="";
+  (d.errors||[]).forEach(e=>{
+    const c=document.createElement("div"); c.className="erow "+(e.severity||"error");
+    c.innerHTML="<div class='top'><span class='ty'>"+esc(e.type)+"</span><span class='src'>"+(e.source||"")+"</span><span class='dt'>"+(e.ts||"")+"</span></div><div class='msg'>"+esc(e.message)+"</div>";
+    box.appendChild(c);
+  });
+  if(!(d.errors||[]).length) box.innerHTML="<div class='hint'>暂无错误记录。</div>";
+}
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+$("#refreshSum").onclick=()=>{loadSummary();loadList();};
+$("#copyMd").onclick=async()=>{ try{await navigator.clipboard.writeText($("#sumMd").textContent);toast("已复制汇总报告");}catch(e){toast("复制失败",false);} };
+$("#recErr").onclick=async()=>{ const body={type:$("#rType").value.trim(),source:$("#rSrc").value.trim(),message:$("#rMsg").value.trim(),severity:$("#rSev").value}; if(!body.type||!body.message){toast("类型与描述必填",false);return;} try{await api("/api/errors/record",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});toast("已记录");$("#rType").value="";$("#rSrc").value="";$("#rMsg").value="";loadSummary();loadList();}catch(e){toast(e.message,false);} };
+loadSummary(); loadList();
+</script>
+</body>
+</html>

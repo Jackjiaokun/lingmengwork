@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 技术文档</title>
+<style>
+  :root{
+    --bg:#070a14; --card:rgba(20,27,48,.62); --card2:#1a2238;
+    --line:rgba(126,146,210,.16); --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff;
+    --ok:#34e0a1; --warn:#ffb454; --fail:#ff5c7c; --brand2:#4dd0e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:rgba(14,20,36,.7);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600} header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  a.btn{background:linear-gradient(135deg,#7c5cff,#5b8bff);border:1px solid transparent;color:#fff;padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;box-shadow:0 6px 20px rgba(124,92,255,.3)}
+  a.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);box-shadow:none}
+  a.btn.ghost:hover{border-color:var(--acc)}
+  main{max-width:1000px;margin:0 auto;padding:18px 22px 60px}
+  .layout{display:grid;grid-template-columns:260px 1fr;gap:16px}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .flist{display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow:auto}
+  .fcard{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;cursor:pointer;display:flex;align-items:center;gap:8px}
+  .fcard:hover{border-color:var(--acc)} .fcard.active{border-color:var(--acc);background:rgba(124,92,255,.12)}
+  .fcard .nm{flex:1;font-size:13px} .fcard .sz{font-size:11px;color:var(--mut)}
+  textarea{width:100%;background:#0a0f1d;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;resize:vertical;min-height:320px}
+  input[type=text]{background:#0a0f1d;border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:8px 11px;font-size:13px;font-family:inherit;width:100%}
+  .acts{display:flex;gap:9px;flex-wrap:wrap;margin-top:10px}
+  .btn.sm{padding:6px 14px;font-size:12.5px}
+  .btn.green{background:linear-gradient(135deg,#34e0a1,#2bbf88);box-shadow:0 6px 20px rgba(52,224,161,.25)}
+  .btn.red{background:linear-gradient(135deg,#ff5c7c,#ff7b54);box-shadow:0 6px 20px rgba(255,92,124,.25)}
+  .row{display:flex;gap:9px;align-items:center;margin-bottom:10px}
+  .row input{flex:1}
+  .empty{color:var(--mut);text-align:center;padding:30px 0}
+  .hint{color:var(--mut);font-size:12px}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(20,27,48,.96);border:1px solid var(--line);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .25s;z-index:30;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+  <header>
+    <a class="btn ghost" href="/">← 返回面板</a>
+    <h1>📚 技术<span class="ac">文档</span></h1>
+    <div class="head-sp"></div>
+    <span class="hint">专用于 docs/technical/ 的 MD 文档库</span>
+  </header>
+  <main>
+    <div class="layout">
+      <div class="sec">
+        <div class="acts" style="margin:0 0 12px"><button class="btn sm green" id="newDoc">➕ 新建文档</button></div>
+        <div class="flist" id="flist"></div>
+      </div>
+      <div class="sec" id="editor">
+        <div class="empty">← 选择或新建一篇 MD 技术文档</div>
+      </div>
+    </div>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+const $=(s)=>document.querySelector(s);
+function toast(m,ok=true){const t=$("#toast");t.textContent=m;t.style.borderColor=ok?"var(--ok)":"var(--fail)";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
+async function api(u,o){const r=await fetch(u,o);const d=await r.json().catch(()=>({error:"解析失败"}));if(d.error)throw new Error(d.error);return d;}
+let cur=null;
+async function loadList(){
+  const d=await api("/api/docs"); const box=$("#flist"); box.innerHTML="";
+  (d.files||[]).forEach(f=>{
+    const c=document.createElement("div"); c.className="fcard"+(cur&&cur.name===f.name?" active":"");
+    c.innerHTML="<span class='nm'>"+esc(f.name)+"</span><span class='sz'>"+(f.size||0)+"B</span>";
+    c.onclick=()=>openDoc(f.name); box.appendChild(c);
+  });
+  if(!(d.files||[]).length) box.innerHTML="<div class='hint'>docs/technical/ 暂无文档。</div>";
+}
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+async function openDoc(name){
+  const d=await api("/api/docs?file="+encodeURIComponent(name));
+  cur={name:name,content:d.content||""}; render();
+}
+function render(){
+  $("#editor").innerHTML=
+    "<div class='row'><input type='text' id='dName' value='"+esc(cur.name||"")+"' placeholder='文件名.md'></div>"+
+    "<textarea id='dContent' placeholder='# 技术文档\\n\\n在此撰写 ...'>"+esc(cur.content||"")+"</textarea>"+
+    "<div class='acts'><button class='btn sm' id='saveDoc'>💾 保存</button>"+(cur.name?"<button class='btn sm red' id='delDoc'>🗑 删除</button>":"")+"</div>";
+  $("#saveDoc").onclick=saveDoc; if($("#delDoc"))$("#delDoc").onclick=delDoc;
+}
+async function saveDoc(){ const name=$("#dName").value.trim(); if(!name){toast("文件名必填",false);return;} if(!name.endsWith(".md")){toast("须以 .md 结尾",false);return;} try{await api("/api/docs/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,content:$("#dContent").value})});cur={name,content:$("#dContent").value};toast("已保存");loadList();}catch(e){toast(e.message,false);} }
+async function delDoc(){ if(!cur||!cur.name)return; if(!confirm("确认删除 "+cur.name+"?"))return; try{await api("/api/docs/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:cur.name})});cur=null;$("#editor").innerHTML="<div class='empty'>← 选择或新建一篇 MD 技术文档</div>";loadList();toast("已删除");}catch(e){toast(e.message,false);} }
+$("#newDoc").onclick=()=>{ cur={name:"",content:""}; render(); };
+loadList();
+</script>
+</body>
+</html>

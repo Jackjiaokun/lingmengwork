@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 计划书与任务清单</title>
+<style>
+  :root{
+    --bg:#070a14; --card:rgba(20,27,48,.62); --card2:#1a2238;
+    --line:rgba(126,146,210,.16); --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff;
+    --ok:#34e0a1; --warn:#ffb454; --fail:#ff5c7c; --brand2:#4dd0e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:rgba(14,20,36,.7);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600} header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  a.btn{background:linear-gradient(135deg,#7c5cff,#5b8bff);border:1px solid transparent;color:#fff;padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;box-shadow:0 6px 20px rgba(124,92,255,.3)}
+  a.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);box-shadow:none}
+  a.btn.ghost:hover{border-color:var(--acc)}
+  main{max-width:1000px;margin:0 auto;padding:18px 22px 60px}
+  .layout{display:grid;grid-template-columns:300px 1fr;gap:16px}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .plist{display:flex;flex-direction:column;gap:9px;max-height:70vh;overflow:auto}
+  .pcard{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;cursor:pointer}
+  .pcard:hover{border-color:var(--acc)} .pcard.active{border-color:var(--acc);background:rgba(124,92,255,.12)}
+  .pcard .pt{font-weight:600;font-size:13.5px}
+  .pcard .pm{font-size:11px;color:var(--mut);margin-top:3px}
+  .badge{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:9px;border:1px solid var(--line);color:var(--mut)}
+  .badge.doing{color:var(--warn);border-color:var(--warn)} .badge.done{color:var(--ok);border-color:var(--ok)}
+  textarea{width:100%;background:#0a0f1d;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;resize:vertical;min-height:260px}
+  input[type=text]{background:#0a0f1d;border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:8px 11px;font-size:13px;font-family:inherit;width:100%}
+  .acts{display:flex;gap:9px;flex-wrap:wrap;margin-top:10px}
+  .btn.sm{padding:6px 14px;font-size:12.5px}
+  .btn.green{background:linear-gradient(135deg,#34e0a1,#2bbf88);box-shadow:0 6px 20px rgba(52,224,161,.25)}
+  .btn.red{background:linear-gradient(135deg,#ff5c7c,#ff7b54);box-shadow:0 6px 20px rgba(255,92,124,.25)}
+  .task{display:flex;align-items:center;gap:9px;background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-bottom:7px}
+  .task .tt{flex:1;font-size:13px} .task.done .tt{text-decoration:line-through;opacity:.6}
+  .task .x{cursor:pointer;color:var(--mut)} .task .x:hover{color:var(--fail)}
+  .tinput{display:flex;gap:8px;margin:10px 0}
+  .tinput input{flex:1}
+  .hint{color:var(--mut);font-size:12px}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(20,27,48,.96);border:1px solid var(--line);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .25s;z-index:30;pointer-events:none}
+  .toast.show{opacity:1}
+  .empty{color:var(--mut);text-align:center;padding:30px 0}
+</style>
+</head>
+<body>
+  <header>
+    <a class="btn ghost" href="/">← 返回面板</a>
+    <h1>📐 计划<span class="ac">书</span> · 任务清单</h1>
+    <div class="head-sp"></div>
+    <span class="hint">结构化计划 + 可勾选任务闭环</span>
+  </header>
+  <main>
+    <div class="layout">
+      <div class="sec">
+        <div class="acts" style="margin:0 0 12px"><button class="btn sm green" id="newPlan">➕ 新建计划</button></div>
+        <div class="plist" id="plist"></div>
+      </div>
+      <div class="sec" id="editor">
+        <div class="empty">← 选择或新建一篇计划</div>
+      </div>
+    </div>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+const $=(s)=>document.querySelector(s);
+function toast(m,ok=true){const t=$("#toast");t.textContent=m;t.style.borderColor=ok?"var(--ok)":"var(--fail)";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
+async function api(u,o){const r=await fetch(u,o);const d=await r.json().catch(()=>({error:"解析失败"}));if(d.error)throw new Error(d.error);return d;}
+let cur=null;
+async function loadList(){
+  const d=await api("/api/plans"); const box=$("#plist"); box.innerHTML="";
+  (d.plans||[]).forEach(p=>{
+    const c=document.createElement("div"); c.className="pcard"+(cur&&cur.id===p.id?" active":"");
+    const st=p.status==="doing"?"doing":p.status==="done"?"done":"";
+    c.innerHTML="<div class='pt'>"+esc(p.title)+"</div><div class='pm'><span class='badge "+st+"'>"+(p.status||"todo")+"</span> ✔ "+p.task_counts.done+"/"+p.task_total+" · "+esc(p.updated_at||"")+"</div>";
+    c.onclick=()=>openPlan(p.id); box.appendChild(c);
+  });
+}
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+async function openPlan(id){
+  const d=await api("/api/plans"); const p=(d.plans||[]).find(x=>x.id===id); if(!p)return;
+  const full=await fetch("/api/plans?id="+id).then(r=>r.json());
+  cur=full; render(full);
+}
+function render(p){
+  const tasks=(p.tasks||[]).map(t=>{
+    const done=t.status==="done";
+    return "<div class='task"+(done?" done":"")+"' data-id='"+t.id+"'><input type='checkbox' "+(done?"checked":"")+" data-id='"+t.id+"' class='tchk'> <span class='tt'>"+esc(t.title)+"</span> <span class='x' data-id='"+t.id+"'>✕</span></div>";
+  }).join("");
+  $("#editor").innerHTML=
+    "<div class='row' style='display:flex;gap:9px;margin-bottom:10px'><input type='text' id='pTitle' value='"+esc(p.title)+"'></div>"+
+    "<textarea id='pContent' placeholder='计划书正文(Markdown) ...'>"+esc(p.content||"")+"</textarea>"+
+    "<div class='acts'><button class='btn sm' id='savePlan'>💾 保存</button><button class='btn sm red' id='delPlan'>🗑 删除</button></div>"+
+    "<h2 style='font-size:14px;margin:16px 0 8px'>任务清单 <span class='hint'>("+((p.tasks||[]).length)+")</span></h2>"+
+    "<div class='tinput'><input type='text' id='newTask' placeholder='添加任务 ...'><button class='btn sm green' id='addTask'>＋</button></div>"+
+    "<div id='taskBox'>"+tasks+"</div>";
+  $("#savePlan").onclick=savePlan; $("#delPlan").onclick=delPlan; $("#addTask").onclick=addTask;
+  $("#taskBox").querySelectorAll(".tchk").forEach(c=>c.onchange=()=>setTask(c.dataset.id,c.checked?"done":"todo"));
+  $("#taskBox").querySelectorAll(".x").forEach(c=>c.onclick=()=>rmTask(c.dataset.id));
+}
+async function savePlan(){ if(!cur)return; const body={id:cur.id,title:$("#pTitle").value.trim(),content:$("#pContent").value,status:cur.status}; try{await api("/api/plans",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});toast("已保存");loadList();}catch(e){toast(e.message,false);} }
+async function delPlan(){ if(!cur)return; if(!confirm("确认删除计划?"))return; try{await api("/api/plans/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:cur.id})});cur=null;$("#editor").innerHTML="<div class='empty'>← 选择或新建一篇计划</div>";loadList();toast("已删除");}catch(e){toast(e.message,false);} }
+async function addTask(){ if(!cur)return; const t=$("#newTask").value.trim(); if(!t)return; try{await api("/api/plans/task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({plan_id:cur.id,action:"add",title:t})});$("#newTask").value="";openPlan(cur.id);}catch(e){toast(e.message,false);} }
+async function setTask(tid,st){ if(!cur)return; try{await api("/api/plans/task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({plan_id:cur.id,action:"status",task_id:tid,status:st})});openPlan(cur.id);}catch(e){toast(e.message,false);} }
+async function rmTask(tid){ if(!cur)return; try{await api("/api/plans/task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({plan_id:cur.id,action:"remove",task_id:tid})});openPlan(cur.id);}catch(e){toast(e.message,false);} }
+$("#newPlan").onclick=()=>{ cur={id:"",title:"",content:"",tasks:[],status:"todo"}; render(cur); };
+loadList();
+</script>
+</body>
+</html>

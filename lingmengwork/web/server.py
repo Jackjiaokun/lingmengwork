@@ -1107,6 +1107,28 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/api/todos":
             from .. import todos as _td
             return self._send_json(_td.list_todos(os.getcwd()))
+        # ---- 记忆中枢 (长期记忆 + 每日日志) ----
+        if p == "/memory":
+            return self._serve_file("memory.html")
+        if p == "/api/memory":
+            return self._send_json(self._memory_get())
+        # ---- 计划书 + 任务清单 ----
+        if p == "/plans":
+            return self._serve_file("plans.html")
+        if p == "/api/plans":
+            return self._send_json(self._plans_list())
+        # ---- 错误日志 + 错误汇总 ----
+        if p == "/errors":
+            return self._serve_file("errors.html")
+        if p == "/api/errors":
+            return self._send_json(self._errors_list())
+        if p == "/api/errors/summary":
+            return self._send_json(self._errors_summary())
+        # ---- 技术文档 (MD 文件夹管理) ----
+        if p == "/docs":
+            return self._serve_file("docs.html")
+        if p == "/api/docs":
+            return self._send_json(self._docs_get())
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()
@@ -1289,6 +1311,31 @@ class Handler(SimpleHTTPRequestHandler):
             return self._todos_status()
         if p == "/api/todos/delete":
             return self._todos_delete()
+        # ---- 记忆中枢: 更新记忆 / 写日志 ----
+        if p == "/api/memory":
+            return self._memory_update()
+        # ---- 计划书: 保存/删除/任务 ----
+        if p == "/api/plans":
+            return self._plans_save()
+        if p == "/api/plans/delete":
+            return self._plans_delete()
+        if p == "/api/plans/task":
+            return self._plans_task()
+        # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
+        if p == "/api/context/compress":
+            return self._context_op("compress")
+        if p == "/api/context/organize":
+            return self._context_op("organize")
+        if p == "/api/context/decompose":
+            return self._context_op("decompose")
+        # ---- 错误日志: 手动记录 ----
+        if p == "/api/errors/record":
+            return self._errors_record()
+        # ---- 技术文档: 保存 / 删除 ----
+        if p == "/api/docs/save":
+            return self._docs_save()
+        if p == "/api/docs/delete":
+            return self._docs_delete()
         # ---- 主题 F 专家/技能 提示词增强 (GUI 可视化管理): 写回库 ----
         if p == "/api/enhance":
             return self._enhance_save()
@@ -2040,6 +2087,13 @@ class Handler(SimpleHTTPRequestHandler):
                     loop.run(message, on_event=emit)
                 except Exception as e:
                     emit("error", {"message": str(e)})
+                    # 错误归集: 对话循环异常写入 logs/errors(便于「错误汇总」)
+                    try:
+                        from .. import errorlog as _el
+                        _el.record(os.getcwd(), "chat_loop", "对话循环异常: %s" % e,
+                                   source="agent_loop", detail=str(e))
+                    except Exception:
+                        pass
                 # 对话结束 -> 真正落盘会话 (对齐 TUI --resume 能力), 覆盖式保存到稳定 session_id
                 if not client_gone["flag"]:
                     try:
@@ -3041,6 +3095,253 @@ class Handler(SimpleHTTPRequestHandler):
             "truncated": truncated,
             "results": results,
         })
+
+    # ===================================================================
+    # 记忆中枢 (长期记忆 + 每日日志)
+    # ===================================================================
+    def _memory_get(self):
+        """GET /api/memory -> {memory, logs:[...]}; 或 ?log=<date> 读取单日日志。"""
+        from .. import memory_mgr as _mm
+        q = parse_qs(urlparse(self.path).query)
+        log_date = (q.get("log") or [None])[0]
+        if log_date:
+            return self._send_json(_mm.read_log(os.getcwd(), log_date))
+        return self._send_json({
+            "memory": _mm.read_memory(os.getcwd()),
+            "logs": _mm.list_logs(os.getcwd()).get("logs", []),
+        })
+
+    def _memory_update(self):
+        """POST /api/memory {mode:'replace'|'append'|'log', content, title?, date?}
+
+        - replace: 整体覆盖 MEMORY.md
+        - append: 向 MEMORY.md 追加一条带时间戳笔记
+        - log:    向每日日志追加一段
+        """
+        from .. import memory_mgr as _mm
+        body = self._read_json({})
+        mode = (body.get("mode") or "append").strip()
+        content = (body.get("content") or "").strip()
+        title = (body.get("title") or "").strip()
+        if mode == "replace":
+            if not content:
+                return self._send_json({"error": "replace 模式需要 content"}, status=400)
+            return self._send_json(_mm.update_memory(os.getcwd(), content))
+        if mode == "log":
+            if not content:
+                return self._send_json({"error": "log 模式需要 content"}, status=400)
+            return self._send_json(_mm.append_log(os.getcwd(), content, title=title, date=body.get("date")))
+        # 默认 append
+        if not content:
+            return self._send_json({"error": "append 模式需要 content"}, status=400)
+        return self._send_json(_mm.append_memory(os.getcwd(), content, title=title))
+
+    # ===================================================================
+    # 计划书 + 任务清单
+    # ===================================================================
+    def _plans_list(self):
+        """GET /api/plans -> {plans:[...]}; 或 ?id=<id> 返回单篇完整计划。"""
+        from .. import plans as _pl
+        q = parse_qs(urlparse(self.path).query)
+        pid = (q.get("id") or [None])[0]
+        if pid:
+            obj = _pl.get_plan(pid, os.getcwd())
+            if not obj:
+                return self._send_json({"error": "计划不存在"}, status=404)
+            return self._send_json(obj)
+        return self._send_json(_pl.list_plans(os.getcwd()))
+
+    def _plans_save(self):
+        """POST /api/plans {id?, title, content?, tasks?, status?} -> 新建/更新计划。"""
+        from .. import plans as _pl
+        body = self._read_json({})
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        if not (body.get("title") or "").strip():
+            return self._send_json({"error": "计划标题不能为空"}, status=400)
+        try:
+            obj = _pl.save(os.getcwd(), body)
+        except Exception as e:
+            return self._send_json({"error": "保存失败: %s" % e}, status=500)
+        return self._send_json({"ok": True, "plan": obj})
+
+    def _plans_delete(self):
+        """POST /api/plans/delete {id} -> 删除计划。"""
+        from .. import plans as _pl
+        body = self._read_json({})
+        pid = (body.get("id") or "").strip()
+        if not pid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        removed = _pl.delete(pid, os.getcwd())
+        return self._send_json({"ok": True, "removed": removed})
+
+    def _plans_task(self):
+        """POST /api/plans/task {plan_id, action:'add'|'status'|'remove', ...}。"""
+        from .. import plans as _pl
+        body = self._read_json({})
+        pid = (body.get("plan_id") or "").strip()
+        action = (body.get("action") or "").strip()
+        if not pid:
+            return self._send_json({"error": "缺少 plan_id"}, status=400)
+        try:
+            if action == "add":
+                title = (body.get("title") or "").strip()
+                if not title:
+                    return self._send_json({"error": "缺少 title"}, status=400)
+                task = _pl.add_task(pid, title, note=body.get("note") or "")
+                return self._send_json({"ok": True, "task": task})
+            if action == "status":
+                tid = (body.get("task_id") or "").strip()
+                if not tid:
+                    return self._send_json({"error": "缺少 task_id"}, status=400)
+                rec = _pl.set_task_status(pid, tid, body.get("status") or "done")
+                if rec is None:
+                    return self._send_json({"error": "未找到计划或任务"}, status=404)
+                return self._send_json({"ok": True, "task": rec})
+            if action == "remove":
+                tid = (body.get("task_id") or "").strip()
+                if not tid:
+                    return self._send_json({"error": "缺少 task_id"}, status=400)
+                removed = _pl.remove_task(pid, tid)
+                return self._send_json({"ok": True, "removed": removed})
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"error": "未知 action: %s" % action}, status=400)
+
+    # ===================================================================
+    # 上下文操作: 压缩 / 整理 / 拆解
+    # ===================================================================
+    def _context_op(self, kind):
+        """POST /api/context/{compress,organize,decompose}
+        {session_id? | messages?} -> {ok, kind, markdown}。"""
+        from .. import context_ops as _cx
+        from ..agent import session as _sess
+        body = self._read_json({})
+        messages = body.get("messages")
+        sid = (body.get("session_id") or "").strip()
+        if not messages and sid:
+            s = _sess.load_session(sid)
+            if not s:
+                return self._send_json({"error": "会话不存在: %s" % sid}, status=404)
+            messages = s.get("messages", [])
+        if not isinstance(messages, list) or not messages:
+            return self._send_json({"error": "缺少 messages 或有效的 session_id"}, status=400)
+        fn = {"compress": _cx.compress, "organize": _cx.organize, "decompose": _cx.decompose}.get(kind)
+        if not fn:
+            return self._send_json({"error": "未知操作: %s" % kind}, status=400)
+        try:
+            md = fn(messages)
+        except Exception as e:
+            from .. import errorlog as _el
+            _el.record(os.getcwd(), "context_op", "上下文操作失败: %s" % e, source="api:/api/context/%s" % kind, detail=str(e))
+            return self._send_json({"error": "操作失败: %s" % e}, status=500)
+        # 同步记录到错误日志(便于排查上下文相关异常)
+        return self._send_json({"ok": True, "kind": kind, "markdown": md, "chars": len(md)})
+
+    # ===================================================================
+    # 错误日志 + 错误汇总
+    # ===================================================================
+    def _errors_list(self):
+        """GET /api/errors -> {errors:[...], total}。"""
+        from .. import errorlog as _el
+        return self._send_json(_el.list_errors(os.getcwd()))
+
+    def _errors_summary(self):
+        """GET /api/errors/summary -> 聚合统计 + markdown 报告。"""
+        from .. import errorlog as _el
+        return self._send_json(_el.summary(os.getcwd()))
+
+    def _errors_record(self):
+        """POST /api/errors/record {type, message, source?, detail?, severity?}。"""
+        from .. import errorlog as _el
+        body = self._read_json({})
+        etype = (body.get("type") or "").strip()
+        msg = (body.get("message") or "").strip()
+        if not etype or not msg:
+            return self._send_json({"error": "缺少 type 或 message"}, status=400)
+        rec = _el.record(os.getcwd(), etype, msg,
+                         source=body.get("source") or "", detail=body.get("detail") or "",
+                         severity=body.get("severity") or "error")
+        return self._send_json({"ok": True, "recorded": rec})
+
+    # ===================================================================
+    # 技术文档 (MD 文件夹管理, 专用于 docs/technical/)
+    # ===================================================================
+    def _docs_get(self):
+        """GET /api/docs?file=<name> -> 列出 docs/technical/ 下 MD, 或读取指定文件。"""
+        from .. import errorlog as _el
+        import re as _re
+        try:
+            q = parse_qs(urlparse(self.path).query)
+            name = (q.get("file") or [None])[0]
+            base = os.path.join(os.getcwd(), "docs", "technical")
+            os.makedirs(base, exist_ok=True)
+            if name:
+                # 只允许字母数字/中文/._- 防越权
+                if not _re.match(r"^[\w.\-一-鿿]+\.md$", name or ""):
+                    return self._send_json({"error": "非法文件名"}, status=400)
+                fp = os.path.join(base, name)
+                if not os.path.isfile(fp):
+                    return self._send_json({"error": "文件不存在"}, status=404)
+                try:
+                    content = open(fp, encoding="utf-8").read()
+                except Exception as e:
+                    return self._send_json({"error": "读取失败: %s" % e}, status=500)
+                return self._send_json({"name": name, "content": content, "exists": True})
+            entries = []
+            for fn in sorted(os.listdir(base)):
+                if not fn.endswith(".md"):
+                    continue
+                fp = os.path.join(base, fn)
+                try:
+                    sz = os.path.getsize(fp)
+                    mt = os.path.getmtime(fp)
+                except Exception:
+                    sz, mt = 0, 0
+                entries.append({"name": fn, "size": sz, "mtime": mt})
+            return self._send_json({"dir": "docs/technical", "files": entries})
+        except Exception as e:
+            _el.record(os.getcwd(), "docs_get", "技术文档列表失败: %s" % e, source="api:/api/docs", detail=str(e))
+            return self._send_json({"error": "操作失败: %s" % e}, status=500)
+
+    def _docs_save(self):
+        """POST /api/docs/save {name, content} -> 写入 docs/technical/<name>.md。"""
+        from .. import errorlog as _el
+        import re as _re
+        body = self._read_json({})
+        name = (body.get("name") or "").strip()
+        content = body.get("content", "") or ""
+        if not _re.match(r"^[\w.\-一-鿿]+\.md$", name or ""):
+            return self._send_json({"error": "文件名须以 .md 结尾且不含路径分隔符"}, status=400)
+        base = os.path.join(os.getcwd(), "docs", "technical")
+        os.makedirs(base, exist_ok=True)
+        fp = os.path.join(base, name)
+        try:
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write(content)
+            return self._send_json({"ok": True, "path": "docs/technical/%s" % name, "bytes": len(content.encode("utf-8"))})
+        except Exception as e:
+            _el.record(os.getcwd(), "docs_save", "技术文档保存失败: %s" % e, source="api:/api/docs/save", detail=str(e))
+            return self._send_json({"error": "保存失败: %s" % e}, status=500)
+
+    def _docs_delete(self):
+        """POST /api/docs/delete {name} -> 删除 docs/technical/<name>.md。"""
+        from .. import errorlog as _el
+        import re as _re
+        body = self._read_json({})
+        name = (body.get("name") or "").strip()
+        if not _re.match(r"^[\w.\-一-鿿]+\.md$", name or ""):
+            return self._send_json({"error": "非法文件名"}, status=400)
+        base = os.path.join(os.getcwd(), "docs", "technical")
+        fp = os.path.join(base, name)
+        if not os.path.isfile(fp):
+            return self._send_json({"error": "文件不存在"}, status=404)
+        try:
+            os.remove(fp)
+            return self._send_json({"ok": True, "removed": name})
+        except Exception as e:
+            _el.record(os.getcwd(), "docs_delete", "技术文档删除失败: %s" % e, source="api:/api/docs/delete", detail=str(e))
+            return self._send_json({"error": "删除失败: %s" % e}, status=500)
 
 
 def run_web(host="127.0.0.1", port=PORT, cfg=None):

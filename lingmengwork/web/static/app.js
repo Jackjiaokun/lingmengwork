@@ -969,8 +969,28 @@ loadTools();
 loadMcp();
 refreshTaskCount();
 refreshDashboard();
+refreshSandboxChip();
 setInterval(refreshDashboard, 5000);   // 仪表盘每 5s 刷新
 setInterval(refreshTaskCount, 5000);
+
+// 工作区沙箱状态芯片
+function refreshSandboxChip() {
+  const el = $("sandbox-chip");
+  if (!el) return;
+  fetch("/api/sandbox")
+    .then(r => r.json())
+    .then(d => {
+      const active = d.active;
+      const n = (d.roots || []).length;
+      el.className = "sandbox-chip " + (active ? "ok" : "off");
+      el.textContent = active ? ("🛡️ 沙箱 " + n + " 根") : "🛡️ 沙箱:关";
+      el.title = d.note || "工作区沙箱状态";
+    })
+    .catch(() => {
+      el.className = "sandbox-chip";
+      el.textContent = "🛡️ 沙箱 …";
+    });
+}
 
 // ---------- 代码评审自评估可视化 (WEB 专属) ----------
 function parseCodeReview(text) {

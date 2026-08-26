@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>工作区沙箱 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#070a14; --bg2:#0b1020; --card:rgba(20,27,48,.62); --card-strong:rgba(24,32,58,.82);
+    --line:rgba(126,146,210,.16); --line2:rgba(140,162,226,.28); --glow:rgba(124,92,255,.45);
+    --text:#e9edf8; --text2:#b7c0d8; --muted:#828caa; --muted2:#6e78a0;
+    --brand:#7c5cff; --brand2:#4dd0e1; --brand3:#ff5c9d;
+    --brand-grad:linear-gradient(135deg,#7c5cff 0%,#5b8bff 45%,#4dd0e1 100%);
+    --ok:#34e0a1; --warn:#ffb454; --bad:#ff5c7c; --acc:#7c5cff;
+    --r:13px; --r-lg:18px;
+    --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:
+      radial-gradient(1200px 600px at 12% -10%, rgba(124,92,255,.18), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(77,208,225,.14), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(255,92,157,.10), transparent 60%),
+      var(--bg);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:28px 22px 60px;}
+  header.top{
+    display:flex; align-items:center; gap:14px; padding:18px 22px; margin-bottom:22px;
+    background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); position:relative; overflow:hidden;
+  }
+  header.top::after{content:""; position:absolute; left:0; bottom:0; height:2px; width:100%; background:var(--brand-grad); opacity:.7}
+  .logo{width:46px; height:46px; border-radius:13px; background:var(--brand-grad); display:grid; place-items:center; font-size:24px; font-weight:800; color:#fff; box-shadow:0 8px 26px rgba(124,92,255,.4)}
+  .htext h1{margin:0; font-size:21px; letter-spacing:.3px}
+  .htext p{margin:3px 0 0; color:var(--muted); font-size:12.5px}
+  a.back{margin-left:auto; color:var(--text2); text-decoration:none; font-size:13px; padding:9px 14px; border:1px solid var(--line); border-radius:10px; transition:.15s}
+  a.back:hover{border-color:var(--line2); color:var(--text); background:rgba(255,255,255,.03)}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg); padding:20px 22px; margin-bottom:18px; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px)}
+  .sec-title{font-size:14px; font-weight:700; margin:0 0 14px; display:flex; align-items:center; gap:8px; color:var(--text)}
+  .sec-title::before{content:""; width:4px; height:15px; border-radius:3px; background:var(--brand-grad)}
+
+  .status-row{display:flex; align-items:center; gap:14px}
+  .badge-status{font-size:13px; font-weight:700; padding:7px 14px; border-radius:20px}
+  .badge-on{background:rgba(52,224,161,.14); color:var(--ok); border:1px solid rgba(52,224,161,.35)}
+  .badge-off{background:rgba(255,92,124,.14); color:var(--bad); border:1px solid rgba(255,92,124,.35)}
+  .note{color:var(--text2); font-size:13px; line-height:1.6}
+  .kv{margin-top:12px; font-size:12.5px; color:var(--muted)}
+  .kv code{color:var(--brand2); font-family:var(--mono); background:rgba(255,255,255,.04); padding:2px 7px; border-radius:6px}
+
+  ul.roots{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px}
+  ul.roots li{display:flex; align-items:center; gap:10px; padding:11px 13px; background:rgba(255,255,255,.03); border:1px solid var(--line); border-radius:10px}
+  ul.roots li .path{font-family:var(--mono); font-size:12.5px; color:var(--text2); word-break:break-all; flex:1}
+  ul.roots li .rm{background:transparent; border:1px solid var(--line); color:var(--bad); border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:15px; transition:.15s; flex:none}
+  ul.roots li .rm:hover{background:rgba(255,92,124,.12); border-color:rgba(255,92,124,.4)}
+  .empty{color:var(--muted); font-size:13px; padding:8px 2px}
+
+  .add-row{display:flex; gap:10px; margin-top:14px}
+  .add-row input{flex:1; background:var(--bg2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:11px 13px; font-size:13px; font-family:var(--mono); outline:none; transition:.15s}
+  .add-row input:focus{border-color:var(--glow); box-shadow:0 0 0 3px rgba(124,92,255,.18)}
+
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chip{font-family:var(--mono); font-size:11.5px; color:var(--warn); background:rgba(255,180,84,.10); border:1px solid rgba(255,180,84,.28); padding:5px 10px; border-radius:8px}
+
+  .btn{background:var(--brand-grad); color:#fff; border:none; border-radius:11px; padding:12px 22px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 8px 26px rgba(124,92,255,.32); transition:.15s; letter-spacing:.3px}
+  .btn:hover{transform:translateY(-2px); box-shadow:0 12px 32px rgba(124,92,255,.42)}
+  .btn:active{transform:translateY(0)}
+  .save-bar{display:flex; align-items:center; gap:14px; margin-top:6px}
+  .result{margin-top:14px; font-size:13px; padding:13px 15px; border-radius:10px; display:none}
+  .result.ok{display:block; background:rgba(52,224,161,.10); border:1px solid rgba(52,224,161,.3); color:var(--text2)}
+  .result.err{display:block; background:rgba(255,92,124,.10); border:1px solid rgba(255,92,124,.3); color:#ffd0d8}
+  .result .warn-note{color:var(--warn); margin-top:6px}
+  .result code{font-family:var(--mono); color:var(--brand2)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="logo">🛡️</div>
+      <div class="htext">
+        <h1>工作区沙箱</h1>
+        <p>限定智能体的文件系统边界 · 所有读写 / 搜索 / 编辑严格限制在允许根目录内</p>
+      </div>
+      <a class="back" href="/">← 返回工作台</a>
+    </header>
+
+    <div class="card">
+      <div class="sec-title">沙箱状态</div>
+      <div class="status-row">
+        <span id="statusBadge" class="badge-status badge-off">检测中…</span>
+        <span id="statusNote" class="note"></span>
+      </div>
+      <div class="kv">面板工作目录 (base_dir)：<code id="baseDir">—</code></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">允许根目录 (allowed_roots)</div>
+      <ul id="rootList" class="roots"></ul>
+      <div class="add-row">
+        <input id="addInput" placeholder="输入目录路径（绝对路径，或相对面板工作目录），回车或点添加" />
+        <button class="btn" id="addBtn" style="padding:11px 18px">+ 添加</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">危险命令拦截规则 (deny_patterns · 只读)</div>
+      <div id="denyChips" class="chips"></div>
+    </div>
+
+    <div class="card">
+      <div class="save-bar">
+        <button class="btn" id="saveBtn">保存沙箱配置</button>
+        <span id="saveHint" class="kv">保存后新会话即时采用；既有会话沿用旧根，建议重启面板完全生效。</span>
+      </div>
+      <div id="result" class="result"></div>
+    </div>
+  </div>
+
+<script>
+  const state = { roots: [] };
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+  function renderStatus(d){
+    const b = document.getElementById("statusBadge");
+    b.className = "badge-status " + (d.active ? "badge-on" : "badge-off");
+    b.textContent = d.active ? ("🛡️ 已启用 · " + d.roots.length + " 个根") : "⚠️ 未配置";
+    document.getElementById("statusNote").textContent = d.note || "";
+    document.getElementById("baseDir").textContent = d.base_dir || "—";
+  }
+
+  function renderRoots(){
+    const ul = document.getElementById("rootList");
+    ul.innerHTML = "";
+    if (!state.roots.length){
+      ul.innerHTML = '<div class="empty">暂无允许根目录，请添加至少一个。</div>';
+      return;
+    }
+    state.roots.forEach((p, i) => {
+      const li = document.createElement("li");
+      li.innerHTML = '<span class="path">' + esc(p) + '</span>' +
+                     '<button class="rm" data-i="' + i + '" title="移除">×</button>';
+      ul.appendChild(li);
+    });
+    ul.querySelectorAll(".rm").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const i = parseInt(btn.getAttribute("data-i"), 10);
+        state.roots.splice(i, 1);
+        renderRoots();
+      });
+    });
+  }
+
+  function renderDeny(list){
+    const box = document.getElementById("denyChips");
+    box.innerHTML = "";
+    if (!list || !list.length){ box.innerHTML = '<span class="empty">无</span>'; return; }
+    list.forEach(p => {
+      const s = document.createElement("span");
+      s.className = "chip";
+      s.textContent = p;
+      box.appendChild(s);
+    });
+  }
+
+  async function load(){
+    try{
+      const r = await fetch("/api/sandbox");
+      const d = await r.json();
+      state.roots = d.roots || [];
+      renderStatus(d);
+      renderRoots();
+      renderDeny(d.deny_patterns || []);
+    }catch(e){
+      document.getElementById("statusNote").textContent = "加载失败：" + e;
+    }
+  }
+
+  function addRoot(){
+    const inp = document.getElementById("addInput");
+    const v = inp.value.trim();
+    if (!v) return;
+    // 去重
+    if (!state.roots.includes(v) && !state.roots.some(r => r === v)){
+      state.roots.push(v);
+    }
+    inp.value = "";
+    renderRoots();
+  }
+
+  async function save(){
+    const res = document.getElementById("result");
+    res.className = "result";
+    res.innerHTML = "";
+    if (!state.roots.length){
+      res.className = "result err";
+      res.textContent = "至少需要一个允许根目录。";
+      return;
+    }
+    try{
+      const r = await fetch("/api/sandbox", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ roots: state.roots })
+      });
+      const d = await r.json();
+      if (!d.ok){
+        res.className = "result err";
+        res.textContent = "保存失败：" + (d.error || "未知错误");
+        return;
+      }
+      res.className = "result ok";
+      let html = "✓ 已保存 " + d.roots.length + " 个根目录 (" + d.bytes + " 字节)";
+      if (d.require_restart) html += " · <b>⚠ 需重启面板完全生效</b>";
+      if (d.warnings && d.warnings.length){
+        html += '<div class="warn-note">⚠ ' + d.warnings.map(esc).join("<br>⚠ ") + "</div>";
+      }
+      res.innerHTML = html;
+      await load();
+    }catch(e){
+      res.className = "result err";
+      res.textContent = "请求失败：" + e;
+    }
+  }
+
+  document.getElementById("addBtn").addEventListener("click", addRoot);
+  document.getElementById("addInput").addEventListener("keydown", e => { if (e.key === "Enter") addRoot(); });
+  document.getElementById("saveBtn").addEventListener("click", save);
+  load();
+</script>
+</body>
+</html>

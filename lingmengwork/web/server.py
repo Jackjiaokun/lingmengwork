@@ -759,6 +759,49 @@ def _set_scalar_in_toml(text, section, key, value, typ):
     return "\n".join(lines), True
 
 
+def _set_array_in_toml(text, section, key, values):
+    """在 TOML 文本中定位 [section] 段, 行内替换数组型 `key = [...]`。
+
+    返回 (new_text, applied: bool)。找不到 key 在段末插入; 段不存在追加整段。
+    values: list[str], 每个元素转义为带引号字符串。兼容单行与多行数组。
+    """
+    lines = text.split("\n")
+    sec_idx = {}
+    for i, ln in enumerate(lines):
+        m = re.match(r"^\s*\[(?P<name>[^\]]+)\]\s*$", ln)
+        if m:
+            sec_idx[m.group("name")] = i
+    elems = ", ".join('"%s"' % (str(v).replace("\\", "\\\\").replace('"', '\\"')) for v in values)
+    new_line = "%s = [%s]" % (key, elems)
+    if section not in sec_idx:
+        lines.append("")
+        lines.append("[%s]" % section)
+        lines.append(new_line)
+        return "\n".join(lines), True
+    start = sec_idx[section]
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if re.match(r"^\s*\[[^\]]+\]\s*$", lines[j]):
+            end = j
+            break
+    pat = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*")
+    for k in range(start + 1, end):
+        if pat.match(lines[k]):
+            indent = _indent_of(lines[k])
+            if not lines[k].rstrip().endswith("]"):
+                # 多行数组: 向下找到闭合 ] 一并删除
+                m = k + 1
+                while m < end and not lines[m].strip().endswith("]"):
+                    m += 1
+                del lines[k:m + 1]
+            else:
+                del lines[k]
+            lines.insert(k, indent + new_line)
+            return "\n".join(lines), True
+    lines.insert(end, _indent_of(lines[start + 1] if start + 1 < len(lines) else "") + new_line)
+    return "\n".join(lines), True
+
+
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
@@ -797,6 +840,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("settings.html")
         if p == "/api/settings":
             return self._send_json(self._settings_get())
+        # ---- 工作区沙箱 (文件系统根域管理) ----
+        if p == "/sandbox":
+            return self._serve_file("sandbox.html")
+        if p == "/api/sandbox":
+            return self._send_json(self._sandbox_get())
         if p == "/api/health":
             cfg = _get_cfg()
             backend = cfg["llm"].get("backend", "ollama")
@@ -939,6 +987,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 设置中心 (批次14): 保存 config.toml ----
         if p == "/api/settings":
             return self._settings_save()
+        # ---- 工作区沙箱 (文件系统根域管理): 写回 allowed_roots ----
+        if p == "/api/sandbox":
+            return self._sandbox_save()
         # ---- 文件编辑: 保存 (供 Web 代码编辑器) ----
         if p.startswith("/api/fs"):
             return self._fs_save()
@@ -2090,6 +2141,93 @@ class Handler(SimpleHTTPRequestHandler):
             "ok": True,
             "path": str(path),
             "require_restart": changed_restart,
+            "bytes": len(new_text.encode("utf-8")),
+        })
+
+    # ---- 工作区沙箱 (文件系统根域管理): 把既有 allowed_roots 做成可管理、可可视化功能 ----
+    def _sandbox_get(self):
+        """GET /api/sandbox: 返回当前工作区沙箱状态。"""
+        cfg = _get_cfg()
+        sec = (cfg.get("agent", {}) or {}).get("security", {}) or {}
+        raw_roots = sec.get("allowed_roots", []) or []
+        try:
+            from ..config import resolve_roots
+            roots = [str(p) for p in resolve_roots(cfg)]
+        except Exception:
+            roots = []
+        deny = sec.get("deny_patterns", []) or []
+        active = bool(roots)
+        note = ("已启用: 所有文件读写 / 搜索 / 编辑严格限制在以下根目录内, 越界操作被拦截"
+                if active else
+                "未配置允许根目录 (allowed_roots 为空), 文件操作边界未定义 (需至少配置一个根)")
+        return {
+            "active": active,
+            "roots": roots,
+            "raw_roots": raw_roots,
+            "deny_patterns": deny,
+            "base_dir": os.path.abspath(os.getcwd()),
+            "note": note,
+            "require_restart": False,
+        }
+
+    def _sandbox_save(self):
+        """POST /api/sandbox {roots:[...]}: 写回 config.toml 的 agent.security.allowed_roots。
+
+        接收字符串目录数组, 以 cwd 为基准绝对化、去重、跳过空项; 校验 TOML 合法后写回;
+        软重载 _RUNTIME_CONFIG 使新会话即时采用(既有会话沿用旧 roots), 标 require_restart=True。
+        """
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return self._send_json({"error": "请求体非 JSON"}, status=400)
+        roots = body.get("roots")
+        if not isinstance(roots, list) or not all(isinstance(r, str) for r in roots):
+            return self._send_json({"error": "roots 必须是字符串数组"}, status=400)
+        base = os.path.abspath(os.getcwd())
+        norm, seen, warnings = [], set(), []
+        for r in roots:
+            r = (r or "").strip()
+            if not r:
+                continue
+            p = os.path.abspath(r if os.path.isabs(r) else os.path.join(base, r))
+            if p in seen:
+                continue
+            seen.add(p)
+            if not os.path.exists(p):
+                warnings.append("目录不存在(仍会写入, 但新建会话时该根不可用): %s" % p)
+            norm.append(p)
+        if not norm:
+            return self._send_json({"error": "至少需要一个有效根目录"}, status=400)
+        path = _config_path()
+        if path is None:
+            return self._send_json({"error": "找不到配置文件路径"}, status=500)
+        try:
+            current = path.read_text(encoding="utf-8") if path.exists() else ""
+            new_text, _applied = _set_array_in_toml(current, "agent.security", "allowed_roots", norm)
+            try:
+                tomllib.loads(new_text)
+            except Exception as e:
+                return self._send_json({"error": "生成的 TOML 语法错误: %s" % e}, status=400)
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(new_text, encoding="utf-8")
+        except Exception as e:
+            return self._send_json({"error": "写入失败: %s" % e}, status=500)
+        try:
+            global _RUNTIME_CONFIG
+            _RUNTIME_CONFIG = load_config(str(path))
+        except Exception:
+            pass
+        return self._send_json({
+            "ok": True,
+            "path": str(path),
+            "roots": norm,
+            "require_restart": True,
+            "warnings": warnings,
             "bytes": len(new_text.encode("utf-8")),
         })
 

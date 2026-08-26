@@ -43,6 +43,9 @@
         <a class="nav-item" href="/settings">
           <span class="nav-ico">⚙️</span><span class="nav-label">设置中心</span>
         </a>
+        <a class="nav-item" href="/sandbox">
+          <span class="nav-ico">🛡️</span><span class="nav-label">工作区沙箱</span>
+        </a>
       </nav>
 
       <div class="side-explorer">
@@ -75,8 +78,9 @@
           <h1 class="topbar-title">工作台</h1>
           <span class="topbar-sub">本地优先 · 多通道 · 全链路可观测</span>
         </div>
-        <div class="topbar-right">
-          <label class="mode-select" title="智能体自主度：计划=只读出方案 / 接受编辑=可写文件但禁执行 / 全放开=可写可执行">
+      <div class="topbar-right">
+        <span id="sandbox-chip" class="sandbox-chip" title="工作区沙箱状态">🛡️ 沙箱 …</span>
+        <label class="mode-select" title="智能体自主度：计划=只读出方案 / 接受编辑=可写文件但禁执行 / 全放开=可写可执行">
             <span class="mode-ico">🎛️</span>
             <select id="agent-mode">
               <option value="bypassPermissions">全放开 (读写+执行)</option>

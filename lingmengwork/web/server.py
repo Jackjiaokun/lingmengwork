@@ -1137,6 +1137,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("studio.html")
         if p == "/autonomous":
             return self._serve_file("autonomous.html")
+        # ---- 全链路目标驱动流水线 (Phase 7) ----
+        if p == "/pipeline":
+            return self._serve_file("pipeline.html")
         if p == "/api/creation/domains":
             from .. import creation_domains as _cd
             return self._send_json({"ok": True, "domains": _cd.list_domains()})
@@ -1343,6 +1346,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 自主模式: 目标驱动自驱循环 (Phase 5) ----
         if p == "/api/autonomous":
             return self._autonomous_run()
+        # ---- 全链路目标驱动流水线 (Phase 7) ----
+        if p == "/api/pipeline":
+            return self._pipeline_api()
         # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
         if p == "/api/context/compress":
             return self._context_op("compress")
@@ -3268,6 +3274,26 @@ class Handler(SimpleHTTPRequestHandler):
             from .. import errorlog as _el
             _el.record(os.getcwd(), "autonomous", "自主循环失败: %s" % e, source="api:/api/autonomous", detail=str(e))
             return self._send_json({"error": "自主循环失败: %s" % e}, status=500)
+
+    def _pipeline_api(self):
+        """POST /api/pipeline {goal, context?, max_dispatch?} -> 理解->拆解->编排->执行->自检->交付 全链路。"""
+        from .. import goal_pipeline as _gp
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            if not goal:
+                return self._send_json({"error": "缺少 goal"}, status=400)
+            try:
+                max_dispatch = int(body.get("max_dispatch") or 4)
+            except (TypeError, ValueError):
+                max_dispatch = 4
+            result = _gp.run_pipeline(goal, context=body.get("context") or "",
+                                     llm_call=self._make_llm_call(), max_dispatch=max_dispatch)
+            return self._send_json(result)
+        except Exception as e:
+            from .. import errorlog as _el
+            _el.record(os.getcwd(), "pipeline", "目标流水线失败: %s" % e, source="api:/api/pipeline", detail=str(e))
+            return self._send_json({"error": "流水线执行失败: %s" % e}, status=500)
 
     def _plans_delete(self):
         """POST /api/plans/delete {id} -> 删除计划。"""

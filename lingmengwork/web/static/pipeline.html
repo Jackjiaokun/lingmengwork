@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>目标流水线 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:rgba(255,255,255,.04); --panel-2:rgba(255,255,255,.06);
+    --stroke:rgba(255,255,255,.10); --txt:#e6e9f2; --muted:#9aa3b8;
+    --brand:#8b5cf6; --brand-2:#22d3ee; --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1100px 600px at 12% -8%, rgba(139,92,246,.18), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,.14), transparent 55%),
+      var(--bg);
+    color:var(--txt);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 20px 70px}
+  header h1{margin:0 0 4px;font-size:23px;letter-spacing:.5px;
+    background:linear-gradient(90deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  header p{margin:0 0 16px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--stroke);border-radius:16px;padding:16px 18px;margin-bottom:16px}
+  label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:.6px}
+  textarea{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--stroke);border-radius:10px;color:var(--txt);
+    padding:10px 12px;font:inherit;resize:vertical;outline:none;min-height:80px}
+  textarea:focus{border-color:var(--brand)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+  select{background:rgba(0,0,0,.25);border:1px solid var(--stroke);border-radius:10px;color:var(--txt);padding:8px 10px;font:inherit}
+  button{cursor:pointer;border:1px solid var(--stroke);background:var(--panel-2);color:var(--txt);padding:9px 15px;border-radius:10px;font:inherit;transition:.16s}
+  button:hover{background:rgba(255,255,255,.12)}
+  button.primary{background:linear-gradient(90deg,var(--brand),var(--brand-2));border:none;color:#06121f;font-weight:700}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .status{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+  .flow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
+  .chip{font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid var(--stroke);color:var(--muted)}
+  .chip.on{background:linear-gradient(90deg,var(--brand),var(--brand-2));color:#06121f;font-weight:700;border:none}
+  .stage{border:1px solid var(--stroke);border-radius:14px;padding:14px 16px;margin-bottom:14px;background:var(--panel-2)}
+  .stage h3{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .stage h3 .n{width:22px;height:22px;border-radius:999px;background:rgba(139,92,246,.25);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+  .tag{font-size:11px;color:var(--muted)}
+  .badge{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--stroke)}
+  .badge.dom{color:#06121f;font-weight:700;border:none}
+  .dep{color:var(--muted);font-size:12px;margin-left:8px}
+  .step-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,.07)}
+  .step-row:last-child{border-bottom:none}
+  .exec{border:1px solid var(--stroke);border-radius:12px;padding:12px 14px;margin-bottom:12px;background:var(--panel)}
+  .exec .top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .exec .t{font-weight:700;color:#fff}
+  .md{margin-top:4px}
+  .md-h{margin:12px 0 5px;color:#fff;border-left:3px solid var(--brand);padding-left:10px;font-size:14px}
+  .md-h2{margin:10px 0 4px;color:#fff;font-size:13.5px;font-weight:700}
+  .md-p{margin:5px 0}
+  .md-li{margin:3px 0 3px 18px;list-style:none;position:relative}
+  .md-li::before{content:"▸";position:absolute;left:-16px;color:var(--brand-2)}
+  .md-code{background:rgba(0,0,0,.4);border:1px solid var(--stroke);border-radius:10px;padding:12px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre}
+  .md-ic{background:rgba(139,92,246,.18);border-radius:5px;padding:1px 5px;font-family:ui-monospace,monospace;font-size:12.5px}
+  .md-q{margin:6px 0;padding:6px 12px;border-left:3px solid var(--brand-2);background:rgba(34,211,238,.08);color:var(--muted);border-radius:0 8px 8px 0}
+  .md-sp{height:6px}
+  .score{font-size:30px;font-weight:800}
+  .score.good{color:var(--ok)} .score.mid{color:var(--warn)} .score.low{color:var(--bad)}
+  .delivery{background:rgba(0,0,0,.22);border:1px solid var(--stroke);border-radius:12px;padding:14px 16px;max-height:520px;overflow:auto}
+  .actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>目标驱动流水线</h1>
+    <p>一个模糊目标 → 理解 → 拆解 → 编排 → 执行 → 自检 → 交付。编程/音频/图片/视频 四域自由调度。</p>
+  </header>
+
+  <div class="card">
+    <label>模糊目标</label>
+    <textarea id="goal" placeholder="例如：做一个面向金融科技的自媒体短视频账号，从选题到成片全自动"></textarea>
+    <label style="margin-top:12px">补充上下文（可选）</label>
+    <textarea id="ctx" placeholder="如：目标平台抖音/B站，风格科技感，已有品牌主色蓝紫"></textarea>
+    <div class="row">
+      <label style="margin:0">执行蓝图步数上限</label>
+      <select id="md">
+        <option value="3">3 步（极快）</option>
+        <option value="4" selected>4 步（标准）</option>
+        <option value="6">6 步（深入）</option>
+      </select>
+      <button class="primary" id="run">🚀 运行全链路</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="flow hidden" id="flow"></div>
+  <div id="out" class="hidden"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function inlineMd(t){
+  let s = esc(t);
+  s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  s = s.replace(/`([^`]+?)`/g, '<code class="md-ic">$1</code>');
+  return s;
+}
+function renderMd(src){
+  const lines = String(src||"").split(/\r?\n/);
+  let html="", inCode=false, buf=[];
+  const flush=()=>{ if(buf.length){ html+='<pre class="md-code"><code>'+esc(buf.join("\n"))+'</code></pre>'; buf=[]; } };
+  for(const line of lines){
+    if(/^\s*```/.test(line)){ if(inCode){flush();inCode=false;}else{inCode=true;} continue; }
+    if(inCode){ buf.push(line); continue; }
+    let m;
+    if(/^\s*&gt;/.test(line)){ html+='<div class="md-q">'+inlineMd(line.replace(/^\s*&gt;\s?/,""))+'</div>'; continue; }
+    if((m=line.match(/^(#{2,4})\s+(.*)$/))){ const l=m[1].length; html+='<h'+l+' class="md-h'+(l>2?'2':'')+'">'+inlineMd(m[2])+'</h'+l+'>'; continue; }
+    if(/^\d+[.、]\s+/.test(line)){ html+='<div class="md-li">'+inlineMd(line.replace(/^\d+[.、]\s+/,""))+'</div>'; continue; }
+    if(/^[-*]\s+/.test(line)){ html+='<div class="md-li">'+inlineMd(line.replace(/^[-*]\s+/,""))+'</div>'; continue; }
+    if(line.trim()===""){ html+='<div class="md-sp"></div>'; continue; }
+    html+='<p class="md-p">'+inlineMd(line)+'</p>';
+  }
+  if(inCode) flush();
+  return html;
+}
+const STAGES = ["理解","拆解","编排","执行","自检","交付"];
+function renderFlow(active){
+  const f = $("#flow"); f.className="flow"; f.innerHTML="";
+  STAGES.forEach((s,i)=>{
+    const c = document.createElement("span");
+    c.className = "chip" + (i<=active ? " on" : "");
+    c.textContent = (i+1)+"·"+s;
+    f.appendChild(c);
+  });
+}
+
+async function run(){
+  const goal = $("#goal").value.trim();
+  if(!goal){ $("#status").textContent="请填写模糊目标"; return; }
+  const ctx = $("#ctx").value.trim();
+  const md = parseInt($("#md").value,10)||4;
+  const btn = $("#run"); btn.disabled=true;
+  renderFlow(0);
+  $("#out").className="hidden";
+  $("#status").textContent = "全链路运行中（理解 → 拆解 → 编排 → 执行 → 自检 → 交付）…";
+  try{
+    const r = await fetch("/api/pipeline",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ goal, context: ctx, max_dispatch: md })
+    });
+    const j = await r.json();
+    if(j.error){ $("#status").textContent="失败: "+j.error; return; }
+    renderAll(j);
+    $("#status").textContent = "✅ 全链路完成，耗时 "+ (j.elapsed_sec||"?") +"s · 自检评分 "+ (j.selfcheck?.score??"?") +"/100";
+  }catch(e){ $("#status").textContent="请求异常: "+e.message; }
+  finally{ btn.disabled=false; }
+}
+
+function renderAll(j){
+  renderFlow(STAGES.length-1);
+  const out = $("#out"); out.className=""; out.innerHTML="";
+  // 理解
+  let h = '<div class="stage"><h3><span class="n">1</span>理解</h3>'
+        + '<div class="md"><p class="md-p">'+inlineMd(j.understand.goal)+'</p>'
+        + (j.understand.context ? '<p class="md-p tag">补充上下文：'+inlineMd(j.understand.context)+'</p>' : '')
+        + '<p class="tag">捕获于 '+esc(j.understand.captured_at)+'</p></div></div>';
+  // 拆解
+  h += '<div class="stage"><h3><span class="n">2</span>拆解 · '+ (j.decompose.count) +' 步</h3>';
+  (j.decompose.steps||[]).forEach(s=>{
+    const meta = {code:"🟣编程",audio:"🟢音频",image:"🌸图片",video:"🔵视频",any:"🔷通用"}[s.domain]||s.domain;
+    const dep = s.depends&&s.depends.length ? '<span class="dep">← 依赖 '+esc(s.depends.join(","))+'</span>' : '';
+    h += '<div class="step-row"><span class="badge dom" style="background:'+ (s.domain==='code'?'#8b5cf6':s.domain==='audio'?'#10b981':s.domain==='image'?'#f472b6':s.domain==='video'?'#6366f1':'#22d3ee') +'">'+meta+'</span>'
+       + '<span>'+esc(s.title)+'</span>'+dep+'</div>';
+  });
+  h += '</div>';
+  // 编排
+  const oc = (j.orchestrate.domain_coverage||[]).map(d=>({code:"编程",audio:"音频",image:"图片",video:"视频"}[d]||d)).join("、")||"通用/编程";
+  h += '<div class="stage"><h3><span class="n">3</span>编排</h3>'
+     + '<div class="md"><p class="md-p">覆盖域：<b>'+esc(oc)+'</b></p>'
+     + '<p class="md-p tag">并行批次（同层可并行）：'+esc(JSON.stringify(j.orchestrate.parallel_groups||[]))+'</p>'
+     + '<p class="md-p tag">执行序：'+esc((j.orchestrate.execution_order||[]).join(" → "))+'</p></div></div>';
+  // 执行
+  h += '<div class="stage"><h3><span class="n">4</span>执行 · 各域创作蓝图</h3>';
+  (j.execute||[]).forEach(ex=>{
+    h += '<div class="exec"><div class="top"><span class="badge dom" style="background:'+esc(ex.theme)+'">'+esc(ex.emoji)+' '+esc(ex.domain_name)+'</span>'
+       + '<span class="t">'+esc(ex.title)+'</span>'
+       + (ex.adapter==='mcp' ? '<span class="tag">（真实生成需接入适配层）</span>' : '') + '</div>'
+       + '<div class="md">'+renderMd(ex.plan)+'</div></div>';
+  });
+  h += '</div>';
+  // 自检
+  const sc = j.selfcheck||{}; const sv = sc.score??0;
+  const cls = sv>=80?'good':sv>=60?'mid':'low';
+  h += '<div class="stage"><h3><span class="n">5</span>自检</h3>'
+     + '<div class="md"><span class="score '+cls+'">'+sv+'</span><span class="tag"> /100 · 模式 '+esc(sc.mode||"?")+'</span>'
+     + (sc.gaps&&sc.gaps.length ? '<p class="md-p">待补强：'+esc(sc.gaps.join("；"))+'</p>' : '')
+     + (sc.notes&&sc.notes.length ? '<p class="md-p tag">建议：'+esc(sc.notes.join("；"))+'</p>' : '') + '</div></div>';
+  // 交付
+  h += '<div class="stage"><h3><span class="n">6</span>交付</h3>'
+     + '<div class="delivery md">'+renderMd(j.delivery)+'</div>'
+     + '<div class="actions"><button id="savePlan" class="primary">📥 存入计划书</button>'
+     + '<button id="copyDel">📋 复制交付稿</button><span class="status" id="planMsg"></span></div></div>';
+  out.innerHTML = h;
+
+  $("#savePlan").onclick = async () => {
+    const pp = j.plan_payload||{};
+    const r = await fetch("/api/plans",{method:"POST",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({title:pp.title, content:pp.content, tasks:pp.tasks})});
+    const pj = await r.json().catch(()=>({error:"保存失败"}));
+    $("#planMsg").textContent = pj.ok ? "✅ 已存入计划书" : ("❌ "+(pj.error||"保存失败"));
+  };
+  $("#copyDel").onclick = () => {
+    navigator.clipboard?.writeText(j.delivery||"").then(()=>{ $("#planMsg").textContent="✅ 交付稿已复制"; });
+  };
+}
+$("#run").onclick = run;
+</script>
+</body>
+</html>

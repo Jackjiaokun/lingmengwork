@@ -6,33 +6,45 @@
 <title>灵梦work · 成本看板</title>
 <style>
   :root{
-    --bg:#0d1117; --bg2:#161b22; --card:#1c2230; --card2:#222a3a;
-    --line:#2b3342; --txt:#e6edf3; --mut:#8b97a7; --acc:#4ea1ff;
-    --ok:#2ecc71; --warn:#f1c40f; --fail:#e74c3c;
+    --bg:#070a14; --bg2:#0e1424; --card:rgba(20,27,48,.62); --card2:#1a2238;
+    --line:rgba(126,146,210,.16); --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff;
+    --ok:#34e0a1; --warn:#ffb454; --fail:#ff5c7c; --brand2:#4dd0e1;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);
+  body{margin:0;color:var(--txt);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-    font-size:14px;line-height:1.45}
+    font-size:14px;line-height:1.45;
+    background:
+      radial-gradient(1100px 700px at 10% -10%, rgba(124,92,255,.14), transparent 60%),
+      radial-gradient(900px 700px at 100% 0%, rgba(77,208,225,.10), transparent 55%),
+      var(--bg);
+    background-attachment:fixed}
   header{display:flex;align-items:center;gap:14px;padding:14px 22px;
-    background:linear-gradient(90deg,#11161f,#161b22);border-bottom:1px solid var(--line)}
+    background:rgba(14,20,36,.7);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line);position:relative}
+  header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(124,92,255,.6),transparent)}
   header h1{font-size:17px;margin:0;font-weight:600}
   header h1 .ac{color:var(--acc)}
   .head-sp{flex:1}
   .head-meta{color:var(--mut);font-size:12px;display:flex;gap:16px;align-items:center}
   .switch{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px;cursor:pointer}
   .switch input{accent-color:var(--acc)}
-  a.btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);
-    padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px;text-decoration:none}
-  a.btn:hover{border-color:var(--acc)}
+  a.btn{background:linear-gradient(135deg,#7c5cff,#5b8bff);border:1px solid transparent;color:#fff;
+    padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;
+    box-shadow:0 6px 20px rgba(124,92,255,.3);transition:transform .14s ease,filter .2s ease}
+  a.btn:hover{transform:translateY(-1px);filter:brightness(1.08);border-color:transparent}
   main{max-width:1180px;margin:0 auto;padding:20px 22px 60px}
   section{margin-bottom:26px}
   .sec-title{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:1px;
     margin:0 0 12px;display:flex;align-items:center;gap:8px}
-  .sec-title::before{content:"";width:3px;height:14px;background:var(--acc);border-radius:2px}
+  .sec-title::before{content:"";width:3px;height:14px;background:linear-gradient(180deg,#7c5cff,#4dd0e1);border-radius:2px}
   .top-cards{grid-template-columns:repeat(4,1fr)}
   .grid{display:grid;gap:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    transition:transform .15s ease,border-color .2s ease,box-shadow .2s ease}
+  .card:hover{transform:translateY(-2px);border-color:rgba(124,92,255,.35);box-shadow:0 12px 36px rgba(0,0,0,.4)}
   .stat-lg{display:flex;flex-direction:column;gap:4px}
   .stat-lg .num{font-size:28px;font-weight:700;line-height:1}
   .stat-lg .lab{color:var(--mut);font-size:12px}

@@ -4,33 +4,90 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>灵梦work · LingMeng Work</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+  <!-- 动态星云背景 -->
+  <div class="aurora" aria-hidden="true">
+    <span class="orb o1"></span>
+    <span class="orb o2"></span>
+    <span class="orb o3"></span>
+    <span class="grid-veil"></span>
+  </div>
+
   <div id="app">
+    <!-- ============ 侧栏 ============ -->
     <aside id="sidebar">
       <div class="brand">
         <span class="logo">灵</span>
-        <div>
+        <div class="brand-text">
           <div class="brand-name">灵梦work</div>
-          <div class="brand-sub">LingMeng Work</div>
+          <div class="brand-sub">LingMeng Work · 编码智能体</div>
+        </div>
+        <span class="brand-pulse" title="本地运行"></span>
+      </div>
+
+      <div id="status" class="status">连接中…</div>
+
+      <nav class="side-nav">
+        <a class="nav-item" href="/observability">
+          <span class="nav-ico">📊</span><span class="nav-label">可观测仪表盘</span>
+        </a>
+        <a class="nav-item" href="/cost">
+          <span class="nav-ico">💰</span><span class="nav-label">成本看板</span>
+        </a>
+        <a class="nav-item" href="/planboard">
+          <span class="nav-ico">🗂️</span><span class="nav-label">计划看板</span>
+        </a>
+        <a class="nav-item" href="/settings">
+          <span class="nav-ico">⚙️</span><span class="nav-label">设置中心</span>
+        </a>
+      </nav>
+
+      <div class="side-explorer">
+        <div class="side-title">通道 · 工具 · 外部中枢</div>
+        <div class="explorer-cols">
+          <div class="explorer-col">
+            <div class="mini-title">通道</div>
+            <ul id="provider-list" class="chip-list"></ul>
+          </div>
+          <div class="explorer-col">
+            <div class="mini-title">工具</div>
+            <ul id="tool-list" class="chip-list"></ul>
+          </div>
+          <div class="explorer-col">
+            <div class="mini-title">MCP</div>
+            <ul id="mcp-list" class="chip-list"></ul>
+          </div>
         </div>
       </div>
-      <div id="status" class="status">连接中…</div>
-      <div class="side-title">可用通道 (多路 LLM)</div>
-      <ul id="provider-list" class="tool-list"></ul>
-      <div class="side-title">可用工具</div>
-      <ul id="tool-list" class="tool-list"></ul>
-      <div class="side-title">外部工具 (MCP)</div>
-      <ul id="mcp-list" class="tool-list"></ul>
-      <a class="btn-ghost" href="/observability" style="text-decoration:none;text-align:center;display:block;margin:4px 0">📊 可观测仪表盘</a>
-      <a class="btn-ghost" href="/cost" style="text-decoration:none;text-align:center;display:block;margin:4px 0">💰 成本看板</a>
-      <a class="btn-ghost" href="/planboard" style="text-decoration:none;text-align:center;display:block;margin:4px 0">🗂️ 计划看板</a>
-      <a class="btn-ghost" href="/settings" style="text-decoration:none;text-align:center;display:block;margin:4px 0">⚙️ 设置中心</a>
-      <button id="btn-clear" class="btn-ghost">清空对话</button>
+
+      <div class="side-foot">
+        <button id="btn-clear" class="btn-ghost btn-block">清空对话</button>
+      </div>
     </aside>
 
+    <!-- ============ 主区 ============ -->
     <main id="chat">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="topbar-title">工作台</h1>
+          <span class="topbar-sub">本地优先 · 多通道 · 全链路可观测</span>
+        </div>
+        <div class="topbar-right">
+          <label class="mode-select" title="智能体自主度：计划=只读出方案 / 接受编辑=可写文件但禁执行 / 全放开=可写可执行">
+            <span class="mode-ico">🎛️</span>
+            <select id="agent-mode">
+              <option value="bypassPermissions">全放开 (读写+执行)</option>
+              <option value="acceptEdits">接受编辑 (写文件, 禁执行)</option>
+              <option value="plan">计划 (只读出方案)</option>
+            </select>
+          </label>
+          <button id="btn-new" class="btn-ghost btn-icon" title="新建会话">✶ 新建</button>
+        </div>
+      </header>
+
       <!-- 全局仪表盘 -->
       <div id="dashboard" class="dashboard">
         <div class="dash-item"><span class="dash-num" id="dash-tasks">0</span><span class="dash-label">任务</span></div>
@@ -57,24 +114,19 @@
       <section id="panel-chat" class="panel active">
         <div id="messages" class="messages"></div>
         <div id="composer" class="composer">
-          <textarea id="input" placeholder="描述你的编码任务, 例如: 在 src 下新建一个 hello.py 并打印版本号" rows="2"></textarea>
+          <div class="composer-input-wrap">
+            <textarea id="input" placeholder="描述你的编码任务，例如：在 src 下新建一个 hello.py 并打印版本号" rows="2"></textarea>
+            <button id="send" class="btn-primary btn-send">发送 <span class="send-ico">➤</span></button>
+          </div>
           <div class="composer-row">
-            <label class="mode-select" title="智能体自主度: 计划=只读出方案 / 接受编辑=可写文件但禁执行 / 全放开=可写可执行">
-              模式
-              <select id="agent-mode">
-                <option value="bypassPermissions">全放开 (读写+执行)</option>
-                <option value="acceptEdits">接受编辑 (写文件, 禁执行)</option>
-                <option value="plan">计划 (只读出方案)</option>
-              </select>
-            </label>
-            <button id="send" class="btn-primary">发送</button>
+            <span class="composer-hint">Enter 发送 · Shift+Enter 换行 · 支持多通道 / 多路并行 / 工具调用</span>
           </div>
         </div>
       </section>
 
       <section id="panel-tasks" class="panel">
         <div class="orch-zone">
-          <div class="orch-head">⚡ 并行编排 <span class="orch-hint">每行一个独立任务, 一次性扇出多路并发</span></div>
+          <div class="orch-head">⚡ 并行编排 <span class="orch-hint">每行一个独立任务，一次性扇出多路并发</span></div>
           <textarea id="orch-prompts" placeholder="第1路: 给 utils.py 加 retry 装饰器&#10;第2路: 给 models.py 加 created_at 字段&#10;第3路: 写 tests/test_utils.py 覆盖 retry" rows="3"></textarea>
           <div class="orch-row">
             <button id="orch-run" class="btn-accent">⚡ 扇出并行</button>
@@ -85,7 +137,7 @@
           </div>
         </div>
         <div class="task-bar">
-          <textarea id="task-prompt" placeholder="新建并发编程任务, 例如: 给 utils.py 加一个 retry 装饰器" rows="2"></textarea>
+          <textarea id="task-prompt" placeholder="新建并发编程任务，例如：给 utils.py 加一个 retry 装饰器" rows="2"></textarea>
           <select id="task-provider"><option value="">自动轮询通道</option></select>
           <button id="task-add" class="btn-primary">＋ 新建任务</button>
         </div>
@@ -119,7 +171,7 @@
             <button id="editor-review-changed" class="btn-ghost">📋 评审改动</button>
             <button id="editor-pr" class="btn-ghost">📝 PR 草稿</button>
             <button id="editor-review-report" class="btn-ghost">📊 评审报告</button>
-            <input id="deliver-note" class="deliver-note" placeholder="变更说明(可选, 写进交付报告/PR)" />
+            <input id="deliver-note" class="deliver-note" placeholder="变更说明(可选，写进交付报告/PR)" />
             <span id="deliver-badge" class="deliver-badge" style="display:none;"></span>
             <span id="editor-hint" class="editor-hint">Ctrl/Cmd+S 保存</span>
           </div>
@@ -137,14 +189,14 @@
       <section id="panel-terminal" class="panel">
         <div class="term-head">
           <span class="term-title">交互式终端 (实时 stdout)</span>
-          <span class="term-hint">支持 git / python / node / pytest 等; 危险命令被拦截</span>
+          <span class="term-hint">支持 git / python / node / pytest 等；危险命令被拦截</span>
           <span class="editor-spacer"></span>
           <button id="term-clear" class="btn-ghost">清屏</button>
         </div>
         <div id="term-output" class="term-output"></div>
         <div class="term-input-row">
           <span class="term-prompt">$</span>
-          <input id="term-input" class="term-input" placeholder="输入命令, 回车执行 (如 pytest -q / git status)" autocomplete="off" />
+          <input id="term-input" class="term-input" placeholder="输入命令，回车执行 (如 pytest -q / git status)" autocomplete="off" />
         </div>
       </section>
 
@@ -156,6 +208,7 @@
           <div id="session-msgs" class="session-msgs"></div>
         </div>
       </section>
+
       <section id="panel-reviews" class="panel">
         <div id="review-stats" class="review-stats" style="display:none;"></div>
         <div id="review-list" class="card-list"></div>

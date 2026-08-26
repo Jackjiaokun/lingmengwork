@@ -953,6 +953,15 @@ $("btn-clear").addEventListener("click", () => {
   messagesEl.innerHTML = "";
   history = [];
 });
+const btnNew = $("btn-new");
+if (btnNew) btnNew.addEventListener("click", () => {
+  messagesEl.innerHTML = "";
+  history = [];
+  currentSessionId = null;
+  const note = addMessage("agent");
+  note.textContent = "已开启新会话，服务端历史已断开，直接描述你的任务即可。";
+  scrollDown();
+});
 
 loadHealth();
 loadProviders();

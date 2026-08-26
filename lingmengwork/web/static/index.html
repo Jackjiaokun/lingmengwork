@@ -229,12 +229,21 @@
           <button id="file-up" class="btn-ghost">↑ 上级</button>
           <span id="file-path" class="file-path">.</span>
           <span id="file-save-state" class="file-save-state"></span>
+          <span class="editor-spacer"></span>
+          <button id="editor-find-files" class="btn-ghost" title="在文件中查找 (全局搜索)">🌐 全局搜索</button>
         </div>
         <div id="file-tree" class="file-tree"></div>
+        <div id="editor-tabs" class="editor-tabs" hidden></div>
         <div id="editor-wrap" class="editor-wrap" style="display:none;">
           <div class="editor-toolbar">
             <span id="editor-file" class="editor-file"></span>
             <span class="editor-spacer"></span>
+            <button id="editor-wrap-toggle" class="btn-ghost" title="自动换行切换 (Alt+Z)">⤡ 换行</button>
+            <button id="editor-font-dec" class="btn-ghost" title="缩小字号">A−</button>
+            <button id="editor-font-inc" class="btn-ghost" title="放大字号">A+</button>
+            <button id="editor-outline-btn" class="btn-ghost" title="符号大纲 / 转到符号">{} 符号</button>
+            <button id="editor-goto-btn" class="btn-ghost" title="转到行 (Ctrl+G)"># 行</button>
+            <button id="editor-find-btn" class="btn-ghost" title="查找 (Ctrl+F) / 替换 (Ctrl+H)">🔍 查找</button>
             <button id="editor-save" class="btn-primary">💾 保存</button>
             <button id="editor-reload" class="btn-ghost">↻ 重载</button>
             <button id="editor-copy" class="btn-ghost">⧉ 复制</button>
@@ -247,15 +256,57 @@
             <span id="deliver-badge" class="deliver-badge" style="display:none;"></span>
             <span id="editor-hint" class="editor-hint">Ctrl/Cmd+S 保存</span>
           </div>
+          <div id="editor-findbar" class="findbar" hidden>
+            <input id="find-input" class="find-input" placeholder="查找…" />
+            <span id="find-count" class="find-count"></span>
+            <button id="find-prev" class="find-btn" title="上一个 (Shift+Enter)">↑</button>
+            <button id="find-next" class="find-btn" title="下一个 (Enter)">↓</button>
+            <button id="find-regex" class="find-toggle" title="正则模式">.*</button>
+            <button id="find-icase" class="find-toggle active" title="忽略大小写">Aa</button>
+            <button id="find-replace-toggle" class="find-btn" title="展开替换">⇄</button>
+            <input id="replace-input" class="find-input replace-input" placeholder="替换为…" hidden />
+            <button id="replace-one" class="find-btn" hidden>替换</button>
+            <button id="replace-all" class="find-btn" hidden>全部替换</button>
+            <button id="find-close" class="find-btn" title="关闭 (Esc)">✕</button>
+          </div>
           <div class="editor-area">
             <div id="editor-gutter" class="editor-gutter">1</div>
             <div class="editor-stack">
               <pre id="editor-hl" class="editor-hl" aria-hidden="true"></pre>
+              <pre id="editor-find-marks" class="editor-find-marks" aria-hidden="true"></pre>
               <textarea id="editor-text" class="editor-text" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
             </div>
           </div>
+          <div id="editor-status" class="editor-status">
+            <span class="estat" id="estat-lang">文本</span>
+            <span class="estat" id="estat-pos">Ln 1, Col 1</span>
+            <span class="estat" id="estat-sel">Sel 0</span>
+            <span class="estat-spacer"></span>
+            <span class="estat" id="estat-eol">LF</span>
+            <span class="estat" id="estat-enc">UTF-8</span>
+            <span class="estat" id="estat-wrap">换行: 关</span>
+            <span class="estat" id="estat-tabs">空格 4</span>
+          </div>
+          <div id="editor-outline" class="editor-outline" hidden></div>
+          <input id="editor-goto-input" class="goto-input" placeholder="行号" hidden />
         </div>
         <pre id="file-content" class="file-content" style="display:none;"></pre>
+        <div id="fif-modal" class="fif-modal" hidden>
+          <div class="fif-box">
+            <div class="fif-head">
+              <span class="fif-title">🌐 在文件中查找</span>
+              <span class="editor-spacer"></span>
+              <button id="fif-close" class="find-btn" title="关闭 (Esc)">✕</button>
+            </div>
+            <div class="fif-bar">
+              <input id="fif-input" class="find-input" placeholder="搜索内容…" />
+              <input id="fif-ext" class="find-input fif-ext" placeholder="扩展名过滤 .py,.js (留空=全部)" />
+              <button id="fif-regex" class="find-toggle" title="正则模式">.*</button>
+              <button id="fif-run" class="btn-primary">搜索</button>
+            </div>
+            <div id="fif-results" class="fif-results"></div>
+          </div>
+        </div>
       </section>
 
       <section id="panel-terminal" class="panel">

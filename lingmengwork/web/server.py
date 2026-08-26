@@ -2858,6 +2858,8 @@ class Handler(SimpleHTTPRequestHandler):
         allowed_roots = [os.path.abspath(base), os.path.abspath(home)]
         if not any(target == r or target.startswith(r + os.sep) for r in allowed_roots):
             return self._send_json({"error": "路径越权, 仅允许项目目录与 HOME"}, status=403)
+        if action == "grep":
+            return self._fs_grep(qs, base, home)
         if action == "read":
             if not os.path.isfile(target):
                 return self._send_json({"error": "不是文件"}, status=400)
@@ -2946,6 +2948,99 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"ok": True, "path": rel, "bytes": len(content.encode("utf-8"))})
         except Exception as e:
             return self._send_json({"error": "写入失败: %s" % e}, status=500)
+
+    def _fs_grep(self, qs, base, home):
+        """GET /api/fs/grep?path=&pattern=&regex=0/1&ignorecase=0/1&ext=.py,.js
+
+        递归扫描文本文件, 返回命中行列表 {file, line, col, text, match}。
+        安全限制同 _fs_api; 跳过二进制与 SKIP 目录; 结果上限保护。
+        """
+        import re as _re
+        raw_path = (qs.get("path") or ["."])[0]
+        pattern = (qs.get("pattern") or [""])[0]
+        if not pattern:
+            return self._send_json({"error": "缺少 pattern"}, status=400)
+        use_regex = (qs.get("regex") or ["0"])[0] in ("1", "true", "on")
+        ignorecase = (qs.get("ignorecase") or ["1"])[0] in ("1", "true", "on")
+        ext_filter = [e.strip().lower() for e in (qs.get("ext") or [""])[0].split(",") if e.strip()]
+        try:
+            flags = _re.IGNORECASE if ignorecase else 0
+            if use_regex:
+                comp = _re.compile(pattern, flags)
+            else:
+                comp = _re.compile(_re.escape(pattern), flags)
+        except Exception as e:
+            return self._send_json({"error": "正则编译失败: %s" % e}, status=400)
+        target = os.path.abspath(os.path.join(base, raw_path)) if not raw_path.startswith("~") \
+            else os.path.abspath(os.path.expanduser(raw_path))
+        SKIP = {".git", "__pycache__", "node_modules", ".venv", "dist", "build", ".workbuddy", ".pytest_cache"}
+        BINARY_EXT = {".pyc", ".pyo", ".exe", ".dll", ".so", ".dylib", ".png", ".jpg",
+                      ".jpeg", ".gif", ".bmp", ".ico", ".zip", ".gz", ".tar", ".rar",
+                      ".pdf", ".bin", ".dat", ".ttf", ".woff", ".woff2", ".mp3", ".mp4"}
+        MAX_RESULTS = 800
+        MAX_FILES = 400
+        MAX_BYTES = 2_000_000
+        results = []
+        scanned = 0
+        truncated = False
+
+        def walk(d):
+            nonlocal scanned, truncated
+            if len(results) >= MAX_RESULTS or scanned >= MAX_FILES:
+                return
+            try:
+                names = sorted(os.listdir(d))
+            except Exception:
+                return
+            for name in names:
+                if len(results) >= MAX_RESULTS or scanned >= MAX_FILES:
+                    truncated = True
+                    return
+                fp = os.path.join(d, name)
+                rel = os.path.relpath(fp, base)
+                if os.path.isdir(fp):
+                    if name in SKIP:
+                        continue
+                    walk(fp)
+                elif os.path.isfile(fp):
+                    ext = os.path.splitext(name)[1].lower()
+                    if ext in BINARY_EXT:
+                        continue
+                    if ext_filter and ext not in ext_filter:
+                        continue
+                    scanned += 1
+                    try:
+                        if os.path.getsize(fp) > MAX_BYTES:
+                            continue
+                        with open(fp, "r", encoding="utf-8", errors="replace") as fh:
+                            for i, line in enumerate(fh, 1):
+                                if len(results) >= MAX_RESULTS:
+                                    truncated = True
+                                    return
+                                m = comp.search(line)
+                                if not m:
+                                    continue
+                                results.append({
+                                    "file": rel,
+                                    "line": i,
+                                    "col": m.start() + 1,
+                                    "text": line.rstrip("\n").rstrip("\r"),
+                                })
+                    except Exception:
+                        continue
+
+        if os.path.isfile(target):
+            walk(os.path.dirname(target))
+        else:
+            walk(target)
+        return self._send_json({
+            "path": raw_path,
+            "pattern": pattern,
+            "count": len(results),
+            "scanned": scanned,
+            "truncated": truncated,
+            "results": results,
+        })
 
 
 def run_web(host="127.0.0.1", port=PORT, cfg=None):

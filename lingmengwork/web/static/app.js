@@ -1641,33 +1641,414 @@ async function loadFiles(dir) {
   }
 }
 
-async function showFileContent(rel) {
+// ====== 编辑器 IDE 增强: 多标签 / 查找替换 / 转到行 / 状态栏 / 大纲 / 全局搜索 ======
+const editorTabsEl = $("editor-tabs");
+const editorFindMarksEl = $("editor-find-marks");
+const findbarEl = $("editor-findbar");
+const findInputEl = $("find-input");
+const findCountEl = $("find-count");
+const findPrevBtn = $("find-prev");
+const findNextBtn = $("find-next");
+const findRegexBtn = $("find-regex");
+const findIcaseBtn = $("find-icase");
+const findReplaceToggle = $("find-replace-toggle");
+const replaceInputEl = $("replace-input");
+const replaceOneBtn = $("replace-one");
+const replaceAllBtn = $("replace-all");
+const findCloseBtn = $("find-close");
+const wrapToggleBtn = $("editor-wrap-toggle");
+const fontDecBtn = $("editor-font-dec");
+const fontIncBtn = $("editor-font-inc");
+const outlineBtn = $("editor-outline-btn");
+const outlineEl = $("editor-outline");
+const gotoBtn = $("editor-goto-btn");
+const gotoInputEl = $("editor-goto-input");
+const findBtn = $("editor-find-btn");
+const findFilesBtn = $("editor-find-files");
+const statusLang = $("estat-lang");
+const statusPos = $("estat-pos");
+const statusSel = $("estat-sel");
+const statusEol = $("estat-eol");
+const statusEnc = $("estat-enc");
+const statusWrap = $("estat-wrap");
+const statusTabs = $("estat-tabs");
+const fifModal = $("fif-modal");
+const fifInput = $("fif-input");
+const fifExt = $("fif-ext");
+const fifRun = $("fif-run");
+const fifRegexBtn = $("fif-regex");
+const fifCloseBtn = $("fif-close");
+const fifResults = $("fif-results");
+
+let editorTabs = [];
+let activeEditorTab = null;
+let editorFind = { term: "", matches: [], idx: -1, regex: false, icase: true };
+let editorFontSize = 13;
+let editorWrapOn = false;
+
+const LANG_EXT = { py: "python", pyw: "python", js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript", json: "json", html: "html", htm: "html", css: "css", scss: "scss", md: "markdown", markdown: "markdown", go: "go", rs: "rust", java: "java", c: "c", h: "c", cpp: "cpp", cc: "cpp", hpp: "cpp", sh: "shell", bash: "shell", yml: "yaml", yaml: "yaml", toml: "toml", sql: "sql", xml: "xml" };
+const LANG_LABEL = { python: "Python", javascript: "JavaScript", typescript: "TypeScript", json: "JSON", html: "HTML", css: "CSS", scss: "SCSS", markdown: "Markdown", go: "Go", rust: "Rust", java: "Java", c: "C", cpp: "C++", shell: "Shell", yaml: "YAML", toml: "TOML", sql: "SQL", xml: "XML", text: "文本" };
+function langOf(path) { const ext = (path.split(".").pop() || "").toLowerCase(); return LANG_EXT[ext] || "text"; }
+function langLabel(k) { return LANG_LABEL[k] || "文本"; }
+function activateFilesTab() { const t = document.querySelector('.tab[data-tab="files"]'); if (t && !t.classList.contains("active")) t.click(); }
+
+async function openFileTab(rel, opts) {
+  opts = opts || {};
+  if (opts.activate !== false) activateFilesTab();
+  const existing = editorTabs.find((t) => t.path === rel);
+  if (existing && !opts.reload) { activateEditorTab(existing, opts.line); return; }
   try {
     const r = await fetch("/api/fs/read?path=" + encodeURIComponent(rel));
     const d = await r.json();
     if (d.error) { toast(d.error, "error"); return; }
-    if (d.binary) {
-      fileContentEl.textContent = "🔒 " + (d.hint || "二进制文件, 不可预览");
-      fileContentEl.style.display = "block";
-      editorWrapEl.style.display = "none";
-      toast("二进制文件不支持编辑", "warn");
-      return;
-    }
-    // 打开编辑器
-    currentEditPath = rel;
-    editorFileEl.textContent = rel + (d.truncated ? "  (已截断显示前 20 万字符)" : "");
-    editorTextEl.value = d.content || "";
-    editorWrapEl.style.display = "block";
-    fileContentEl.style.display = "none";
-    fileSaveStateEl.textContent = "";
-    syncGutter();
-    highlightCode();
-    editorTextEl.scrollTop = 0;
-    editorTextEl.focus();
-  } catch (e) {
-    toast("读取失败: " + e, "error");
-  }
+    if (d.binary) { fileContentEl.textContent = "🔒 " + (d.hint || "二进制文件, 不可预览"); fileContentEl.style.display = "block"; editorWrapEl.style.display = "none"; toast("二进制文件不支持编辑", "warn"); return; }
+    const lang = langOf(rel);
+    let tab;
+    if (existing) { tab = existing; tab.content = d.content || ""; tab.savedContent = d.content || ""; tab.dirty = false; tab.lang = lang; }
+    else { tab = { path: rel, name: rel.split("/").pop(), content: d.content || "", savedContent: d.content || "", dirty: false, lang: lang, scrollTop: 0, selStart: 0, selEnd: 0 }; editorTabs.push(tab); }
+    activateEditorTab(tab, opts.line);
+  } catch (e) { toast("读取失败: " + e, "error"); }
 }
+
+function activateEditorTab(tab, line) {
+  if (activeEditorTab) { activeEditorTab.content = editorTextEl.value; activeEditorTab.scrollTop = editorTextEl.scrollTop; activeEditorTab.selStart = editorTextEl.selectionStart; activeEditorTab.selEnd = editorTextEl.selectionEnd; }
+  activeEditorTab = tab;
+  currentEditPath = tab.path;
+  editorFileEl.textContent = tab.path + (tab.dirty ? " ●" : "");
+  editorTextEl.value = tab.content;
+  editorWrapEl.style.display = "block";
+  fileContentEl.style.display = "none";
+  editorTabsEl.hidden = false;
+  renderEditorTabs();
+  applyWrap(); applyFont();
+  syncGutter(); renderEditorLayers(); updateStatus();
+  if (line && line > 0) gotoLine(line);
+  editorTextEl.focus();
+}
+
+function renderEditorTabs() {
+  editorTabsEl.innerHTML = "";
+  editorTabsEl.hidden = editorTabs.length === 0;
+  editorTabs.forEach((tab) => {
+    const el = document.createElement("div");
+    el.className = "editor-tab" + (tab === activeEditorTab ? " active" : "");
+    el.innerHTML = (tab.dirty ? '<span class="et-dirty" title="未保存"></span>' : "") + '<span class="et-name">' + esc(tab.name) + '</span><span class="et-close" title="关闭标签">✕</span>';
+    el.addEventListener("click", (e) => { if (e.target.classList.contains("et-close")) closeEditorTab(tab); else activateEditorTab(tab); });
+    editorTabsEl.appendChild(el);
+  });
+}
+
+function closeEditorTab(tab) {
+  const i = editorTabs.indexOf(tab);
+  if (i < 0) return;
+  editorTabs.splice(i, 1);
+  if (activeEditorTab === tab) {
+    activeEditorTab = null; currentEditPath = null;
+    const next = editorTabs[Math.max(0, i - 1)] || editorTabs[0] || null;
+    if (next) activateEditorTab(next);
+    else { editorWrapEl.style.display = "none"; editorTabsEl.hidden = true; editorTextEl.value = ""; clearFind(); outlineEl.hidden = true; }
+  }
+  renderEditorTabs();
+}
+
+function persistActive() {
+  if (!activeEditorTab) return;
+  activeEditorTab.content = editorTextEl.value;
+  const was = activeEditorTab.dirty;
+  activeEditorTab.dirty = activeEditorTab.content !== activeEditorTab.savedContent;
+  if (was !== activeEditorTab.dirty) { editorFileEl.textContent = activeEditorTab.path + (activeEditorTab.dirty ? " ●" : ""); renderEditorTabs(); }
+}
+
+function renderEditorLayers() { highlightCode(); renderFindMarks(); }
+
+function computeFindMatches(code) {
+  if (!editorFind.term) return [];
+  let re;
+  try { re = editorFind.regex ? new RegExp(editorFind.term, editorFind.icase ? "gi" : "g") : new RegExp(escapeRegex(editorFind.term), editorFind.icase ? "gi" : "g"); }
+  catch (e) { return []; }
+  const ms = []; let m;
+  while ((m = re.exec(code))) {
+    if (m[0].length === 0) { re.lastIndex++; continue; }
+    ms.push([m.index, m.index + m[0].length]);
+    if (ms.length > 5000) break;
+  }
+  return ms;
+}
+
+function findMatchPos(code, i, open, close, step) {
+  let depth = 0;
+  for (let j = i + step; j >= 0 && j < code.length; j += step) {
+    if (code[j] === open) depth++;
+    else if (code[j] === close) { depth--; if (depth === 0) return j; }
+  }
+  return -1;
+}
+function computeBracketPair(code) {
+  const pos = editorTextEl.selectionStart;
+  const c0 = code[pos - 1], c1 = code[pos];
+  const opens = { "(": ")", "[": "]", "{": "}" };
+  const closes = { ")": "(", "]": "[", "}": "{" };
+  let i = -1;
+  if (c0 && (opens[c0] || closes[c0])) i = pos - 1;
+  else if (c1 && (opens[c1] || closes[c1])) i = pos;
+  else return null;
+  const c = code[i];
+  let oi, ci;
+  if (opens[c]) { oi = i; ci = findMatchPos(code, i, c, opens[c], 1); }
+  else { ci = i; oi = findMatchPos(code, i, closes[c], c, -1); }
+  if (oi < 0 || ci < 0) return null;
+  return [{ s: Math.min(oi, ci), e: Math.min(oi, ci) + 1 }, { s: Math.max(oi, ci), e: Math.max(oi, ci) + 1 }];
+}
+
+function renderFindMarks() {
+  if (!editorFindMarksEl) return;
+  const code = editorTextEl.value;
+  const marks = [];
+  if (editorFind.term) editorFind.matches.forEach((mm, i) => marks.push({ s: mm[0], e: mm[1], cls: i === editorFind.idx ? "t-find cur" : "t-find" }));
+  const bp = computeBracketPair(code);
+  if (bp) bp.forEach((b) => marks.push({ s: b.s, e: b.e, cls: "t-bracket" }));
+  const ev = [];
+  for (const mk of marks) { if (mk.e <= mk.s) continue; ev.push({ pos: mk.s, open: 1, cls: mk.cls }); ev.push({ pos: mk.e, open: 0, cls: mk.cls }); }
+  ev.sort((a, b) => a.pos - b.pos || (a.open ? -1 : 1));
+  let html = "", cursor = 0, depth = 0;
+  for (const e of ev) {
+    if (e.pos > cursor) { html += escapeHtml(code.slice(cursor, e.pos)); cursor = e.pos; }
+    if (e.open) { html += '<span class="' + e.cls + '">'; depth++; }
+    else { html += "</span>"; if (depth > 0) depth--; }
+  }
+  if (cursor < code.length) html += escapeHtml(code.slice(cursor));
+  editorFindMarksEl.innerHTML = html + String.fromCharCode(10);
+}
+
+function updateStatus() {
+  if (!activeEditorTab) return;
+  const pos = editorTextEl.selectionStart;
+  const before = editorTextEl.value.slice(0, pos);
+  const line = before.split("\n").length;
+  const col = pos - before.lastIndexOf("\n");
+  const s = editorTextEl.selectionStart, e = editorTextEl.selectionEnd;
+  const selLen = e - s;
+  statusLang.textContent = langLabel(activeEditorTab.lang);
+  statusEol.textContent = editorTextEl.value.indexOf("\r\n") >= 0 ? "CRLF" : "LF";
+  statusPos.textContent = "Ln " + line + ", Col " + col;
+  statusSel.textContent = "Sel " + (selLen > 0 ? selLen : 0);
+  statusWrap.textContent = "换行: " + (editorWrapOn ? "开" : "关");
+}
+
+function applyWrap() {
+  const ws = editorWrapOn ? "pre-wrap" : "pre";
+  const wb = editorWrapOn ? "break-all" : "normal";
+  [editorTextEl, editorHlEl, editorFindMarksEl].forEach((el) => { el.style.whiteSpace = ws; el.style.wordBreak = wb; });
+  editorGutterEl.style.whiteSpace = ws;
+  statusWrap.textContent = "换行: " + (editorWrapOn ? "开" : "关");
+}
+function applyFont() {
+  const fs = editorFontSize + "px";
+  const lh = (editorFontSize * 1.55) + "px";
+  [editorTextEl, editorHlEl, editorFindMarksEl, editorGutterEl].forEach((el) => { el.style.fontSize = fs; el.style.lineHeight = lh; });
+}
+function syncScroll() {
+  const st = editorTextEl.scrollTop, sl = editorTextEl.scrollLeft;
+  editorGutterEl.scrollTop = st;
+  editorHlEl.scrollTop = st; editorHlEl.scrollLeft = sl;
+  editorFindMarksEl.scrollTop = st; editorFindMarksEl.scrollLeft = sl;
+}
+function toggleWrap() { editorWrapOn = !editorWrapOn; applyWrap(); }
+
+function onEditorInput() {
+  persistActive();
+  if (editorFind.term) editorFind.matches = computeFindMatches(editorTextEl.value);
+  syncGutter(); renderEditorLayers(); updateStatus();
+}
+function onEditorCursorMove() { updateStatus(); renderFindMarks(); }
+
+// ---- 查找 / 替换 ----
+function openFind(showReplace) {
+  findbarEl.hidden = false;
+  if (showReplace) { replaceInputEl.hidden = false; replaceOneBtn.hidden = false; replaceAllBtn.hidden = false; }
+  editorFind.regex = findRegexBtn.classList.contains("active");
+  editorFind.icase = findIcaseBtn.classList.contains("active");
+  findInputEl.focus(); findInputEl.select();
+  runFind();
+}
+function runFind() {
+  editorFind.term = findInputEl.value;
+  editorFind.regex = findRegexBtn.classList.contains("active");
+  editorFind.icase = findIcaseBtn.classList.contains("active");
+  editorFind.matches = computeFindMatches(editorTextEl.value);
+  editorFind.idx = editorFind.matches.length ? 0 : -1;
+  renderFindCount(); renderEditorLayers();
+  if (editorFind.matches.length) selectMatch(editorFind.idx);
+}
+function renderFindCount() {
+  if (!editorFind.term) { findCountEl.textContent = ""; return; }
+  findCountEl.textContent = editorFind.matches.length ? (editorFind.idx + 1) + "/" + editorFind.matches.length : "无匹配";
+}
+function selectMatch(i) {
+  const ms = editorFind.matches;
+  if (!ms.length) return;
+  i = ((i % ms.length) + ms.length) % ms.length;
+  editorFind.idx = i;
+  const mm = ms[i];
+  editorTextEl.setSelectionRange(mm[0], mm[1]);
+  editorTextEl.focus();
+  const line = editorTextEl.value.slice(0, mm[0]).split("\n").length;
+  const lineH = editorFontSize * 1.55;
+  editorTextEl.scrollTop = Math.max(0, (line - 1) * lineH - editorTextEl.clientHeight / 2);
+  syncScroll(); renderFindMarks(); renderFindCount();
+}
+function findNext() { if (editorFind.matches.length) selectMatch(editorFind.idx + 1); }
+function findPrev() { if (editorFind.matches.length) selectMatch(editorFind.idx - 1); }
+function clearFind() { editorFind.term = ""; editorFind.matches = []; editorFind.idx = -1; findInputEl.value = ""; findCountEl.textContent = ""; findbarEl.hidden = true; renderEditorLayers(); }
+function replaceOne() {
+  if (editorFind.idx < 0 || !editorFind.matches.length) return;
+  const mm = editorFind.matches[editorFind.idx];
+  const repl = replaceInputEl.value;
+  const v = editorTextEl.value;
+  editorTextEl.value = v.slice(0, mm[0]) + repl + v.slice(mm[1]);
+  persistActive(); syncGutter(); renderEditorLayers();
+  editorFind.matches = computeFindMatches(editorTextEl.value);
+  if (editorFind.matches.length) { editorFind.idx = Math.min(editorFind.idx, editorFind.matches.length - 1); selectMatch(editorFind.idx); }
+  else { editorFind.idx = -1; renderFindCount(); }
+}
+function replaceAll() {
+  editorFind.term = findInputEl.value;
+  editorFind.regex = findRegexBtn.classList.contains("active");
+  editorFind.icase = findIcaseBtn.classList.contains("active");
+  const v0 = editorTextEl.value;
+  const ms = computeFindMatches(v0);
+  if (!ms.length) { findCountEl.textContent = "无匹配"; return; }
+  const repl = replaceInputEl.value;
+  let v = v0;
+  for (let k = ms.length - 1; k >= 0; k--) { const mm = ms[k]; v = v.slice(0, mm[0]) + repl + v.slice(mm[1]); }
+  editorTextEl.value = v;
+  persistActive(); syncGutter(); renderEditorLayers();
+  editorFind.matches = []; editorFind.idx = -1;
+  findCountEl.textContent = "已替换 " + ms.length + " 处";
+}
+
+// ---- 转到行 / 符号大纲 ----
+function gotoLine(line) {
+  const lines = editorTextEl.value.split("\n");
+  line = Math.max(1, Math.min(line, lines.length));
+  let pos = 0;
+  for (let i = 0; i < line - 1; i++) pos += lines[i].length + 1;
+  editorTextEl.setSelectionRange(pos, pos + lines[line - 1].length);
+  const lineH = editorFontSize * 1.55;
+  editorTextEl.scrollTop = Math.max(0, (line - 1) * lineH - editorTextEl.clientHeight / 2);
+  syncScroll(); editorTextEl.focus(); updateStatus();
+}
+function openGoto() { gotoInputEl.hidden = false; gotoInputEl.value = ""; setTimeout(() => gotoInputEl.focus(), 0); }
+function buildOutline() {
+  const code = editorTextEl.value, lang = activeEditorTab ? activeEditorTab.lang : "";
+  const items = [], lines = code.split("\n");
+  lines.forEach((ln, idx) => {
+    let m;
+    if (lang === "python") { m = ln.match(/^(\s*)(async\s+)?(def|class)\s+([A-Za-z_]\w*)/); if (m) items.push({ line: idx + 1, kind: m[3] === "class" ? "class" : "def", name: m[4] }); }
+    else if (lang === "javascript" || lang === "typescript") {
+      if ((m = ln.match(/^\s*(export\s+)?(async\s+)?function\s+([A-Za-z_]\w*)/))) items.push({ line: idx + 1, kind: "fn", name: m[3] });
+      else if ((m = ln.match(/^\s*(export\s+)?(const|let|var)\s+([A-Za-z_]\w*)\s*=/))) items.push({ line: idx + 1, kind: "var", name: m[3] });
+      else if ((m = ln.match(/^\s*(export\s+)?class\s+([A-Za-z_]\w*)/))) items.push({ line: idx + 1, kind: "class", name: m[2] });
+    }
+    else if (lang === "go") {
+      if ((m = ln.match(/^func\s+(?:\([^)]*\)\s+)?([A-Za-z_]\w*)/))) items.push({ line: idx + 1, kind: "func", name: m[1] });
+      else if ((m = ln.match(/^type\s+([A-Za-z_]\w*)/))) items.push({ line: idx + 1, kind: "type", name: m[1] });
+    }
+    else if (lang === "markdown") { if ((m = ln.match(/^(#{1,6})\s+(.*)$/))) items.push({ line: idx + 1, kind: "h" + m[1].length, name: m[2].trim() }); }
+    else if ((m = ln.match(/^\s*(def|function|func|class|method|sub|pub\s+fn|fn)\s+([A-Za-z_]\w*)/))) items.push({ line: idx + 1, kind: m[1].replace(/\s/g, ""), name: m[2] });
+  });
+  return items;
+}
+function openOutline() {
+  if (outlineEl.hidden) {
+    const items = buildOutline();
+    let html = '<div class="ol-head">符号 · ' + items.length + ' 个</div>';
+    if (!items.length) html += '<div class="ol-head">当前文件无符号</div>';
+    items.forEach((it) => {
+      html += '<div class="ol-item" data-line="' + it.line + '"><span class="ol-kind">' + esc(it.kind) + '</span><span class="ol-name">' + esc(it.name) + '</span><span class="ol-line">' + it.line + '</span></div>';
+    });
+    outlineEl.innerHTML = html;
+    outlineEl.querySelectorAll(".ol-item").forEach((el) => el.addEventListener("click", () => { gotoLine(parseInt(el.getAttribute("data-line"), 10)); outlineEl.hidden = true; }));
+    outlineEl.hidden = false;
+  } else outlineEl.hidden = true;
+}
+
+// ---- 全局搜索 (在文件中查找) ----
+function openFif() { fifModal.hidden = false; fifInput.value = ""; setTimeout(() => fifInput.focus(), 0); }
+async function runFif() {
+  const pat = fifInput.value;
+  if (!pat) return;
+  const regex = fifRegexBtn.classList.contains("active");
+  const ext = fifExt.value.trim();
+  const root = currentFileDir || ".";
+  fifResults.innerHTML = '<div class="fif-meta">搜索中…</div>';
+  try {
+    const url = "/api/fs/grep?path=" + encodeURIComponent(root) + "&pattern=" + encodeURIComponent(pat) + "&regex=" + (regex ? "1" : "0") + "&ignorecase=1&ext=" + encodeURIComponent(ext);
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.error) { fifResults.innerHTML = '<div class="fif-empty">错误: ' + esc(d.error) + '</div>'; return; }
+    if (!d.results.length) { fifResults.innerHTML = '<div class="fif-empty">无匹配 (扫描 ' + d.scanned + ' 文件)' + (d.truncated ? " · 已达上限" : "") + '</div>'; return; }
+    let html = '<div class="fif-meta">' + d.count + ' 处命中 · ' + d.scanned + ' 文件' + (d.truncated ? " · 已达上限" : "") + '</div>';
+    let lastFile = null;
+    d.results.forEach((res) => {
+      if (res.file !== lastFile) { html += '<div class="fif-file">' + esc(res.file) + '</div>'; lastFile = res.file; }
+      let disp;
+      if (!regex) { const idx = res.text.toLowerCase().indexOf(pat.toLowerCase()); disp = idx >= 0 ? esc(res.text.slice(0, idx)) + "<mark>" + esc(res.text.slice(idx, idx + pat.length)) + "</mark>" + esc(res.text.slice(idx + pat.length)) : esc(res.text); }
+      else disp = esc(res.text);
+      html += '<div class="fif-row" data-file="' + esc(res.file) + '" data-line="' + res.line + '"><span class="fif-ln">' + res.line + '</span><span class="fif-txt">' + disp + '</span></div>';
+    });
+    fifResults.innerHTML = html;
+    fifResults.querySelectorAll(".fif-row").forEach((row) => row.addEventListener("click", () => { const f = row.getAttribute("data-file"); const ln = parseInt(row.getAttribute("data-line"), 10); fifModal.hidden = true; openFileTab(f, { line: ln }); }));
+  } catch (e) { fifResults.innerHTML = '<div class="fif-empty">异常: ' + esc(String(e)) + '</div>'; }
+}
+
+// ---- 简单格式化 (无外部依赖) ----
+function formatDoc() {
+  if (!activeEditorTab) return;
+  const lang = activeEditorTab.lang;
+  let v = editorTextEl.value;
+  if (lang === "json") { try { v = JSON.stringify(JSON.parse(v), null, 2); } catch (e) { toast("JSON 解析失败, 未格式化", "error"); return; } }
+  else { v = v.replace(/\t/g, "    ").replace(/[ \t]+\n/g, "\n").replace(/\r\n/g, "\n"); if (v && !v.endsWith("\n")) v += "\n"; }
+  editorTextEl.value = v; persistActive(); syncGutter(); renderEditorLayers(); updateStatus();
+  toast("已格式化 (" + langLabel(lang) + ")", "ok");
+}
+
+// ---- 查找条 / 工具栏 事件绑定 ----
+findInputEl.addEventListener("input", runFind);
+findInputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); e.shiftKey ? findPrev() : findNext(); }
+  else if (e.key === "Escape") { e.preventDefault(); clearFind(); }
+});
+findNextBtn.addEventListener("click", findNext);
+findPrevBtn.addEventListener("click", findPrev);
+findRegexBtn.addEventListener("click", () => { findRegexBtn.classList.toggle("active"); runFind(); });
+findIcaseBtn.addEventListener("click", () => { findIcaseBtn.classList.toggle("active"); runFind(); });
+findReplaceToggle.addEventListener("click", () => { const show = replaceInputEl.hidden; replaceInputEl.hidden = !show; replaceOneBtn.hidden = !show; replaceAllBtn.hidden = !show; if (show) replaceInputEl.focus(); });
+replaceOneBtn.addEventListener("click", replaceOne);
+replaceAllBtn.addEventListener("click", replaceAll);
+findCloseBtn.addEventListener("click", clearFind);
+findBtn.addEventListener("click", () => openFind(false));
+wrapToggleBtn.addEventListener("click", toggleWrap);
+fontDecBtn.addEventListener("click", () => { editorFontSize = Math.max(10, editorFontSize - 1); applyFont(); updateStatus(); });
+fontIncBtn.addEventListener("click", () => { editorFontSize = Math.min(22, editorFontSize + 1); applyFont(); updateStatus(); });
+outlineBtn.addEventListener("click", openOutline);
+gotoBtn.addEventListener("click", openGoto);
+gotoInputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); const n = parseInt(gotoInputEl.value, 10); if (!isNaN(n)) gotoLine(n); gotoInputEl.hidden = true; }
+  else if (e.key === "Escape") { e.preventDefault(); gotoInputEl.hidden = true; }
+});
+findFilesBtn.addEventListener("click", openFif);
+fifCloseBtn.addEventListener("click", () => { fifModal.hidden = true; });
+fifModal.addEventListener("click", (e) => { if (e.target === fifModal) fifModal.hidden = true; });
+fifRun.addEventListener("click", runFif);
+fifInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runFif(); } else if (e.key === "Escape") { fifModal.hidden = true; } });
+fifRegexBtn.addEventListener("click", () => { fifRegexBtn.classList.toggle("active"); });
+document.addEventListener("click", (e) => {
+  if (outlineEl && !outlineEl.hidden && e.target !== outlineBtn && !outlineBtn.contains(e.target) && !outlineEl.contains(e.target)) outlineEl.hidden = true;
+});
+applyFont(); applyWrap();
+
+function showFileContent(rel) { return openFileTab(rel); }
 
 // 行号栏与文本区同步
 function syncGutter() {
@@ -1678,8 +2059,8 @@ function syncGutter() {
   editorGutterEl.scrollTop = editorTextEl.scrollTop;
 }
 editorTextEl.addEventListener("input", syncGutter);
-editorTextEl.addEventListener("scroll", () => { editorGutterEl.scrollTop = editorTextEl.scrollTop; editorHlEl.scrollTop = editorTextEl.scrollTop; });
-editorTextEl.addEventListener("input", highlightCode);
+editorTextEl.addEventListener("scroll", syncScroll);
+editorTextEl.addEventListener("input", onEditorInput);
 
 // 轻量语法高亮: 单遍 tokenizer, 先匹配注释/字符串/数字, 再按关键字着色, 避免二次处理已生成标签
 function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
@@ -1699,7 +2080,7 @@ function highlightCode(){
   out += escapeHtml(code.slice(last));
   editorHlEl.innerHTML = out + String.fromCharCode(10);
 }
-// Tab 键插入 4 空格 (不跳出文本区)
+// Tab 键插入 4 空格 + 括号自动补全 + Ctrl/Cmd+S 保存
 editorTextEl.addEventListener("keydown", (e) => {
   if (e.key === "Tab") {
     e.preventDefault();
@@ -1711,22 +2092,47 @@ editorTextEl.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
     e.preventDefault();
     saveFile();
+    return;
+  }
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    const pair = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'", "`": "`" };
+    if (pair[e.key]) {
+      const s = editorTextEl.selectionStart, en = editorTextEl.selectionEnd;
+      const next = editorTextEl.value[en];
+      if ((e.key === '"' || e.key === "'") && next && /\w/.test(next)) return;
+      e.preventDefault();
+      const close = pair[e.key];
+      const sel = editorTextEl.value.slice(s, en);
+      editorTextEl.setRangeText(e.key + sel + close, s, en, "end");
+      editorTextEl.selectionStart = editorTextEl.selectionEnd = s + 1 + sel.length;
+      onEditorInput();
+      return;
+    }
+    if (")]}'".includes(e.key)) {
+      const en = editorTextEl.selectionStart;
+      if (editorTextEl.value[en] === e.key) { e.preventDefault(); editorTextEl.selectionStart = editorTextEl.selectionEnd = en + 1; return; }
+    }
   }
 });
 
 async function saveFile() {
-  if (!currentEditPath) return;
+  if (!activeEditorTab) return;
   editorSaveBtn.disabled = true;
   try {
     const r = await fetch("/api/fs/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: currentEditPath, content: editorTextEl.value }),
+      body: JSON.stringify({ path: activeEditorTab.path, content: editorTextEl.value }),
     });
     const d = await r.json();
     if (d.error) { toast(d.error, "error"); fileSaveStateEl.textContent = "✗ 保存失败"; return; }
+    activeEditorTab.content = editorTextEl.value;
+    activeEditorTab.savedContent = editorTextEl.value;
+    activeEditorTab.dirty = false;
     fileSaveStateEl.textContent = "✓ 已保存 " + d.bytes + " 字节";
-    toast("已保存 " + currentEditPath, "ok");
+    editorFileEl.textContent = activeEditorTab.path;
+    renderEditorTabs();
+    toast("已保存 " + activeEditorTab.path, "ok");
   } catch (e) {
     toast("保存失败: " + e, "error");
     fileSaveStateEl.textContent = "✗ 保存失败";
@@ -1736,10 +2142,19 @@ async function saveFile() {
 }
 
 async function reloadFile() {
-  if (!currentEditPath) return;
-  const cur = currentEditPath;
-  await showFileContent(cur);
-  toast("已重载 " + cur, "ok");
+  if (!activeEditorTab) return;
+  const tab = activeEditorTab;
+  try {
+    const r = await fetch("/api/fs/read?path=" + encodeURIComponent(tab.path));
+    const d = await r.json();
+    if (d.error) { toast(d.error, "error"); return; }
+    if (d.binary) { toast("二进制文件不支持编辑", "warn"); return; }
+    tab.content = d.content || ""; tab.savedContent = d.content || ""; tab.dirty = false;
+    editorTextEl.value = tab.content;
+    editorFileEl.textContent = tab.path;
+    syncGutter(); renderEditorLayers(); updateStatus(); renderEditorTabs();
+    toast("已重载 " + tab.path, "ok");
+  } catch (e) { toast("读取失败: " + e, "error"); }
 }
 
 async function copyFile() {
@@ -2372,6 +2787,14 @@ const COMMANDS = [
   { id: "new", title: "新建会话标签", hint: "⌘⇧O", run: () => createTab() },
   { id: "clear", title: "清空对话", hint: "⌘L", run: () => { const b = $("btn-clear"); if (b) b.click(); } },
   { id: "focus", title: "聚焦输入框 / 回到对话", run: () => { switchTabByName("chat"); if (inputEl) inputEl.focus(); } },
+  { id: "ed-save", title: "编辑器 · 保存文件", hint: "⌘S", run: () => { if (editorWrapEl.style.display !== "none") saveFile(); } },
+  { id: "ed-find", title: "编辑器 · 查找 (Ctrl+F)", run: () => { if (editorWrapEl.style.display !== "none") openFind(false); } },
+  { id: "ed-find-files", title: "编辑器 · 在文件中查找", run: openFif },
+  { id: "ed-goto", title: "编辑器 · 转到行 (Ctrl+G)", run: () => { if (editorWrapEl.style.display !== "none") openGoto(); } },
+  { id: "ed-symbol", title: "编辑器 · 符号大纲", run: () => { if (editorWrapEl.style.display !== "none") openOutline(); } },
+  { id: "ed-wrap", title: "编辑器 · 切换自动换行 (Alt+Z)", run: () => { if (editorWrapEl.style.display !== "none") toggleWrap(); } },
+  { id: "ed-format", title: "编辑器 · 格式化文档", run: () => { if (editorWrapEl.style.display !== "none") formatDoc(); } },
+  { id: "ed-close", title: "编辑器 · 关闭当前标签", run: () => { if (activeEditorTab) closeEditorTab(activeEditorTab); } },
   { id: "review", title: "触发代码评审 (当前改动)", hint: "⌘E", run: triggerReviewNow },
   { id: "t-chat", title: "切换到 · 对话", run: () => switchTabByName("chat") },
   { id: "t-results", title: "切换到 · 结果回看", run: () => switchTabByName("results") },
@@ -2454,13 +2877,18 @@ if (agentModeEl) {
 document.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); cmdPaletteEl.hidden ? openCmd() : closeCmd(); return; }
-  if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); openChatSearch(); return; }
+  if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); if (!cmdPaletteEl.hidden) return; if (editorWrapEl.style.display !== "none") openFind(false); else openChatSearch(); return; }
   if (cmdPaletteEl.hidden) {
     if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); createTab(); return; }
     if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); if (btnNew) btnNew.click(); return; }
     if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); const b = $("btn-clear"); if (b) b.click(); return; }
     if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); triggerReviewNow(); return; }
     if (mod && e.key === "/") { e.preventDefault(); openCmd(); cmdInputEl.value = "快捷键"; filterCmd("快捷键"); return; }
+    if (editorWrapEl && editorWrapEl.style.display !== "none") {
+      if (mod && e.key.toLowerCase() === "g") { e.preventDefault(); openGoto(); return; }
+      if (mod && e.key.toLowerCase() === "h") { e.preventDefault(); openFind(true); return; }
+      if (!mod && e.altKey && e.key.toLowerCase() === "z") { e.preventDefault(); toggleWrap(); return; }
+    }
     return;
   }
   if (e.key === "Escape") { closeCmd(); toggleSidebar(false); return; }

@@ -384,7 +384,7 @@ def tool_kind(name):
 
 
 class AgentLoop:
-    def __init__(self, client, registry, cfg, system_prompt_override=None, auto_context=True, session_id=None, provider=""):
+    def __init__(self, client, registry, cfg, system_prompt_override=None, auto_context=True, session_id=None, provider="", experts=None, skills=None, enhance_data=None):
         self.client = client
         self.registry = registry
         self.cfg = cfg
@@ -406,6 +406,10 @@ class AgentLoop:
         self.session_id = session_id or None
         self.provider = provider
         self.model = getattr(client, "model", "") or ""
+        # 主题 F — 专家/技能 提示词增强: 本轮激活的条目与增强库快照
+        self._enhance_data = enhance_data or {"experts": [], "skills": []}
+        self._active_experts = list(experts or [])
+        self._active_skills = list(skills or [])
         # 主题 B — 计划看板 (批次13): 捕获计划模式产物, 供 Web 计划看板可视化
         self.plan_artifact = None
         override = system_prompt_override if system_prompt_override is not None else cfg["agent"].get("system_prompt")
@@ -478,7 +482,26 @@ class AgentLoop:
             parts.append(self.project_context)
         if self.memory_context:
             parts.append(self.memory_context)
+        # 主题 F — 专家/技能 提示词增强注入
+        try:
+            from .enhance import build_enhancement_block
+            blk = build_enhancement_block(self._active_experts, self._active_skills, self._enhance_data)
+            if blk:
+                parts.append(blk)
+        except Exception:
+            pass
         return "\n\n".join(parts)
+
+    def set_enhancement(self, experts=None, skills=None, enhance_data=None):
+        """主题 F — 更新激活的专家/技能并重建系统提示(仅替换 messages[0])。"""
+        if enhance_data is not None:
+            self._enhance_data = enhance_data
+        if experts is not None:
+            self._active_experts = list(experts)
+        if skills is not None:
+            self._active_skills = list(skills)
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0]["content"] = self._full_system()
 
     def reset(self):
         self.messages = [{"role": "system", "content": self._full_system()}]

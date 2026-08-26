@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵梦work · 笔记</title>
+<style>
+  :root{
+    --bg:#070a14; --bg2:#0e1424; --card:rgba(20,27,48,.62); --card2:#1a2238;
+    --line:rgba(126,146,210,.16); --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff;
+    --ok:#34e0a1; --warn:#ffb454; --fail:#ff5c7c; --brand2:#4dd0e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5;
+    background:
+      radial-gradient(1100px 700px at 10% -10%, rgba(124,92,255,.14), transparent 60%),
+      radial-gradient(900px 700px at 100% 0%, rgba(77,208,225,.10), transparent 55%),
+      var(--bg);
+    background-attachment:fixed}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;
+    background:rgba(14,20,36,.7);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line);position:relative}
+  header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(124,92,255,.6),transparent)}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header h1 .ac{color:var(--acc)}
+  .head-sp{flex:1}
+  a.btn{background:linear-gradient(135deg,#7c5cff,#5b8bff);border:1px solid transparent;color:#fff;
+    padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;
+    box-shadow:0 6px 20px rgba(124,92,255,.3);transition:transform .14s ease,filter .2s ease}
+  a.btn:hover{transform:translateY(-1px);filter:brightness(1.08);border-color:transparent}
+  a.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);box-shadow:none}
+  a.btn.ghost:hover{border-color:var(--acc);filter:none}
+  main{max-width:1100px;margin:0 auto;padding:18px 22px 60px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .bar .hint{color:var(--mut);font-size:12px;width:100%}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+  .note{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 14px;
+    display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;cursor:pointer}
+  .note::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--brand2),var(--acc))}
+  .note .nm{font-weight:600;font-size:15px}
+  .note .meta{font-size:11px;color:var(--mut)}
+  .note .ct{color:var(--mut);font-size:12px;max-height:120px;overflow:hidden;white-space:pre-wrap;
+    background:rgba(0,0,0,.18);border-radius:8px;padding:7px 9px}
+  .note .acts{display:flex;gap:7px;flex-wrap:wrap}
+  .note .acts button{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:5px 10px;border-radius:8px;cursor:pointer;font-size:12px}
+  .note .acts button:hover{border-color:var(--acc)}
+  .note .acts button.danger:hover{border-color:var(--fail);color:var(--fail)}
+  .empty{color:var(--mut);text-align:center;padding:40px;border:1px dashed var(--line);border-radius:12px}
+  .modal{position:fixed;inset:0;background:rgba(4,7,15,.66);display:flex;align-items:center;
+    justify-content:center;padding:20px;z-index:60}
+  .modal[hidden]{display:none!important}
+  .mbox{width:640px;max-width:100%;height:80vh;display:flex;flex-direction:column;
+    background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .mbox h3{margin:0 0 14px;font-size:15px;flex:none}
+  .fld{margin-bottom:12px;flex:none}
+  .fld label{display:block;font-size:12px;color:var(--mut);margin-bottom:5px}
+  .fld input,.fld textarea{width:100%;background:var(--bg);border:1px solid var(--line);
+    color:var(--txt);padding:9px 11px;border-radius:9px;font-size:13px;font-family:inherit}
+  .fld textarea{flex:1;min-height:200px;resize:vertical;font-family:monospace;line-height:1.55}
+  .mbox .foot{flex:none;display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+  #result{margin-top:8px;font-size:13px;padding:9px 12px;border-radius:9px;display:none}
+  #result.ok{display:block;background:rgba(52,224,161,.12);border:1px solid rgba(52,224,161,.3);color:var(--ok)}
+  #result.err{display:block;background:rgba(255,92,124,.12);border:1px solid rgba(255,92,124,.3);color:var(--fail)}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(20,27,48,.95);
+    border:1px solid var(--line);color:var(--txt);padding:10px 18px;border-radius:10px;font-size:13px;
+    box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;transition:opacity .2s ease;pointer-events:none;z-index:80}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <a class="btn ghost" href="/">← 返回面板</a>
+  <h1>📝 <span class="ac">笔记</span></h1>
+  <div class="head-sp"></div>
+  <button id="btn-add" class="btn">+ 新建笔记</button>
+</header>
+<main>
+  <div class="bar">
+    <span class="hint">工作区内轻量 Markdown 笔记 — 与对话解耦、可长期留存。数据存于工作区 <code>.lmw_notes.json</code>。点击卡片可编辑。</span>
+  </div>
+  <div id="list" class="grid"></div>
+  <div id="empty" class="empty" hidden>暂无笔记。点击右上角「+ 新建笔记」开始。</div>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="mbox">
+    <h3 id="modal-title">新建笔记</h3>
+    <div class="fld">
+      <label>标题 *</label>
+      <input id="f-name" type="text" placeholder="如：架构决策记录" />
+    </div>
+    <div class="fld" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <label>正文 (Markdown)</label>
+      <textarea id="f-content" placeholder="在此编写笔记内容, 支持 Markdown..."></textarea>
+    </div>
+    <div id="result"></div>
+    <div class="foot">
+      <button id="btn-cancel" class="btn ghost">取消</button>
+      <button id="btn-save" class="btn">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+let editingId = null;
+
+function esc(s){ return (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+function showResult(msg, ok){ const el=$("#result"); el.textContent=msg; el.className=ok?"ok":"err"; }
+function clearResult(){ $("#result").className=""; $("#result").textContent=""; }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1600); }
+async function copyText(txt){ try{ await navigator.clipboard.writeText(txt); toast("已复制笔记正文"); }catch{ toast("复制失败"); } }
+
+async function loadList(){
+  const r = await fetch("/api/notes");
+  const d = await r.json();
+  const list = $("#list");
+  list.innerHTML = "";
+  const notes = d.notes || [];
+  $("#empty").hidden = notes.length > 0;
+  for (const n of notes){
+    const div = document.createElement("div");
+    div.className = "note";
+    div.innerHTML = `
+      <div class="nm" title="${esc(n.title)}">${esc(n.title)}</div>
+      <div class="meta">更新 ${esc(n.updated_at||"?")} · ${esc((n.content||"").length)} 字</div>
+      <div class="ct">${esc((n.content||"").slice(0,300))}</div>
+      <div class="acts">
+        <button data-act="copy" data-id="${n.id}">复制</button>
+        <button data-act="edit" data-id="${n.id}">编辑</button>
+        <button data-act="del" data-id="${n.id}" class="danger">删除</button>
+      </div>`;
+    list.appendChild(div);
+  }
+  list.querySelectorAll("button[data-act]").forEach(b=>{
+    b.addEventListener("click", async ()=>{
+      const id=b.dataset.id;
+      if (b.dataset.act==="copy"){ const r=await fetch("/api/notes"); const dd=await r.json();
+        const n=(dd.notes||[]).find(x=>x.id===id); if(n) copyText(n.content||""); }
+      else if (b.dataset.act==="edit") openEdit(id);
+      else doDelete(id);
+    });
+  });
+}
+
+function openNew(){
+  editingId=null;
+  $("#modal-title").textContent="新建笔记";
+  $("#f-name").value=""; $("#f-content").value="";
+  clearResult(); $("#modal").hidden=false; $("#f-name").focus();
+}
+async function openEdit(id){
+  const r=await fetch("/api/notes"); const d=await r.json();
+  const n=(d.notes||[]).find(x=>x.id===id); if(!n) return;
+  editingId=id;
+  $("#modal-title").textContent="编辑："+n.title;
+  $("#f-name").value=n.title; $("#f-content").value=n.content||"";
+  clearResult(); $("#modal").hidden=false; $("#f-name").focus();
+}
+async function doDelete(id){
+  if(!confirm("确认删除该笔记？")) return;
+  const r=await fetch("/api/notes/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+  const d=await r.json();
+  if(!r.ok){ alert("删除失败："+(d.error||r.status)); return; }
+  loadList();
+}
+
+$("#btn-add").addEventListener("click", openNew);
+$("#btn-cancel").addEventListener("click", ()=>{ $("#modal").hidden=true; });
+$("#modal").addEventListener("click", e=>{ if(e.target===$("#modal")) $("#modal").hidden=true; });
+
+$("#btn-save").addEventListener("click", async ()=>{
+  clearResult();
+  const title=$("#f-name").value.trim();
+  if(!title){ showResult("请填写笔记标题",false); return; }
+  const payload={ title, content:$("#f-content").value, id: editingId||undefined };
+  try{
+    const r=await fetch("/api/notes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!r.ok){ showResult("保存失败："+(d.error||r.status),false); return; }
+    showResult("已保存："+title,true);
+    setTimeout(()=>{ $("#modal").hidden=true; loadList(); },500);
+  }catch(e){ showResult("保存失败："+e,false); }
+});
+
+loadList();
+</script>
+</body>
+</html>

@@ -6,6 +6,31 @@
   <title>灵梦work · LingMeng Work</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    .enhance-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+    .enh-chip{font-size:11px;padding:1px 8px;border-radius:10px;background:rgba(124,92,255,.16);
+      color:#b9a8ff;border:1px solid rgba(124,92,255,.35);white-space:nowrap}
+    .enhance-modal{position:fixed;inset:0;background:rgba(4,7,15,.66);display:flex;align-items:center;
+      justify-content:center;padding:20px;z-index:60}
+    .enhance-modal[hidden]{display:none!important}
+    .enhance-box{background:rgba(26,34,56,.98);border:1px solid rgba(126,146,210,.18);border-radius:14px;
+      width:min(720px,100%);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;
+      box-shadow:0 24px 80px rgba(0,0,0,.5)}
+    .enhance-head{padding:14px 18px;border-bottom:1px solid rgba(126,146,210,.16);display:flex;align-items:center}
+    .enhance-title{font-size:15px;font-weight:600}
+    .enhance-body{display:flex;gap:14px;padding:16px 18px;overflow:auto}
+    .enhance-col{flex:1;min-width:0}
+    .enhance-col-title{font-size:12px;color:#828caa;margin-bottom:8px;letter-spacing:.5px}
+    .enhance-list{display:flex;flex-direction:column;gap:8px}
+    .enh-opt{display:flex;gap:9px;align-items:flex-start;background:rgba(20,27,48,.6);border:1px solid rgba(126,146,210,.16);
+      border-radius:10px;padding:9px 11px;cursor:pointer}
+    .enh-opt input{margin-top:3px;accent-color:#7c5cff}
+    .enh-opt .nm{font-size:13px;font-weight:600}
+    .enh-opt .ds{font-size:11px;color:#828caa;margin-top:2px}
+    .enhance-foot{padding:12px 18px;border-top:1px solid rgba(126,146,210,.16);display:flex;align-items:center;gap:10px}
+    .enhance-hint{font-size:11px;color:#828caa}
+    .btn-sm{padding:6px 16px;font-size:12px}
+  </style>
 </head>
 <body>
   <!-- 动态星云背景 -->
@@ -45,6 +70,27 @@
         </a>
         <a class="nav-item" href="/sandbox">
           <span class="nav-ico">🛡️</span><span class="nav-label">工作区沙箱</span>
+        </a>
+        <a class="nav-item" href="/enhance">
+          <span class="nav-ico">🧠</span><span class="nav-label">专家·技能</span>
+        </a>
+        <a class="nav-item" href="/backups">
+          <span class="nav-ico">📦</span><span class="nav-label">备份与回滚</span>
+        </a>
+        <a class="nav-item" href="/templates">
+          <span class="nav-ico">📋</span><span class="nav-label">提示词模板</span>
+        </a>
+        <a class="nav-item" href="/secrets">
+          <span class="nav-ico">🔐</span><span class="nav-label">密钥保险箱</span>
+        </a>
+        <a class="nav-item" href="/snippets">
+          <span class="nav-ico">📎</span><span class="nav-label">代码片段</span>
+        </a>
+        <a class="nav-item" href="/notes">
+          <span class="nav-ico">📝</span><span class="nav-label">笔记</span>
+        </a>
+        <a class="nav-item" href="/todos">
+          <span class="nav-ico">✅</span><span class="nav-label">待办清单</span>
         </a>
       </nav>
 
@@ -151,6 +197,10 @@
             <button id="send" class="btn-primary btn-send">发送 <span class="send-ico">➤</span></button>
           </div>
           <div class="composer-row">
+            <button id="btn-enhance" class="cs-btn" title="选择本轮启用的专家 / 技能">🧠 专家·技能</button>
+            <button id="btn-template" class="cs-btn" title="插入提示词模板">📋 模板</button>
+            <button id="btn-snippet" class="cs-btn" title="插入代码片段">📎 片段</button>
+            <span id="enhance-chips" class="enhance-chips"></span>
             <span class="composer-hint">Enter 发送 · Shift+Enter 换行 · 支持多通道 / 多路并行 / 工具调用</span>
           </div>
         </div>
@@ -299,6 +349,65 @@
       <div id="stars-list" class="stars-list"></div>
       <div class="stars-foot">
         <span class="stars-hint">点击条目跳转到对应会话与消息 · 收藏数据存于本地浏览器 (localStorage)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 专家·技能 提示词增强选择器 (主题 F) -->
+  <div id="enhance-modal" class="enhance-modal" hidden>
+    <div class="enhance-box">
+      <div class="enhance-head">
+        <span class="enhance-title">🧠 专家 · 技能 · 提示词增强</span>
+        <span class="editor-spacer"></span>
+        <button id="enhance-close" class="cs-btn" title="关闭">✕</button>
+      </div>
+      <div class="enhance-body">
+        <div class="enhance-col">
+          <div class="enhance-col-title">专家 (角色增强)</div>
+          <div id="enhance-experts" class="enhance-list"></div>
+        </div>
+        <div class="enhance-col">
+          <div class="enhance-col-title">技能 (任务增强)</div>
+          <div id="enhance-skills" class="enhance-list"></div>
+        </div>
+      </div>
+      <div class="enhance-foot">
+        <span class="enhance-hint">选中的条目会在本轮对话开始时注入系统提示 · 选择存于本地浏览器</span>
+        <span class="editor-spacer"></span>
+        <button id="enhance-clear" class="cs-btn">清空选择</button>
+        <button id="enhance-apply" class="btn-primary btn-sm">应用</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="template-modal" class="enhance-modal" hidden>
+    <div class="enhance-box" style="max-width:640px">
+      <div class="enhance-head">
+        <span class="enhance-title">📋 插入提示词模板</span>
+        <span class="editor-spacer"></span>
+        <button id="template-close" class="cs-btn" title="关闭">✕</button>
+      </div>
+      <div class="enhance-body" style="display:block;max-height:60vh;overflow:auto">
+        <div id="template-list" class="enhance-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="enhance-foot">
+        <span class="enhance-hint">点击条目将模板正文插入到输入框光标处 · 管理模板见「📋 提示词模板」页</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="snippet-modal" class="enhance-modal" hidden>
+    <div class="enhance-box" style="max-width:640px">
+      <div class="enhance-head">
+        <span class="enhance-title">📎 插入代码片段</span>
+        <span class="editor-spacer"></span>
+        <button id="snippet-close" class="cs-btn" title="关闭">✕</button>
+      </div>
+      <div class="enhance-body" style="display:block;max-height:60vh;overflow:auto">
+        <div id="snippet-list" class="enhance-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="enhance-foot">
+        <span class="enhance-hint">点击条目将代码插入到输入框光标处 · 管理片段见「📎 代码片段」页</span>
       </div>
     </div>
   </div>

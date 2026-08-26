@@ -22,7 +22,8 @@ class TestSlugify:
         assert slugify("Hello World") == "hello-world"
 
     def test_removes_special(self):
-        assert slugify("foo & bar!") == "foo--bar"
+        # & 和 ! 属 [^\w\s-] 被移除，剩余 "foo bar" 折叠为单连字符
+        assert slugify("foo & bar!") == "foo-bar"
 
     def test_collapse_spaces(self):
         assert slugify("a  b   c") == "a-b-c"

@@ -7,7 +7,7 @@ import datetime
 import collections
 
 from .common import ToolError
-from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision
+from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision, dev, office, backup_tools, template_tools, secret_tools, snippet_tools, note_tools, todo_tools
 from .undo import get_default_stack, SnapshotStack
 
 # 主题 A — 工具结果缓存 (批次4): 只读搜索类工具同查询的内存缓存 (进程级共享)
@@ -16,6 +16,7 @@ _CACHEABLE_TOOLS = {
     "symbol_search", "grep", "glob", "repo_map", "read_file",
     "fs_read", "list_dir", "diff_view", "semantic_search",
     "generate_project_docs", "impact_analysis",
+    "read_office", "data_table",
 }
 _RESULT_CACHE = {}  # {(name, args_json): (value, expire_ts)}
 
@@ -175,6 +176,174 @@ TOOL_SCHEMAS = [
         "description": "项目文档自动生成 (对标 CLAUDE.md/AGENTS.md 引导): 扫描仓库生成草稿, 含技术栈(按文件数统计语言)/关键目录/入口点/测试命令/已有约定(README/LICENSE 等)。返回 Markdown 草稿, 供人工复核后保存为 CLAUDE.md/AGENTS.md, 让后续会话自动获得项目认知。format?=claude_md|agents_md, root?=扫描根。",
         "parameters": {"format?": "claude_md|agents_md", "root?": "扫描根目录"},
     },
+    # ===== 编程生产力 (新增) =====
+    {
+        "name": "lint_code",
+        "description": "静态检查 (对标 ESLint/Flake8 自检): 对文件/目录做零依赖语法校验 + 内建风格扫描(超长行/尾空白/裸except/TODO/调试残留); 若装了 flake8/pylint/eslint/gofmt 则叠加深度检查。写完代码自我体检用。path=文件或目录。",
+        "parameters": {"path": "文件或目录", "lang?": "python|js|go|shell(默认按扩展名推断)"},
+    },
+    {
+        "name": "format_code",
+        "description": "自动格式化 (对标 Prettier/Black 一键美化): 对文件/目录做自动格式化, 优先 black/autopep8/isort(prettier/gofmt)。check=true 仅预览差异不写入。提交前统一风格用。path=文件或目录, check?=true 预览。",
+        "parameters": {"path": "文件或目录", "check?": "true 仅预览差异"},
+    },
+    {
+        "name": "run_server",
+        "description": "启动/停止本地开发服务 (对标 Vite/nodemon 内循环): 后台运行 command, 可选 port 做健康检查, 返回 URL/pid/日志路径。action=start(默认)|stop|list; name=服务名(便于停)。Web 开发联调用。",
+        "parameters": {"action?": "start|stop|list", "command": "启动命令(如 python -m http.server 8000)", "name?": "服务名", "port?": "健康检查端口", "cwd?": "工作目录"},
+    },
+    {
+        "name": "db_run",
+        "description": "数据库查询 (对标 sqlite/数据分析): 执行 SQL。db=sqlite 文件路径(只读打开); 不传 db 则内存库, 可先用 csv 把 CSV 载入为表(表名取文件名)再查。只读探查数据用。query=SQL, db?=sqlite路径, csv?=[csv路径]。",
+        "parameters": {"query": "SQL 语句", "db?": "sqlite 文件路径(只读)", "csv?": "[csv 文件路径列表, 作为内存表]"},
+    },
+    # ===== 办公生产力 (新增) =====
+    {
+        "name": "read_pdf",
+        "description": "抽取 PDF 文本 (对标文档解析): 优先 pypdf/PyPDF2/pdfplumber, 其次 pdftotext(CLI), 最后零依赖 FlateDecode 流扫描尽力抽取。读论文/合同/报告用。path=pdf 路径, max_chars?=截断上限。",
+        "parameters": {"path": "PDF 文件路径", "max_chars?": "截断上限(默认20000)"},
+    },
+    {
+        "name": "read_office",
+        "description": "抽取 Office 文档文本 (零依赖 zip+XML): 支持 .docx(段落)/.xlsx(表格)/.pptx(幻灯片)。读 Word/Excel/PPT 内容喂给分析或总结用。path=office 文件路径。",
+        "parameters": {"path": ".docx/.xlsx/.pptx 文件路径"},
+    },
+    {
+        "name": "make_doc",
+        "description": "生成文档 (对标文档自动化): 根据标题+正文生成文件。format=md(Markdown, 默认)/docx(零依赖 zip 构建 Word)。写报告/说明/周报用。path=输出路径, title=标题, body=内容(markdown 风格: # / ## / - )。",
+        "parameters": {"path": "输出文件路径", "title": "标题", "body": "正文内容", "format?": "md|docx"},
+    },
+    {
+        "name": "data_table",
+        "description": "数据分析 (对标 pandas/Excel 透视): 对 csv/json 数据做统计分析。source=csv/json 路径 或 data=内联JSON。op=summary(默认:形状+描述统计)|head|describe|columns|groupby|chart(零依赖 SVG 柱状图, out?=保存路径)。",
+        "parameters": {"source?": "csv/json 路径", "data?": "内联JSON", "op?": "summary|head|describe|columns|groupby|chart", "key?": "分组/分类列", "value?": "数值列", "agg?": "count|sum|mean|min|max", "out?": "图表输出路径"},
+    },
+    # ===== 备份 / 回滚 (工作区时间点快照) =====
+    {
+        "name": "backup_create",
+        "description": "创建工作区快照备份 (类 Time Machine): 把允许根目录整目录打包为 .zip 存入 <根>/.lmw_backups, 自动排除 .git/__pycache__/node_modules 等。大改动前先拍快照, 出事整体回滚。label?=便于辨识的标签。",
+        "parameters": {"label?": "备份标签(便于辨识)"},
+    },
+    {
+        "name": "backup_list",
+        "description": "列出已有备份 (ID/标签/时间/文件数/体积/根目录), 回滚前先用它取目标 ID。",
+        "parameters": {},
+    },
+    {
+        "name": "backup_rollback",
+        "description": "回滚到指定备份: 把该快照解压回各工作区根。id=目标备份 ID(必填); clean=true 额外删除「备份中不存在」的文件(彻底还原到该时间点, 危险, 默认 false 仅覆盖/补回)。",
+        "parameters": {"id": "备份 ID (backup_list 取得)", "clean?": "true 彻底还原(删备份外文件)"},
+    },
+    {
+        "name": "backup_delete",
+        "description": "删除指定备份以释放空间。id=目标备份 ID(必填)。",
+        "parameters": {"id": "备份 ID (backup_list 取得)"},
+    },
+    # —— 提示词模板 (新增) ——
+    {
+        "name": "template_list",
+        "description": "列出工作区已保存的提示词模板(按分类/名称排序)。无参数。",
+        "parameters": {},
+    },
+    {
+        "name": "template_get",
+        "description": "读取单个模板的完整内容。id=模板 ID(必填, template_list 取得)。",
+        "parameters": {"id": "模板 ID"},
+    },
+    {
+        "name": "template_save",
+        "description": "新建或更新提示词模板。name=名称(必填, 同名则更新); content=提示词正文; category=分类(默认其他); id=更新时指定。",
+        "parameters": {"name": "模板名称(必填)", "content?": "提示词正文", "category?": "分类", "id?": "更新时指定"},
+    },
+    {
+        "name": "template_delete",
+        "description": "删除一个提示词模板。id=模板 ID(必填)。",
+        "parameters": {"id": "模板 ID"},
+    },
+    # —— 密钥保险箱 (新增) ——
+    {
+        "name": "secret_list",
+        "description": "列出密钥保险箱中的条目名称(不返回明文值)。无参数。",
+        "parameters": {},
+    },
+    {
+        "name": "secret_get",
+        "description": "读取某条密钥的明文值(仅在确有必要时调用)。key=密钥名称(必填)。",
+        "parameters": {"key": "密钥名称"},
+    },
+    {
+        "name": "secret_set",
+        "description": "设置/更新一条密钥。key=名称(必填); value=明文值; note?=备注。值以轻量本地加密落盘。",
+        "parameters": {"key": "密钥名称(必填)", "value": "明文值", "note?": "备注"},
+    },
+    {
+        "name": "secret_delete",
+        "description": "删除一条密钥。key=密钥名称(必填)。",
+        "parameters": {"key": "密钥名称"},
+    },
+    # —— 代码片段库 (新增) ——
+    {
+        "name": "snippet_list",
+        "description": "列出工作区已保存的代码片段(按语言/标题排序)。language?=按语言过滤; tag?=按标签过滤。",
+        "parameters": {"language?": "语言过滤", "tag?": "标签过滤"},
+    },
+    {
+        "name": "snippet_get",
+        "description": "读取单个代码片段的完整内容(含语言/标签)。id=片段 ID(必填, snippet_list 取得)。",
+        "parameters": {"id": "片段 ID"},
+    },
+    {
+        "name": "snippet_save",
+        "description": "新建或更新代码片段。title=标题(必填, 同名则更新); content=代码正文; language=语言(默认其他); tags=标签(数组或逗号分隔); id=更新时指定。",
+        "parameters": {"title": "片段标题(必填)", "content?": "代码正文", "language?": "语言", "tags?": "标签", "id?": "更新时指定"},
+    },
+    {
+        "name": "snippet_delete",
+        "description": "删除一个代码片段。id=片段 ID(必填)。",
+        "parameters": {"id": "片段 ID"},
+    },
+    # —— 笔记 (新增) ——
+    {
+        "name": "note_list",
+        "description": "列出工作区已保存的笔记(按更新时间倒序)。无参数。",
+        "parameters": {},
+    },
+    {
+        "name": "note_get",
+        "description": "读取单条笔记的完整 Markdown 内容。id=笔记 ID(必填, note_list 取得)。",
+        "parameters": {"id": "笔记 ID"},
+    },
+    {
+        "name": "note_save",
+        "description": "新建或更新笔记(Markdown)。title=标题(必填, 同名则更新); content=正文; id=更新时指定。",
+        "parameters": {"title": "笔记标题(必填)", "content?": "正文", "id?": "更新时指定"},
+    },
+    {
+        "name": "note_delete",
+        "description": "删除一条笔记。id=笔记 ID(必填)。",
+        "parameters": {"id": "笔记 ID"},
+    },
+    # —— 待办清单 (新增) ——
+    {
+        "name": "todo_list",
+        "description": "列出工作区待办清单, 附带 待办/进行中/已完成 计数。status?=按状态过滤(todo|doing|done)。",
+        "parameters": {"status?": "状态过滤"},
+    },
+    {
+        "name": "todo_add",
+        "description": "新增一条待办(默认状态 todo)。title=标题(必填); priority?=low|mid|high; due?=截止日期; note?=备注。",
+        "parameters": {"title": "待办标题(必填)", "priority?": "low|mid|high", "due?": "截止日期", "note?": "备注"},
+    },
+    {
+        "name": "todo_done",
+        "description": "更新某条待办状态。id=待办 ID(必填); status?=doing|done(默认 done, 即勾掉)。",
+        "parameters": {"id": "待办 ID", "status?": "doing|done"},
+    },
+    {
+        "name": "todo_delete",
+        "description": "删除一条待办。id=待办 ID(必填)。",
+        "parameters": {"id": "待办 ID"},
+    },
 ]
 
 # 名称 -> 实现函数 (签名: func(args, ctx) -> str)
@@ -204,6 +373,46 @@ _IMPLS = {
     "impact_analysis": decision.impact_analysis,
     "compare_options": decision.compare_options,
     "generate_project_docs": decision.generate_project_docs,
+    # —— 编程生产力 (新增) ——
+    "lint_code": dev.lint_code,
+    "format_code": dev.format_code,
+    "run_server": dev.run_server,
+    "db_run": dev.db_run,
+    # —— 办公生产力 (新增) ——
+    "read_pdf": office.read_pdf,
+    "read_office": office.read_office,
+    "make_doc": office.make_doc,
+    "data_table": office.data_table,
+    # —— 备份 / 回滚 (工作区时间点快照) ——
+    "backup_create": backup_tools.backup_create,
+    "backup_list": backup_tools.backup_list,
+    "backup_rollback": backup_tools.backup_rollback,
+    "backup_delete": backup_tools.backup_delete,
+    # —— 提示词模板 ——
+    "template_list": template_tools.template_list,
+    "template_get": template_tools.template_get,
+    "template_save": template_tools.template_save,
+    "template_delete": template_tools.template_delete,
+    # —— 密钥保险箱 ——
+    "secret_list": secret_tools.secret_list,
+    "secret_get": secret_tools.secret_get,
+    "secret_set": secret_tools.secret_set,
+    "secret_delete": secret_tools.secret_delete,
+    # —— 代码片段库 ——
+    "snippet_list": snippet_tools.snippet_list,
+    "snippet_get": snippet_tools.snippet_get,
+    "snippet_save": snippet_tools.snippet_save,
+    "snippet_delete": snippet_tools.snippet_delete,
+    # —— 笔记 ——
+    "note_list": note_tools.note_list,
+    "note_get": note_tools.note_get,
+    "note_save": note_tools.note_save,
+    "note_delete": note_tools.note_delete,
+    # —— 待办清单 ——
+    "todo_list": todo_tools.todo_list,
+    "todo_add": todo_tools.todo_add,
+    "todo_done": todo_tools.todo_done,
+    "todo_delete": todo_tools.todo_delete,
 }
 
 
@@ -258,9 +467,9 @@ def _tool_undo(args, ctx):
 # plan            : 仅只读探查 (list/read/grep/glob/diff_view), 禁写/编辑/执行
 # acceptEdits     : 允许文件读写/编辑(diff_view 预览仍建议), 但 run_command 默认拦截
 # bypassPermissions: 全放开 (等同 dangerously, 由 deny_patterns 仍拦危险命令)
-_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs"}
-_WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo"}
-_EXEC_TOOLS = {"run_command", "auto_test", "git_commit"}
+_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs", "lint_code", "db_run", "read_pdf", "read_office", "data_table", "backup_list", "template_list", "template_get", "secret_list", "secret_get", "snippet_list", "snippet_get", "note_list", "note_get", "todo_list"}
+_WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo", "format_code", "make_doc", "backup_create", "backup_rollback", "backup_delete", "template_save", "template_delete", "secret_set", "secret_delete", "snippet_save", "snippet_delete", "note_save", "note_delete", "todo_add", "todo_done", "todo_delete"}
+_EXEC_TOOLS = {"run_command", "auto_test", "git_commit", "run_server"}
 
 
 # —— 全球领先破坏性操作护栏 (批次7) ——

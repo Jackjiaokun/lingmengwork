@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧠 专家·技能 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#070a14; --card:rgba(20,27,48,.62); --card2:#1a2238; --line:rgba(126,146,210,.16);
+    --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff; --ok:#34e0a1; --fail:#ff5c7c;
+    --warn:#ffb454; --brand2:#4dd0e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5;
+    background:
+      radial-gradient(1100px 700px at 10% -10%, rgba(124,92,255,.14), transparent 60%),
+      radial-gradient(900px 700px at 100% 0%, rgba(77,208,225,.10), transparent 55%),
+      var(--bg);
+    background-attachment:fixed;min-height:100vh}
+  header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+    background:rgba(14,20,36,.7);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);position:relative}
+  header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(124,92,255,.6),transparent)}
+  header h1{margin:0;font-size:18px}
+  header .path{color:var(--mut);font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .topact{margin-left:auto;display:flex;gap:10px}
+  .tabs{padding:10px 20px 0;display:flex;gap:8px}
+  .tab{background:var(--card);border:1px solid var(--line);border-bottom:none;color:var(--mut);padding:8px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-size:13px}
+  .tab.active{color:var(--txt);background:var(--card2)}
+  main{padding:16px 20px 48px;max-width:980px;margin:0 auto}
+  .view{display:none}
+  .view.active{display:block}
+  .hint{color:var(--mut);font-size:12px;margin:2px 0 14px}
+  .grp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .item{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px dashed var(--line)}
+  .item:last-child{border-bottom:none}
+  .item .meta{flex:1;min-width:0}
+  .item .name{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+  .item .desc{color:var(--mut);font-size:12px;margin:3px 0}
+  .item .prompt{color:var(--txt);font-size:12px;white-space:pre-wrap;max-height:96px;overflow:auto;
+    background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;line-height:1.5}
+  .item .ops{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+  .sw{position:relative;display:inline-block;width:42px;height:24px}
+  .sw input{opacity:0;width:0;height:0}
+  .sw span{position:absolute;inset:0;background:var(--card2);border:1px solid var(--line);border-radius:24px;transition:.2s;cursor:pointer}
+  .sw span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:2px;background:var(--mut);border-radius:50%;transition:.2s}
+  .sw input:checked+span{background:rgba(63,185,80,.3);border-color:var(--ok)}
+  .sw input:checked+span:before{transform:translateX(18px);background:var(--ok)}
+  button{background:linear-gradient(135deg,#7c5cff,#5b8bff);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(124,92,255,.3);transition:transform .14s ease,filter .2s ease}
+  button.ghost{background:transparent;color:var(--mut);border:1px solid var(--line);box-shadow:none}
+  button.sm{padding:5px 12px;font-size:12px}
+  button.danger{background:linear-gradient(135deg,#ff5c7c,#ff7a5c);box-shadow:0 6px 20px rgba(255,92,124,.3)}
+  button:hover{filter:brightness(1.08)}
+  .result{margin:10px 0;padding:10px 14px;border-radius:8px;font-size:13px;display:none}
+  .result.ok{display:block;background:rgba(63,185,80,.12);color:var(--ok);border:1px solid rgba(63,185,80,.4)}
+  .result.err{display:block;background:rgba(248,81,73,.12);color:var(--fail);border:1px solid rgba(248,81,73,.4)}
+  .modal{position:fixed;inset:0;background:rgba(4,7,15,.66);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .modal.show{display:flex}
+  .modal .box{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:20px;width:min(640px,100%);max-height:88vh;overflow:auto}
+  .modal h2{margin:0 0 14px;font-size:16px}
+  .fld{margin-bottom:12px}
+  .fld label{display:block;color:var(--mut);font-size:12px;margin-bottom:5px}
+  .fld input,.fld textarea{width:100%;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit}
+  .fld textarea{resize:vertical;min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.55}
+  .row{display:flex;gap:10px}
+  .row .fld{flex:1}
+  .empty{color:var(--mut);font-size:13px;text-align:center;padding:24px 0}
+  .tag{font-size:10px;padding:1px 7px;border-radius:6px;background:rgba(124,92,255,.16);color:#b9a8ff;border:1px solid rgba(124,92,255,.35);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧠 专家 · 技能 · 提示词增强</h1>
+  <span class="path">prompts_enhance.json</span>
+  <div class="topact">
+    <button id="btn-reset" class="ghost">恢复内置预设</button>
+    <button id="btn-add" class="ghost">+ 新建</button>
+    <button id="btn-save">保存全部</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="experts">专家 (角色增强)</div>
+  <div class="tab" data-tab="skills">技能 (任务增强)</div>
+</div>
+
+<main>
+  <div class="hint" id="hint">启用后, 对应提示词片段会在对话开始时注入 agent 的系统提示, 让其以该专家/技能的要求行事。</div>
+  <div class="result" id="result"></div>
+
+  <div class="view active" id="view-experts">
+    <div class="grp" id="list-experts"></div>
+  </div>
+  <div class="view" id="view-skills">
+    <div class="grp" id="list-skills"></div>
+  </div>
+</main>
+
+<!-- 编辑弹窗 -->
+<div class="modal" id="modal">
+  <div class="box">
+    <h2 id="modal-title">新建</h2>
+    <input type="hidden" id="f-kind">
+    <input type="hidden" id="f-idx">
+    <div class="fld">
+      <label>名称 (唯一键, 不可重复)</label>
+      <input id="f-name" placeholder="如: Python后端架构师">
+    </div>
+    <div class="fld">
+      <label>描述 (可选, 仅管理用)</label>
+      <input id="f-desc" placeholder="一句话说明用途">
+    </div>
+    <div class="fld">
+      <label>提示词片段 (注入系统提示的正文)</label>
+      <textarea id="f-prompt" placeholder="在此写下该专家/技能应遵循的指引..."></textarea>
+    </div>
+    <div class="fld" id="f-extra-wrap">
+      <label id="f-extra-label">默认激活</label>
+      <div class="sw"><input type="checkbox" id="f-extra"><span></span></div>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:8px">
+      <button class="ghost" id="modal-cancel">取消</button>
+      <button id="modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = { experts: [], skills: [] };
+const $ = s => document.querySelector(s);
+
+function showResult(msg, ok){
+  const el = $("#result"); el.textContent = msg; el.className = "result " + (ok ? "ok" : "err");
+  if(msg){ el.style.display = "block"; } else { el.style.display = "none"; }
+}
+
+async function load(){
+  try{
+    const r = await fetch("/api/enhance"); const d = await r.json();
+    state.experts = d.experts || []; state.skills = d.skills || [];
+    render();
+  }catch(e){ showResult("加载失败: " + e, false); }
+}
+
+function render(){
+  renderList("experts", "enabled", "默认启用");
+  renderList("skills", "auto", "默认激活(auto)");
+}
+
+function renderList(kind, flagKey, flagLabel){
+  const wrap = $("#list-" + kind);
+  const items = state[kind];
+  if(!items.length){ wrap.innerHTML = '<div class="empty">暂无' + (kind==="experts"?"专家":"技能") + '，点击右上角「+ 新建」添加。</div>'; return; }
+  wrap.innerHTML = items.map((it, i) => `
+    <div class="item">
+      <div class="meta">
+        <div class="name">${esc(it.name)} ${it.description ? '<span class="tag">'+esc(it.description)+'</span>' : ''}</div>
+        <div class="prompt">${esc(it.prompt || "")}</div>
+      </div>
+      <div class="ops">
+        <label class="sw" title="${flagLabel}"><input type="checkbox" data-kind="${kind}" data-idx="${i}" data-flag="${flagKey}" ${it[flagKey] ? "checked" : ""}><span></span></label>
+        <button class="ghost sm" data-edit="${kind}:${i}">编辑</button>
+        <button class="danger sm" data-del="${kind}:${i}">删除</button>
+      </div>
+    </div>`).join("");
+}
+
+function esc(s){ return (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+// 开关切换
+document.addEventListener("change", e => {
+  const t = e.target;
+  if(t.dataset && t.dataset.flag){
+    const [kind, idx, flag] = [t.dataset.kind, +t.dataset.idx, t.dataset.flag];
+    state[kind][idx][flag] = t.checked;
+  }
+});
+// 编辑/删除
+document.addEventListener("click", e => {
+  const ed = e.target.dataset.edit, dl = e.target.dataset.del;
+  if(ed){ const [k, i] = ed.split(":"); openModal(k, +i); }
+  if(dl){
+    const [k, i] = dl.split(":");
+    if(confirm("删除 " + (k==="experts"?"专家":"技能") + "「" + state[k][i].name + "」?")){
+      state[k].splice(i, 1); render();
+    }
+  }
+});
+
+// 标签切换
+document.querySelectorAll(".tab").forEach(tb => tb.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".view").forEach(x => x.classList.remove("active"));
+  tb.classList.add("active");
+  $("#view-" + tb.dataset.tab).classList.add("active");
+}));
+
+// 弹窗
+function openModal(kind, idx){
+  const it = idx >= 0 ? state[kind][idx] : {name:"", description:"", prompt:"", enabled:false, auto:false};
+  $("#f-kind").value = kind; $("#f-idx").value = idx;
+  $("#modal-title").textContent = (idx>=0?"编辑":"新建") + (kind==="experts"?"专家":"技能");
+  $("#f-name").value = it.name || "";
+  $("#f-desc").value = it.description || "";
+  $("#f-prompt").value = it.prompt || "";
+  const isExp = kind === "experts";
+  $("#f-extra-label").textContent = isExp ? "默认启用" : "默认激活 (auto)";
+  $("#f-extra").checked = isExp ? !!it.enabled : !!it.auto;
+  $("#modal").classList.add("show");
+}
+function closeModal(){ $("#modal").classList.remove("show"); }
+
+$("#btn-add").addEventListener("click", () => {
+  const kind = document.querySelector(".tab.active").dataset.tab;
+  openModal(kind, -1);
+});
+$("#modal-cancel").addEventListener("click", closeModal);
+$("#modal-ok").addEventListener("click", () => {
+  const kind = $("#f-kind").value, idx = +$("#f-idx").value;
+  const name = $("#f-name").value.trim();
+  if(!name){ showResult("名称不可为空", false); return; }
+  const isExp = kind === "experts";
+  const rec = {
+    name,
+    description: $("#f-desc").value.trim(),
+    prompt: $("#f-prompt").value,
+  };
+  if(isExp) rec.enabled = $("#f-extra").checked; else rec.auto = $("#f-extra").checked;
+  // 名称唯一校验
+  const dup = state[kind].some((x, i) => x.name === name && i !== idx);
+  if(dup){ showResult("名称已存在: " + name, false); return; }
+  if(idx >= 0) state[kind][idx] = rec; else state[kind].push(rec);
+  closeModal(); render(); showResult("已" + (idx>=0?"更新":"添加") + "「" + name + "」，记得点「保存全部」。", true);
+});
+
+$("#btn-save").addEventListener("click", async () => {
+  showResult("", true);
+  try{
+    const r = await fetch("/api/enhance", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({experts: state.experts, skills: state.skills})
+    });
+    const d = await r.json();
+    if(!r.ok){ showResult("保存失败: " + (d.error||r.status), false); return; }
+    showResult("已保存 — 专家 " + d.count.experts + " 项, 技能 " + d.count.skills + " 项。", true);
+  }catch(e){ showResult("保存失败: " + e, false); }
+});
+
+// 恢复内置预设(覆盖当前全部内容)
+$("#btn-reset").addEventListener("click", async () => {
+  if(!confirm("用内置预设库覆盖当前全部内容？自定义项将丢失。")) return;
+  showResult("", true);
+  try{
+    const r = await fetch("/api/enhance", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({reset:true})
+    });
+    const d = await r.json();
+    if(!r.ok){ showResult("恢复失败: " + (d.error||r.status), false); return; }
+    await load();
+    showResult("已恢复内置预设 — 专家 " + d.count.experts + " 项, 技能 " + d.count.skills + " 项。", true);
+  }catch(e){ showResult("恢复失败: " + e, false); }
+});
+
+load();
+</script>
+</body>
+</html>

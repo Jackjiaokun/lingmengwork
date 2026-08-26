@@ -343,6 +343,35 @@ def _client_from_spec(spec, cfg, model=None):
 def build_client(backend=None, cfg=None, model=None):
     cfg = cfg or load_config()
     backend = backend or cfg["llm"].get("backend", "ollama")
+    # 外部模型: 若 backend 命中某个已配置 provider 的 name, 直接按该 provider 规格构建。
+    # 这样在 /api/chat 里传 backend=<provider name> 即可选用任意外部大模型。
+    for p in (cfg["llm"].get("providers") or []):
+        if p.get("name") and p.get("name") == backend:
+            primary = _client_from_spec({
+                "type": p.get("type", "openai"),
+                "model": model or p.get("model"),
+                "base_url": p.get("base_url"),
+                "api_key": p.get("api_key"),
+                "api_key_env": p.get("api_key_env"),
+            }, cfg, model)
+            # 仍套用故障转移(若配置了 llm.failover)
+            fo = cfg["llm"].get("failover") or []
+            if fo:
+                extras = []
+                for fp in fo:
+                    try:
+                        extras.append(_client_from_spec({
+                            "type": fp.get("type", "openai"),
+                            "model": fp.get("model"),
+                            "base_url": fp.get("base_url"),
+                            "api_key": fp.get("api_key"),
+                            "api_key_env": fp.get("api_key_env"),
+                        }, cfg, model))
+                    except Exception:
+                        continue
+                if extras:
+                    return FailoverClient([primary] + extras)
+            return primary
     primary = _resolve_primary(backend, cfg, model)
     # 故障转移: 若配置了 llm.failover 列表, 把主 backend 与各候选组成一个有序轮换组。
     fo = cfg["llm"].get("failover") or []

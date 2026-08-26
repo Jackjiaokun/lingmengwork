@@ -594,7 +594,7 @@ def _evict_sessions_if_needed():
         _SESSION_LOCKS.pop(oldest, None)
 
 
-def acquire_session(session_id, client, registry, cfg, backend):
+def acquire_session(session_id, client, registry, cfg, backend, experts=None, skills=None, enhance_data=None):
     """返回 (loop, lock, hydfrom_disk)。
 
     - session_id 在活体映射中 -> 复用同一 AgentLoop(执行态/工具结果/令牌计数全保留)。
@@ -608,7 +608,8 @@ def acquire_session(session_id, client, registry, cfg, backend):
             lock = _SESSION_LOCKS.setdefault(session_id, threading.Lock())
             return loop, lock, False
         # 需要新建(或水合)
-        loop = AgentLoop(client, registry, cfg, session_id=session_id or None, provider=backend)
+        loop = AgentLoop(client, registry, cfg, session_id=session_id or None, provider=backend,
+                         experts=experts, skills=skills, enhance_data=enhance_data)
         if session_id:
             hydrated = loop.load_session_messages(session_id)
             if hydrated:
@@ -682,6 +683,207 @@ _SETTINGS_SCHEMA = [
          "label": "启用 MCP 工具中枢", "restart": True},
     ]},
 ]
+
+# ===== 外部 LLM 大模型配置 (GUI 可视化管理) =====
+# 预设库: 常见 OpenAI 兼容 / 国产 / 本机服务的快捷填充。用户也可完全自定义。
+_LLM_PRESETS = [
+    {"key": "deepseek", "label": "DeepSeek", "type": "openai",
+     "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat",
+     "api_key_env": "DEEPSEEK_API_KEY", "doc": "DeepSeek 官方 API"},
+    {"key": "openai", "label": "OpenAI", "type": "openai",
+     "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini",
+     "api_key_env": "OPENAI_API_KEY", "doc": "OpenAI 官方"},
+    {"key": "siliconflow", "label": "硅基流动 SiliconFlow", "type": "openai",
+     "base_url": "https://api.siliconflow.cn/v1", "model": "deepseek-ai/DeepSeek-V3",
+     "api_key_env": "SILICONFLOW_API_KEY", "doc": "硅基流动 (国产, 含 DeepSeek/Qwen/GLM 等)"},
+    {"key": "qwen", "label": "通义千问 Qwen (DashScope)", "type": "openai",
+     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus",
+     "api_key_env": "DASHSCOPE_API_KEY", "doc": "阿里云百炼 / 通义"},
+    {"key": "zhipu", "label": "智谱 GLM (Zhipu)", "type": "openai",
+     "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4-plus",
+     "api_key_env": "ZHIPU_API_KEY", "doc": "智谱 AI"},
+    {"key": "moonshot", "label": "月之暗面 Kimi (Moonshot)", "type": "openai",
+     "base_url": "https://api.moonshot.cn/v1", "model": "moonshot-v1-8k",
+     "api_key_env": "MOONSHOT_API_KEY", "doc": "Moonshot AI"},
+    {"key": "openrouter", "label": "OpenRouter", "type": "openai",
+     "base_url": "https://openrouter.ai/api/v1", "model": "anthropic/claude-3.5-sonnet",
+     "api_key_env": "OPENROUTER_API_KEY", "doc": "聚合多模型网关"},
+    {"key": "sensenova", "label": "商汤 SenseNova", "type": "sensenova",
+     "base_url": "https://token.sensenova.cn/v1", "model": "sensenova-6.8-flash-lite",
+     "api_key_env": "SENSENOVA_API_KEY", "doc": "商汤日日新 (默认后端)"},
+    {"key": "ollama", "label": "本地 Ollama", "type": "ollama",
+     "base_url": "http://127.0.0.1:11434", "model": "qwen2.5:7b",
+     "doc": "本机 / 局域网 Ollama"},
+    {"key": "lmstudio", "label": "LM Studio (本机)", "type": "openai",
+     "base_url": "http://127.0.0.1:1234/v1", "model": "local-model",
+     "doc": "本机 LM Studio 服务"},
+    {"key": "vllm", "label": "vLLM (本机/内网)", "type": "openai",
+     "base_url": "http://127.0.0.1:8000/v1", "model": "default",
+     "doc": "自托管 vLLM OpenAI 兼容服务"},
+]
+
+
+def _read_llm_models():
+    """读取已配置的外部模型列表 (脱敏: 不回传明文 Key, 仅 has_key 标记)。"""
+    cfg = _get_cfg()
+    backend = cfg["llm"].get("backend", "sensenova")
+    out = []
+    for p in (cfg["llm"].get("providers") or []):
+        name = p.get("name") or ""
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "type": p.get("type", "openai"),
+            "model": p.get("model", ""),
+            "base_url": p.get("base_url", ""),
+            "has_key": bool(p.get("api_key")),
+            "api_key_env": p.get("api_key_env", ""),
+            "is_default": (name == backend),
+        })
+    return out
+
+
+def _write_providers_in_toml(text, providers):
+    """替换 config.toml 中全部 [[llm.providers]] (表数组) 块, 返回新文本。
+
+    保留其它段不动; 末尾追加重写的 [[llm.providers]] 条目。
+    providers: [{name,type,model,base_url?,api_key?,api_key_env?}]
+    """
+    import re as _re
+    lines = text.split("\n")
+    out, skipping = [], False
+    for ln in lines:
+        if _re.match(r"^\s*\[\[llm\.providers\]\]\s*$", ln):
+            skipping = True
+            continue
+        if skipping:
+            # 直到下一个 [段头] (单或双括号) 才停止跳过; 同数组的连续 [[..]] 仍跳过
+            if _re.match(r"^\s*\[[^\]]+\]\s*$", ln):
+                skipping = False
+                out.append(ln)
+                continue
+            continue
+        out.append(ln)
+    while out and out[-1].strip() == "":
+        out.pop()
+    body = []
+    for p in providers:
+        body.append("")
+        body.append("[[llm.providers]]")
+        body.append("name = " + _fmt_toml_value("name", p.get("name", ""), "string"))
+        body.append("type = " + _fmt_toml_value("type", p.get("type", "openai"), "string"))
+        body.append("model = " + _fmt_toml_value("model", p.get("model", ""), "string"))
+        if p.get("base_url"):
+            body.append("base_url = " + _fmt_toml_value("base_url", p.get("base_url", ""), "string"))
+        if p.get("api_key"):
+            body.append("api_key = " + _fmt_toml_value("api_key", p.get("api_key", ""), "string"))
+        if p.get("api_key_env"):
+            body.append("api_key_env = " + _fmt_toml_value("api_key_env", p.get("api_key_env", ""), "string"))
+    return "\n".join(out + body) + "\n"
+
+
+def _llm_models_get(self):
+    """GET /api/llm-models: 返回已配置模型列表 + 当前默认后端 + 预设库。"""
+    return self._send_json({
+        "models": _read_llm_models(),
+        "backend": _get_cfg()["llm"].get("backend", "sensenova"),
+        "presets": _LLM_PRESETS,
+    })
+
+
+def _llm_models_save(self):
+    """POST /api/llm-models {action, model}: 增/改/删/设默认, 写回 config.toml 并软重载。"""
+    length = int(self.headers.get("Content-Length", 0) or 0)
+    raw = self.rfile.read(length) if length else b"{}"
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        return self._send_json({"error": "请求体非 JSON"}, status=400)
+    action = body.get("action", "add")
+    model = body.get("model") or {}
+    name = (model.get("name") or "").strip()
+    if action in ("add", "update") and not name:
+        return self._send_json({"error": "模型名称不能为空"}, status=400)
+    path = _config_path()
+    if path is None:
+        return self._send_json({"error": "找不到配置文件路径"}, status=500)
+
+    providers = _read_llm_models()
+    if action == "delete":
+        providers = [p for p in providers if p["name"] != name]
+    elif action in ("add", "update"):
+        rec = {
+            "name": name,
+            "type": model.get("type") or "openai",
+            "model": (model.get("model") or "").strip(),
+            "base_url": (model.get("base_url") or "").strip(),
+            "api_key": (model.get("api_key") or "").strip(),
+            "api_key_env": (model.get("api_key_env") or "").strip(),
+        }
+        # 编辑且未填明文 Key 时, 保留原明文 Key (从当前 cfg 取), 避免误清空
+        if action == "update" and not rec["api_key"]:
+            src = next((x for x in _get_cfg()["llm"].get("providers") or []
+                        if x.get("name") == name), None)
+            rec["api_key"] = (src or {}).get("api_key", "") or ""
+        providers = [p for p in providers if p["name"] != name]
+        providers.append(rec)
+    elif action == "setdefault":
+        pass
+    else:
+        return self._send_json({"error": "未知 action: %s" % action}, status=400)
+
+    try:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        new_text = _write_providers_in_toml(current, providers)
+        if action == "setdefault":
+            new_text, _applied = _set_scalar_in_toml(new_text, "llm", "backend", name, "string")
+        tomllib.loads(new_text)
+    except Exception as e:
+        return self._send_json({"error": "生成/校验 TOML 失败: %s" % e}, status=400)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(new_text, encoding="utf-8")
+    except Exception as e:
+        return self._send_json({"error": "写入失败: %s" % e}, status=500)
+    try:
+        global _RUNTIME_CONFIG
+        _RUNTIME_CONFIG = load_config(str(path))
+    except Exception:
+        pass
+    return self._send_json({
+        "ok": True,
+        "models": _read_llm_models(),
+        "backend": _get_cfg()["llm"].get("backend", "sensenova"),
+        "bytes": len(new_text.encode("utf-8")),
+    })
+
+
+def _llm_models_test(self):
+    """POST /api/llm-models/test {type,base_url,model,api_key?,api_key_env?}: 探测外部模型连通性。"""
+    length = int(self.headers.get("Content-Length", 0) or 0)
+    raw = self.rfile.read(length) if length else b"{}"
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        return self._send_json({"error": "请求体非 JSON"}, status=400)
+    spec = {
+        "type": body.get("type") or "openai",
+        "model": body.get("model"),
+        "base_url": body.get("base_url"),
+        "api_key": body.get("api_key"),
+        "api_key_env": body.get("api_key_env"),
+    }
+    try:
+        from ..llm.client import _client_from_spec
+        client = _client_from_spec(spec, _get_cfg())
+        out = client.chat([{"role": "user", "content": "ping"}], stream=False, timeout=20)
+        if str(out or "").strip():
+            return self._send_json({"ok": True, "model": client.model, "reply": str(out)[:160]})
+        return self._send_json({"ok": True, "model": client.model, "reply": "(空回复但连接成功)"})
+    except Exception as e:
+        return self._send_json({"ok": False, "error": str(e)[:300]})
 
 
 def _config_path():
@@ -816,6 +1018,15 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json(self, default=None):
+        """读取 POST 请求体并解析为 JSON; 失败返回 default(默认 {})。"""
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            return json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return default if default is not None else {}
+
     def do_GET(self):
         p = urlparse(self.path).path
         if p in ("/", "/index.html"):
@@ -845,6 +1056,60 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("sandbox.html")
         if p == "/api/sandbox":
             return self._send_json(self._sandbox_get())
+        # ---- 工作区备份 / 回滚 (时间点快照管理) ----
+        if p == "/backups":
+            return self._serve_file("backup.html")
+        if p == "/api/backups":
+            return self._backups_get()
+        # ---- 主题 F 专家/技能 提示词增强 (GUI 可视化管理) ----
+        if p == "/enhance":
+            return self._serve_file("enhance.html")
+        if p == "/api/enhance":
+            from ..agent import enhance as _enh
+            return self._send_json(_enh.load(os.getcwd()))
+        # ---- 提示词模板 (GUI 可视化管理) ----
+        if p == "/templates":
+            return self._serve_file("templates.html")
+        if p == "/api/templates":
+            from .. import templates as _tpl
+            return self._send_json(_tpl.list_templates(os.getcwd()))
+        # ---- 密钥保险箱 (GUI 可视化管理) ----
+        if p == "/secrets":
+            return self._serve_file("secrets.html")
+        if p == "/api/secrets":
+            from .. import secrets as _sec
+            return self._send_json(_sec.list_secrets(os.getcwd()))
+        if p == "/api/secrets/value":
+            q = parse_qs(urlparse(self.path).query)
+            key = (q.get("key") or [None])[0]
+            from .. import secrets as _sec
+            if not key:
+                return self._send_json({"error": "缺少 key"}, status=400)
+            val = _sec.get_secret(key, os.getcwd())
+            if val is None:
+                return self._send_json({"error": "未找到密钥"}, status=404)
+            return self._send_json({"ok": True, "key": key, "value": val})
+        # ---- 代码片段库 (GUI 可视化管理) ----
+        if p == "/snippets":
+            return self._serve_file("snippets.html")
+        if p == "/api/snippets":
+            from .. import snippets as _snip
+            return self._send_json(_snip.list_snippets(os.getcwd()))
+        # ---- 笔记 (GUI 可视化管理) ----
+        if p == "/notes":
+            return self._serve_file("notes.html")
+        if p == "/api/notes":
+            from .. import notes as _note
+            return self._send_json(_note.list_notes(os.getcwd()))
+        # ---- 待办清单 (GUI 可视化管理) ----
+        if p == "/todos":
+            return self._serve_file("todos.html")
+        if p == "/api/todos":
+            from .. import todos as _td
+            return self._send_json(_td.list_todos(os.getcwd()))
+        # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
+        if p == "/api/llm-models":
+            return self._llm_models_get()
         if p == "/api/health":
             cfg = _get_cfg()
             backend = cfg["llm"].get("backend", "ollama")
@@ -990,6 +1255,48 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 工作区沙箱 (文件系统根域管理): 写回 allowed_roots ----
         if p == "/api/sandbox":
             return self._sandbox_save()
+        # ---- 工作区备份 / 回滚 (时间点快照管理) ----
+        if p == "/api/backups":
+            return self._backups_create()
+        if p == "/api/backups/rollback":
+            return self._backup_rollback()
+        if p == "/api/backups/delete":
+            return self._backup_delete()
+        # ---- 提示词模板: 新建/更新 ----
+        if p == "/api/templates":
+            return self._templates_save()
+        if p == "/api/templates/delete":
+            return self._templates_delete()
+        # ---- 密钥保险箱: 设置/删除 ----
+        if p == "/api/secrets":
+            return self._secrets_set()
+        if p == "/api/secrets/delete":
+            return self._secrets_delete()
+        # ---- 代码片段库: 新建/更新/删除 ----
+        if p == "/api/snippets":
+            return self._snippets_save()
+        if p == "/api/snippets/delete":
+            return self._snippets_delete()
+        # ---- 笔记: 新建/更新/删除 ----
+        if p == "/api/notes":
+            return self._notes_save()
+        if p == "/api/notes/delete":
+            return self._notes_delete()
+        # ---- 待办清单: 新增/改状态/删除 ----
+        if p == "/api/todos":
+            return self._todos_add()
+        if p == "/api/todos/status":
+            return self._todos_status()
+        if p == "/api/todos/delete":
+            return self._todos_delete()
+        # ---- 主题 F 专家/技能 提示词增强 (GUI 可视化管理): 写回库 ----
+        if p == "/api/enhance":
+            return self._enhance_save()
+        # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
+        if p == "/api/llm-models/test":
+            return self._llm_models_test()
+        if p == "/api/llm-models":
+            return self._llm_models_save()
         # ---- 文件编辑: 保存 (供 Web 代码编辑器) ----
         if p.startswith("/api/fs"):
             return self._fs_save()
@@ -1670,6 +1977,9 @@ class Handler(SimpleHTTPRequestHandler):
         history = body.get("history") or []
         backend_override = body.get("backend") or None
         mode = body.get("mode") or "bypassPermissions"  # plan | acceptEdits | bypassPermissions
+        # 主题 F — 专家/技能 提示词增强: 本轮激活的条目(名称列表, 可空)
+        req_experts = body.get("experts") or []
+        req_skills = body.get("skills") or []
 
         cfg = _get_cfg()
         # 尊重 config.toml 的 backend 配置 (本地 Ollama / 云端 / mock 均支持)
@@ -1677,10 +1987,19 @@ class Handler(SimpleHTTPRequestHandler):
         client = build_client(backend, cfg=cfg)
         registry = build_registry(cfg, permission_mode=mode)
 
+        # 主题 F — 合并「库默认激活项」与「本轮用户选择」, 去重后注入系统提示
+        from ..agent import enhance as _enh
+        _enh_data = _enh.load(os.getcwd())
+        _def_exp, _def_skl = _enh.default_active(_enh_data)
+        _act_exp = sorted(set(list(req_experts) + _def_exp))
+        _act_skl = sorted(set(list(req_skills) + _def_skl))
+
         # 会话续跑: 同一 session_id 多次请求复用活体 AgentLoop(执行态保留);
         # 若内存无则尝试磁盘水合(完整 messages 含 tool 角色); 否则新建。
         session_id = body.get("session_id") or None
-        loop, session_lock, hydrated = acquire_session(session_id, client, registry, cfg, backend)
+        loop, session_lock, hydrated = acquire_session(
+            session_id, client, registry, cfg, backend,
+            experts=_act_exp, skills=_act_skl, enhance_data=_enh_data)
         # 续跑时刷新本轮请求指定的权限模式与 provider(活体 loop 沿用首轮, 此处对齐最新)
         try:
             loop.registry.set_permission_mode(mode)
@@ -2229,6 +2548,301 @@ class Handler(SimpleHTTPRequestHandler):
             "require_restart": True,
             "warnings": warnings,
             "bytes": len(new_text.encode("utf-8")),
+        })
+
+    # ---- 工作区备份 / 回滚 (时间点快照管理) ----
+    def _backups_get(self):
+        """GET /api/backups: 列出快照 + 工作区信息。"""
+        from .. import backup as _bk
+        roots = [os.path.abspath(os.getcwd())]
+        try:
+            from ..config import resolve_roots
+            resolved = [str(p) for p in resolve_roots(_get_cfg())]
+            if resolved:
+                roots = resolved
+        except Exception:
+            pass
+        mgr = _bk.BackupManager(roots)
+        items = []
+        try:
+            items = mgr.list()
+        except Exception:
+            pass
+        return self._send_json({
+            "ok": True,
+            "store": mgr.store,
+            "roots": roots,
+            "backups": items,
+            "count": len(items),
+        })
+
+    def _backups_create(self):
+        """POST /api/backups {label?}: 创建快照。"""
+        body = self._read_json({})
+        label = (body.get("label") or "").strip()
+        from .. import backup as _bk
+        roots = [os.path.abspath(os.getcwd())]
+        try:
+            from ..config import resolve_roots
+            resolved = [str(p) for p in resolve_roots(_get_cfg())]
+            if resolved:
+                roots = resolved
+        except Exception:
+            pass
+        mgr = _bk.BackupManager(roots)
+        try:
+            m = mgr.create(label)
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+        return self._send_json({"ok": True, "backup": m})
+
+    def _backup_rollback(self):
+        """POST /api/backups/rollback {id, clean?}: 回滚到指定快照。"""
+        body = self._read_json({})
+        bid = (body.get("id") or "").strip()
+        if not bid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        clean = bool(body.get("clean"))
+        from .. import backup as _bk
+        roots = [os.path.abspath(os.getcwd())]
+        try:
+            from ..config import resolve_roots
+            resolved = [str(p) for p in resolve_roots(_get_cfg())]
+            if resolved:
+                roots = resolved
+        except Exception:
+            pass
+        mgr = _bk.BackupManager(roots)
+        try:
+            r = mgr.rollback(bid, clean=clean)
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+        return self._send_json({"ok": True, **r})
+
+    def _backup_delete(self):
+        """POST /api/backups/delete {id}: 删除快照。"""
+        body = self._read_json({})
+        bid = (body.get("id") or "").strip()
+        if not bid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        from .. import backup as _bk
+        roots = [os.path.abspath(os.getcwd())]
+        try:
+            from ..config import resolve_roots
+            resolved = [str(p) for p in resolve_roots(_get_cfg())]
+            if resolved:
+                roots = resolved
+        except Exception:
+            pass
+        mgr = _bk.BackupManager(roots)
+        try:
+            r = mgr.delete(bid)
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+        return self._send_json({"ok": True, **r})
+
+    # ---- 提示词模板: 新建/更新 / 删除 ----
+    def _templates_save(self):
+        """POST /api/templates {name, content, category?, id?}: 新建或更新模板。"""
+        body = self._read_json({})
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        name = (body.get("name") or "").strip()
+        if not name:
+            return self._send_json({"error": "模板名称不能为空"}, status=400)
+        from .. import templates as _tpl
+        try:
+            rec, is_new = _tpl.upsert(os.getcwd(), name, body.get("content") or "",
+                                     body.get("category") or "其他", body.get("id"))
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "is_new": is_new, "template": rec})
+
+    def _templates_delete(self):
+        """POST /api/templates/delete {id}: 删除模板。"""
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        from .. import templates as _tpl
+        removed = _tpl.delete(tid, os.getcwd())
+        return self._send_json({"ok": True, "removed": removed})
+
+    # ---- 密钥保险箱: 设置/删除 ----
+    def _secrets_set(self):
+        """POST /api/secrets {key, value, note?}: 新增或更新密钥(轻量本地加密落盘)。"""
+        body = self._read_json({})
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        key = (body.get("key") or "").strip()
+        if not key:
+            return self._send_json({"error": "密钥名称不能为空"}, status=400)
+        from .. import secrets as _sec
+        try:
+            is_new = _sec.set_secret(key, body.get("value") or "", body.get("note") or "", os.getcwd())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "is_new": is_new, "key": key})
+
+    def _secrets_delete(self):
+        """POST /api/secrets/delete {key}: 删除密钥。"""
+        body = self._read_json({})
+        key = (body.get("key") or "").strip()
+        if not key:
+            return self._send_json({"error": "缺少 key"}, status=400)
+        from .. import secrets as _sec
+        removed = _sec.delete_secret(key, os.getcwd())
+        return self._send_json({"ok": True, "removed": removed})
+
+    # ---- 代码片段库: 新建/更新/删除 ----
+    def _snippets_save(self):
+        """POST /api/snippets {title, content, language?, tags?, id?}: 新建或更新片段。"""
+        body = self._read_json({})
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        title = (body.get("title") or "").strip()
+        if not title:
+            return self._send_json({"error": "片段标题不能为空"}, status=400)
+        from .. import snippets as _snip
+        try:
+            rec, is_new = _snip.upsert(os.getcwd(), title, body.get("content") or "",
+                                       body.get("language") or "其他", body.get("tags"), body.get("id"))
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "is_new": is_new, "snippet": rec})
+
+    def _snippets_delete(self):
+        """POST /api/snippets/delete {id}: 删除片段。"""
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        from .. import snippets as _snip
+        removed = _snip.delete(tid, os.getcwd())
+        return self._send_json({"ok": True, "removed": removed})
+
+    # ---- 笔记: 新建/更新/删除 ----
+    def _notes_save(self):
+        """POST /api/notes {title, content?, id?}: 新建或更新笔记。"""
+        body = self._read_json({})
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        title = (body.get("title") or "").strip()
+        if not title:
+            return self._send_json({"error": "笔记标题不能为空"}, status=400)
+        from .. import notes as _note
+        try:
+            rec, is_new = _note.upsert(os.getcwd(), title, body.get("content") or "", body.get("id"))
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "is_new": is_new, "note": rec})
+
+    def _notes_delete(self):
+        """POST /api/notes/delete {id}: 删除笔记。"""
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        from .. import notes as _note
+        removed = _note.delete(tid, os.getcwd())
+        return self._send_json({"ok": True, "removed": removed})
+
+    # ---- 待办清单: 新增/改状态/删除 ----
+    def _todos_add(self):
+        """POST /api/todos {title, priority?, due?, note?}: 新增待办。"""
+        body = self._read_json({})
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        title = (body.get("title") or "").strip()
+        if not title:
+            return self._send_json({"error": "待办标题不能为空"}, status=400)
+        from .. import todos as _td
+        try:
+            rec = _td.add(os.getcwd(), title, body.get("priority") or "mid",
+                          body.get("due"), body.get("note") or "")
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "todo": rec})
+
+    def _todos_status(self):
+        """POST /api/todos/status {id, status?}: 更新待办状态(默认 done)。"""
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        status = (body.get("status") or "done").strip() or "done"
+        from .. import todos as _td
+        try:
+            rec = _td.set_status(tid, status, os.getcwd())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        if rec is None:
+            return self._send_json({"error": "未找到该待办"}, status=404)
+        return self._send_json({"ok": True, "todo": rec})
+
+    def _todos_delete(self):
+        """POST /api/todos/delete {id}: 删除待办。"""
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        from .. import todos as _td
+        removed = _td.delete(tid, os.getcwd())
+        return self._send_json({"ok": True, "removed": removed})
+
+    # ---- 主题 F 专家/技能 提示词增强: 写回库 (prompts_enhance.json) ----
+    def _enhance_save(self):
+        """POST /api/enhance {experts:[...], skills:[...]}: 全量写回增强库。
+
+        每条目字段:
+          专家: {name, description?, prompt, enabled?}
+          技能: {name, description?, prompt, trigger?, auto?}
+        返回 {ok, path, count}。"""
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return self._send_json({"error": "请求体非 JSON"}, status=400)
+        if not isinstance(body, dict):
+            return self._send_json({"error": "请求体必须是对象"}, status=400)
+        # 恢复内置预设: 覆盖写回 DEFAULT_LIBRARY(忽略其余字段)
+        if body.get("reset"):
+            from ..agent import enhance as _enh
+            try:
+                path = _enh.reset_to_defaults(os.getcwd())
+                data = _enh.load(os.getcwd(), seed=False)
+            except Exception as e:
+                return self._send_json({"error": "恢复预设失败: %s" % e}, status=500)
+            return self._send_json({
+                "ok": True,
+                "reset": True,
+                "path": str(path),
+                "count": {"experts": len(data["experts"]), "skills": len(data["skills"])},
+            })
+        experts = body.get("experts")
+        skills = body.get("skills")
+        if not isinstance(experts, list) or not isinstance(skills, list):
+            return self._send_json({"error": "experts / skills 必须是数组"}, status=400)
+        # 基础校验: name 必填且唯一
+        for label, items in (("experts", experts), ("skills", skills)):
+            seen = set()
+            for it in items:
+                if not isinstance(it, dict) or not (it.get("name") or "").strip():
+                    return self._send_json({"error": "%s 中每项需含非空 name" % label}, status=400)
+                nm = it["name"].strip()
+                if nm in seen:
+                    return self._send_json({"error": "%s 名称重复: %s" % (label, nm)}, status=400)
+                seen.add(nm)
+        from ..agent import enhance as _enh
+        try:
+            path = _enh.save(os.getcwd(), {"experts": experts, "skills": skills})
+        except Exception as e:
+            return self._send_json({"error": "写入失败: %s" % e}, status=500)
+        return self._send_json({
+            "ok": True,
+            "path": str(path),
+            "count": {"experts": len(experts), "skills": len(skills)},
         })
 
     # ---- 文件树浏览器 (只读, 限定项目根与 HOME) ----

@@ -420,7 +420,7 @@ async function sendCore(text, submitMode) {
     const resp = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, session_id: currentSessionId, history: history.slice(0, -1), mode: submitMode }),
+      body: JSON.stringify({ message: text, session_id: currentSessionId, history: history.slice(0, -1), mode: submitMode, ...getEnhanceSel() }),
     });
     if (!resp.ok) {
       const errTxt = await resp.text().catch(() => "");
@@ -530,6 +530,21 @@ async function regenerateAgent(agentWrap) {
 function starKey(sid) { return "lmw:stars:" + (sid || currentSessionId || "none"); }
 function getStars(sid) { try { return JSON.parse(localStorage.getItem(starKey(sid)) || "[]"); } catch { return []; } }
 function setStars(arr, sid) { try { localStorage.setItem(starKey(sid), JSON.stringify(arr)); } catch {} }
+
+// ===== 主题 F: 专家/技能 提示词增强 — 选择持久化 (localStorage) =====
+const ENH_KEY = "lmw:enhance";
+function getEnhanceSel() {
+  try { const d = JSON.parse(localStorage.getItem(ENH_KEY) || "{}"); return { experts: d.experts || [], skills: d.skills || [] }; }
+  catch { return { experts: [], skills: [] }; }
+}
+function setEnhanceSel(sel) { try { localStorage.setItem(ENH_KEY, JSON.stringify(sel)); } catch {} }
+function renderEnhanceChips() {
+  const el = document.getElementById("enhance-chips");
+  if (!el) return;
+  const sel = getEnhanceSel();
+  const names = [...sel.experts, ...sel.skills];
+  el.innerHTML = names.map(n => `<span class="enh-chip">${n.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</span>`).join("");
+}
 function msgHash(role, text) {
   let h = 5381; const s = role + "::" + text;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
@@ -972,7 +987,7 @@ async function executeMode(text, mode) {
     const resp = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, session_id: currentSessionId, history: history.slice(), mode: mode }),
+      body: JSON.stringify({ message: text, session_id: currentSessionId, history: history.slice(), mode: mode, ...getEnhanceSel() }),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const reader = resp.body.getReader();
@@ -2432,4 +2447,165 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowUp") { e.preventDefault(); cmdActive = Math.max(cmdActive - 1, 0); markCmd(); scrollCmd(); }
   else if (e.key === "Enter") { e.preventDefault(); const c = cmdFiltered[cmdActive]; if (c) execCmd(c); }
 });
+
+// ===== 主题 F: 专家/技能 提示词增强 选择器 =====
+(function setupEnhance() {
+  const modal = document.getElementById("enhance-modal");
+  if (!modal) return;
+  const btnOpen = document.getElementById("btn-enhance");
+  const btnClose = document.getElementById("enhance-close");
+  const btnApply = document.getElementById("enhance-apply");
+  const btnClear = document.getElementById("enhance-clear");
+  const expBox = document.getElementById("enhance-experts");
+  const sklBox = document.getElementById("enhance-skills");
+  let lib = { experts: [], skills: [] };
+
+  async function loadLib() {
+    try { const r = await fetch("/api/enhance"); lib = await r.json(); }
+    catch { lib = { experts: [], skills: [] }; }
+  }
+  function optHtml(items, kind) {
+    const sel = getEnhanceSel();
+    const chosen = new Set(kind === "experts" ? sel.experts : sel.skills);
+    return (items || []).map(it => `
+      <label class="enh-opt">
+        <input type="checkbox" data-kind="${kind}" value="${it.name.replace(/"/g, "&quot;")}" ${chosen.has(it.name) ? "checked" : ""}>
+        <span><span class="nm">${it.name.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</span>
+        ${it.description ? `<div class="ds">${it.description.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</div>` : ""}</span>
+      </label>`).join("") || `<div class="ds" style="padding:8px 0">暂无，去「专家·技能」页添加</div>`;
+  }
+  async function open() {
+    await loadLib();
+    expBox.innerHTML = optHtml(lib.experts, "experts");
+    sklBox.innerHTML = optHtml(lib.skills, "skills");
+    modal.hidden = false;
+  }
+  function collect() {
+    const exp = [...expBox.querySelectorAll("input:checked")].map(i => i.value);
+    const skl = [...sklBox.querySelectorAll("input:checked")].map(i => i.value);
+    return { experts: exp, skills: skl };
+  }
+  btnOpen.addEventListener("click", open);
+  btnClose.addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
+  btnClear.addEventListener("click", () => {
+    expBox.querySelectorAll("input").forEach(i => i.checked = false);
+    sklBox.querySelectorAll("input").forEach(i => i.checked = false);
+    setEnhanceSel({ experts: [], skills: [] }); renderEnhanceChips();
+  });
+  btnApply.addEventListener("click", () => {
+    setEnhanceSel(collect()); renderEnhanceChips(); modal.hidden = true;
+  });
+  renderEnhanceChips();
+})();
+
+// ===== 提示词模板 选择器 (插入到对话输入框) =====
+(function setupTemplates() {
+  const modal = document.getElementById("template-modal");
+  if (!modal) return;
+  const btnOpen = document.getElementById("btn-template");
+  const btnClose = document.getElementById("template-close");
+  const listBox = document.getElementById("template-list");
+  const input = document.getElementById("input");
+
+  function esc(s){ return (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+  function insertAtCursor(text) {
+    if (!input) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const sep = (before && !before.endsWith("\n")) ? "\n" : "";
+    input.value = before + sep + text + after;
+    const pos = (before + sep + text).length;
+    input.focus();
+    input.setSelectionRange(pos, pos);
+  }
+
+  async function open() {
+    let tpls = [];
+    try { const r = await fetch("/api/templates"); const d = await r.json(); tpls = d.templates || []; }
+    catch { tpls = []; }
+    if (!tpls.length) {
+      listBox.innerHTML = `<div class="ds" style="padding:10px 0">暂无模板。去「📋 提示词模板」页新建。</div>`;
+    } else {
+      listBox.innerHTML = tpls.map(t => `
+        <div class="tpl-pick" data-id="${t.id}" style="background:rgba(124,92,255,.06);border:1px solid var(--line);
+             border-radius:10px;padding:10px 12px;cursor:pointer">
+          <div style="font-weight:600;font-size:13px">${esc(t.name)}
+            <span style="color:var(--acc);font-size:11px;border:1px solid rgba(124,92,255,.25);
+              border-radius:999px;padding:0 7px;margin-left:6px">${esc(t.category||"其他")}</span></div>
+          <div style="color:var(--mut);font-size:12px;margin-top:4px;max-height:54px;overflow:hidden;
+            white-space:pre-wrap;font-family:monospace">${esc((t.content||"").slice(0,200))}</div>
+        </div>`).join("");
+      listBox.querySelectorAll(".tpl-pick").forEach(el => {
+        el.addEventListener("click", () => {
+          const t = tpls.find(x => x.id === el.dataset.id);
+          if (t) insertAtCursor(t.content || "");
+          modal.hidden = true;
+        });
+      });
+    }
+    modal.hidden = false;
+  }
+  btnOpen.addEventListener("click", open);
+  btnClose.addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
+})();
+
+// —— 代码片段插入选择器 (📎 片段) ——
+(function(){
+  const modal = document.getElementById("snippet-modal");
+  if (!modal) return;
+  const btnOpen = document.getElementById("btn-snippet");
+  const btnClose = document.getElementById("snippet-close");
+  const listBox = document.getElementById("snippet-list");
+  const input = document.getElementById("input");
+
+  function esc(s){ return (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+  function insertAtCursor(text) {
+    if (!input) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const sep = (before && !before.endsWith("\n")) ? "\n" : "";
+    input.value = before + sep + text + after;
+    const pos = (before + sep + text).length;
+    input.focus();
+    input.setSelectionRange(pos, pos);
+  }
+
+  async function open() {
+    let snips = [];
+    try { const r = await fetch("/api/snippets"); const d = await r.json(); snips = d.snippets || []; }
+    catch { snips = []; }
+    if (!snips.length) {
+      listBox.innerHTML = `<div class="ds" style="padding:10px 0">暂无片段。去「📎 代码片段」页新建。</div>`;
+    } else {
+      listBox.innerHTML = snips.map(s => `
+        <div class="tpl-pick" data-id="${s.id}" style="background:rgba(124,92,255,.06);border:1px solid var(--line);
+             border-radius:10px;padding:10px 12px;cursor:pointer">
+          <div style="font-weight:600;font-size:13px">${esc(s.title)}
+            <span style="color:var(--code,#ffd479);font-size:11px;border:1px solid rgba(255,212,121,.25);
+              border-radius:999px;padding:0 7px;margin-left:6px">${esc(s.language||"其他")}</span></div>
+          <div style="color:var(--mut);font-size:12px;margin-top:4px;max-height:54px;overflow:hidden;
+            white-space:pre;font-family:monospace">${esc((s.content||"").slice(0,200))}</div>
+        </div>`).join("");
+      listBox.querySelectorAll(".tpl-pick").forEach(el => {
+        el.addEventListener("click", () => {
+          const s = snips.find(x => x.id === el.dataset.id);
+          if (s) insertAtCursor(s.content || "");
+          modal.hidden = true;
+        });
+      });
+    }
+    modal.hidden = false;
+  }
+  btnOpen.addEventListener("click", open);
+  btnClose.addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
+})();
 

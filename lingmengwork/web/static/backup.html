@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>备份与回滚 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#070a14; --bg2:#0b1020; --card:rgba(20,27,48,.62); --card-strong:rgba(24,32,58,.82);
+    --line:rgba(126,146,210,.16); --line2:rgba(140,162,226,.28); --glow:rgba(124,92,255,.45);
+    --text:#e9edf8; --text2:#b7c0d8; --muted:#828caa; --muted2:#6e78a0;
+    --brand:#7c5cff; --brand2:#4dd0e1; --brand3:#ff5c9d;
+    --brand-grad:linear-gradient(135deg,#7c5cff 0%,#5b8bff 45%,#4dd0e1 100%);
+    --ok:#34e0a1; --warn:#ffb454; --bad:#ff5c7c; --acc:#7c5cff;
+    --r:13px; --r-lg:18px;
+    --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:
+      radial-gradient(1200px 600px at 12% -10%, rgba(124,92,255,.18), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(77,208,225,.14), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(255,92,157,.10), transparent 60%),
+      var(--bg);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:28px 22px 60px;}
+  header.top{
+    display:flex; align-items:center; gap:14px; padding:18px 22px; margin-bottom:22px;
+    background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); position:relative; overflow:hidden;
+  }
+  header.top::after{content:""; position:absolute; left:0; bottom:0; height:2px; width:100%; background:var(--brand-grad); opacity:.7}
+  .logo{width:46px; height:46px; border-radius:13px; background:var(--brand-grad); display:grid; place-items:center; font-size:24px; font-weight:800; color:#fff; box-shadow:0 8px 26px rgba(124,92,255,.4)}
+  .htext h1{margin:0; font-size:21px; letter-spacing:.3px}
+  .htext p{margin:3px 0 0; color:var(--muted); font-size:12.5px}
+  a.back{margin-left:auto; color:var(--text2); text-decoration:none; font-size:13px; padding:9px 14px; border:1px solid var(--line); border-radius:10px; transition:.15s}
+  a.back:hover{border-color:var(--line2); color:var(--text); background:rgba(255,255,255,.03)}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg); padding:20px 22px; margin-bottom:18px; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px)}
+  .sec-title{font-size:14px; font-weight:700; margin:0 0 14px; display:flex; align-items:center; gap:8px; color:var(--text)}
+  .sec-title::before{content:""; width:4px; height:15px; border-radius:3px; background:var(--brand-grad)}
+
+  .kv{font-size:12.5px; color:var(--muted); line-height:1.7}
+  .kv code{color:var(--brand2); font-family:var(--mono); background:rgba(255,255,255,.04); padding:2px 7px; border-radius:6px; word-break:break-all}
+
+  .add-row{display:flex; gap:10px; margin-top:4px}
+  .add-row input{flex:1; background:var(--bg2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:11px 13px; font-size:13px; outline:none; transition:.15s}
+  .add-row input:focus{border-color:var(--glow); box-shadow:0 0 0 3px rgba(124,92,255,.18)}
+
+  .btn{background:var(--brand-grad); color:#fff; border:none; border-radius:11px; padding:12px 22px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 8px 26px rgba(124,92,255,.32); transition:.15s; letter-spacing:.3px}
+  .btn:hover{transform:translateY(-2px); box-shadow:0 12px 32px rgba(124,92,255,.42)}
+  .btn:active{transform:translateY(0)}
+  .btn.ghost{background:rgba(255,255,255,.04); border:1px solid var(--line); box-shadow:none; color:var(--text2)}
+  .btn.ghost:hover{transform:none; border-color:var(--line2); color:var(--text)}
+  .btn.sm{padding:7px 14px; font-size:12.5px; border-radius:9px}
+  .btn.danger{background:linear-gradient(135deg,#ff5c7c,#ff7a5c); box-shadow:0 8px 26px rgba(255,92,124,.3)}
+  .btn.warn{background:linear-gradient(135deg,#ffb454,#ff8a5c)}
+
+  .empty{color:var(--muted); font-size:13px; padding:18px 2px; text-align:center}
+
+  ul.list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:11px}
+  ul.list li{display:flex; align-items:center; gap:12px; padding:13px 15px; background:rgba(255,255,255,.03); border:1px solid var(--line); border-radius:12px; transition:.15s}
+  ul.list li:hover{border-color:var(--line2)}
+  .bk-main{flex:1; min-width:0}
+  .bk-id{font-family:var(--mono); font-size:12.5px; color:var(--brand2); font-weight:600}
+  .bk-label{font-size:14px; font-weight:600; color:var(--text); margin-left:8px}
+  .bk-meta{font-size:11.5px; color:var(--muted); margin-top:3px}
+  .bk-meta code{color:var(--text2); font-family:var(--mono); background:rgba(255,255,255,.04); padding:1px 6px; border-radius:5px}
+  .bk-actions{display:flex; gap:8px; flex:none}
+
+  .clean-row{display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12.5px; color:var(--muted)}
+  .clean-row input{accent-color:var(--bad); width:15px; height:15px}
+
+  .result{margin-top:14px; font-size:13px; padding:13px 15px; border-radius:10px; display:none; white-space:pre-wrap; word-break:break-word}
+  .result.ok{display:block; background:rgba(52,224,161,.10); border:1px solid rgba(52,224,161,.3); color:var(--text2)}
+  .result.err{display:block; background:rgba(255,92,124,.10); border:1px solid rgba(255,92,124,.3); color:#ffd0d8}
+  .result .warn-note{color:var(--warn); margin-top:6px}
+  .result code{font-family:var(--mono); color:var(--brand2)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="logo">📦</div>
+      <div class="htext">
+        <h1>备份与回滚</h1>
+        <p>工作区时间点快照 (类 Time Machine) · 大改动前拍快照, 出事整体回滚</p>
+      </div>
+      <a class="back" href="/">← 返回工作台</a>
+    </header>
+
+    <div class="card">
+      <div class="sec-title">工作区信息</div>
+      <div class="kv">备份仓库：<code id="store">—</code></div>
+      <div class="kv" style="margin-top:6px">监控根目录：</div>
+      <div class="kv" id="roots" style="margin-top:4px"></div>
+      <div class="kv" style="margin-top:6px; color:var(--muted2)">备份自动排除 .git / __pycache__ / node_modules / .lmw_backups 等; 压缩包内含自描述 manifest。</div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">创建备份</div>
+      <div class="add-row">
+        <input id="labelInput" placeholder="可选标签, 便于辨识 (如 重构前 / 上线v1.2)" />
+        <button class="btn" id="createBtn">📸 创建快照</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">已有备份 (<span id="count">0</span>)</div>
+      <ul id="list" class="list"></ul>
+      <div id="empty" class="empty">还没有备份, 点上方「创建快照」生成第一个。</div>
+    </div>
+
+    <div id="result" class="result"></div>
+  </div>
+
+<script>
+  const state = { backups: [], roots: [], store: "" };
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+  function fmtSize(b){ if(!b && b!==0) return "—"; if(b<1024) return b+" B"; if(b<1024*1024) return (b/1024).toFixed(1)+" KB"; return (b/1024/1024).toFixed(2)+" MB"; }
+
+  function showResult(msg, ok){
+    const r = document.getElementById("result");
+    r.className = "result " + (ok ? "ok" : "err");
+    r.textContent = msg;
+  }
+
+  function renderInfo(){
+    document.getElementById("store").textContent = state.store || "—";
+    const box = document.getElementById("roots");
+    box.innerHTML = "";
+    (state.roots||[]).forEach(p => {
+      const c = document.createElement("code");
+      c.textContent = p;
+      box.appendChild(c);
+      box.appendChild(document.createTextNode("  "));
+    });
+  }
+
+  function renderList(){
+    const ul = document.getElementById("list");
+    const empty = document.getElementById("empty");
+    document.getElementById("count").textContent = state.backups.length;
+    ul.innerHTML = "";
+    if (!state.backups.length){ empty.style.display = "block"; return; }
+    empty.style.display = "none";
+    state.backups.forEach(b => {
+      const li = document.createElement("li");
+      const main = document.createElement("div");
+      main.className = "bk-main";
+      const idLine = '<span class="bk-id">' + esc(b.id) + '</span>' + (b.label ? '<span class="bk-label">' + esc(b.label) + '</span>' : '');
+      const meta = '<div class="bk-meta">' + esc(b.created_at || "") + ' · 文件 ' + (b.file_count||0) + ' · ' + fmtSize(b.total_bytes) +
+                   ' · 根: ' + (b.roots||[]).map(esc).join(" ; ") + '</div>';
+      main.innerHTML = idLine + meta;
+      const actions = document.createElement("div");
+      actions.className = "bk-actions";
+      const rb = document.createElement("button");
+      rb.className = "btn warn sm"; rb.textContent = "↩ 回滚";
+      rb.addEventListener("click", () => doRollback(b.id));
+      const del = document.createElement("button");
+      del.className = "btn danger sm"; del.textContent = "🗑 删除";
+      del.addEventListener("click", () => doDelete(b.id));
+      actions.appendChild(rb); actions.appendChild(del);
+      li.appendChild(main); li.appendChild(actions);
+      ul.appendChild(li);
+    });
+  }
+
+  async function load(){
+    try{
+      const r = await fetch("/api/backups");
+      const d = await r.json();
+      state.backups = d.backups || [];
+      state.roots = d.roots || [];
+      state.store = d.store || "";
+      renderInfo();
+      renderList();
+    }catch(e){
+      showResult("加载失败：" + e, false);
+    }
+  }
+
+  async function doCreate(){
+    const label = document.getElementById("labelInput").value.trim();
+    showResult("创建中…", true);
+    try{
+      const r = await fetch("/api/backups", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ label })
+      });
+      const d = await r.json();
+      if (!d.ok){ showResult("创建失败：" + (d.error||"未知错误"), false); return; }
+      const b = d.backup;
+      showResult("✓ 已创建备份 [" + b.id + "]\n标签: " + (b.label||"(无)") + "\n文件 " + b.file_count + " · " + fmtSize(b.total_bytes), true);
+      document.getElementById("labelInput").value = "";
+      await load();
+    }catch(e){ showResult("请求失败：" + e, false); }
+  }
+
+  async function doRollback(id){
+    const clean = window.confirm("确认回滚到备份 " + id + " ?\n\n默认仅覆盖/补回该快照内的文件, 之后新增的文件保留。\n\n点「取消」=普通回滚; 点「确定」=普通回滚。\n(彻底还原请改用 clean 模式, 见下方勾选)");
+    if (!clean) return;
+    // 二次确认: 是否 clean
+    let useClean = false;
+    if (window.confirm("是否启用 clean 模式?\n\nclean=true 会额外删除「该备份中不存在」的文件, 工作区彻底还原到该时间点 (不可恢复)。\n\n点「确定」=clean 彻底还原; 点「取消」=普通回滚。")){
+      useClean = true;
+    }
+    showResult("回滚中…", true);
+    try{
+      const r = await fetch("/api/backups/rollback", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ id, clean: useClean })
+      });
+      const d = await r.json();
+      if (!d.ok){ showResult("回滚失败：" + (d.error||"未知错误"), false); return; }
+      let msg = "✓ 已回滚到备份 " + d.id + "\n恢复文件: " + d.restored;
+      if (d.clean) msg += "\nclean 模式: 额外删除 " + d.removed + " 个备份外文件";
+      else msg += "\n未开 clean: 仅覆盖/补回快照内文件, 之后新增文件保留";
+      showResult(msg, true);
+      await load();
+    }catch(e){ showResult("请求失败：" + e, false); }
+  }
+
+  async function doDelete(id){
+    if (!window.confirm("确认删除备份 " + id + " ? 此操作不可恢复。")) return;
+    showResult("删除中…", true);
+    try{
+      const r = await fetch("/api/backups/delete", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ id })
+      });
+      const d = await r.json();
+      if (!d.ok){ showResult("删除失败：" + (d.error||"未知错误"), false); return; }
+      showResult("✓ 已删除备份 " + d.id, true);
+      await load();
+    }catch(e){ showResult("请求失败：" + e, false); }
+  }
+
+  document.getElementById("createBtn").addEventListener("click", doCreate);
+  document.getElementById("labelInput").addEventListener("keydown", e => { if (e.key === "Enter") doCreate(); });
+  load();
+</script>
+</body>
+</html>

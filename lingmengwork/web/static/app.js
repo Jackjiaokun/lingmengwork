@@ -202,6 +202,53 @@ async function loadMcp() {
   }
 }
 
+// ---------- 智能体活动状态条 ----------
+// 阶段文案与图标: 思考 / 调用工具 / 读文件 / 写文件 / 完成 / 出错
+const STATUS_META = {
+  think: { ico: "💭", text: "正在思考" },
+  tool:  { ico: "🔧", text: "正在调用工具" },
+  read:  { ico: "📖", text: "正在读文件" },
+  write: { ico: "✍️", text: "正在写文件" },
+  done:  { ico: "✓",  text: "已完成" },
+  error: { ico: "⚠",  text: "出错了" },
+};
+const READ_TOOLS  = ["read_file", "read_url", "fs_read", "code_search", "grep", "search",
+                     "symbol_search", "sqlite_query", "db_query", "git_status", "git_diff",
+                     "git_log", "web_fetch", "list_dir", "read_project_docs"];
+const WRITE_TOOLS = ["write_file", "edit_file", "fs_write", "apply_patch", "append_file", "delete_file"];
+
+// 识别工具类别 + 取路径尾名做标注细节
+function classifyTool(name, args) {
+  const n = (name || "").toLowerCase();
+  const pathOf = (args && (args.path || args.file || args.repo || args.target)) || "";
+  const tail = pathOf ? String(pathOf).split(/[\\/]/).pop() : "";
+  if (READ_TOOLS.some((t) => n.includes(t)))  return ["read", tail];
+  if (WRITE_TOOLS.some((t) => n.includes(t))) return ["write", tail];
+  return ["tool", n];
+}
+
+function setAgentStatus(phase, detail) {
+  const bar = $("agent-status");
+  if (!bar) return;
+  const m = STATUS_META[phase] || STATUS_META.tool;
+  bar.className = "agent-status phase-" + phase;
+  bar.hidden = false;
+  const ico = bar.querySelector(".as-ico");
+  const txt = bar.querySelector(".as-text");
+  const fill = bar.querySelector(".as-fill");
+  if (ico) ico.textContent = m.ico;
+  if (txt) txt.textContent = detail ? m.text + "：" + detail : m.text;
+  if (fill) {
+    if (phase === "done")      { fill.className = "as-fill done"; }
+    else if (phase === "error") { fill.className = "as-fill err"; }
+    else                        { fill.className = "as-fill indet"; }
+  }
+  if (phase === "done" || phase === "error") {
+    clearTimeout(bar._hideT);
+    bar._hideT = setTimeout(() => { bar.hidden = true; if (fill) fill.className = "as-fill"; }, 1500);
+  }
+}
+
 // ---------- 单路对话 (兼容旧能力) ----------
 async function send() {
   const text = inputEl.value.trim();
@@ -217,6 +264,7 @@ async function send() {
   const agentBubble = addMessage("agent");
   agentBubble.classList.add("typing");
   agentBubble.textContent = "";
+  setAgentStatus("think");
   // 多工具调用链可视化条 (全链路时序节点)
   const chainStrip = document.createElement("div");
   chainStrip.className = "chain-strip";
@@ -267,6 +315,7 @@ async function send() {
           currentSessionId = evt.session_id;
         }
         if (evt.type === "error") {
+          setAgentStatus("error", evt.message);
           toast("后端执行异常: " + (evt.message || "未知错误"), "error");
         }
       }
@@ -296,13 +345,18 @@ function handleEvent(evt, narr, toolsBox, chainStrip, addText) {
   if (evt.type === "text") {
     addText(evt.chunk);
     narr.textContent += evt.chunk;
+    setAgentStatus("think");
   } else if (evt.type === "tool") {
+    const [ph, det] = classifyTool(evt.name, evt.args);
+    setAgentStatus(ph, det);
+    const kindLabels = { read: "读", write: "写", command: "命令", search: "检索", mcp: "MCP", other: "工具" };
+    const kind = evt.kind || "other";
     const call = document.createElement("details");
     call.className = "tool-call";
     const args = Object.entries(evt.args || {})
       .map(([k, v]) => `${k}=${v}`)
       .join(", ");
-    call.innerHTML = `<summary class="tc-head">⚙ ${esc(evt.name)}(${esc(args.slice(0, 120))})</summary>`;
+    call.innerHTML = `<summary class="tc-head"><span class="tc-kind k-${kind}">${kindLabels[kind] || "工具"}</span>⚙ ${esc(evt.name)}(${esc(args.slice(0, 120))})</summary>`;
     const out = document.createElement("div");
     out.className = "tc-out";
     out.textContent = "执行中…";
@@ -350,6 +404,7 @@ function handleEvent(evt, narr, toolsBox, chainStrip, addText) {
       n.title = (evt.kind || "other") + " · " + (evt.ok === false ? "执行失败" : "完成");
     }
   } else if (evt.type === "done") {
+    setAgentStatus("done");
     if (evt.truncated) {
       const note = document.createElement("div");
       note.style.color = "var(--bad)";
@@ -432,6 +487,7 @@ async function executeMode(text, mode) {
   const agentBubble = addMessage("agent");
   agentBubble.classList.add("typing");
   agentBubble.textContent = "";
+  setAgentStatus("think");
   const chainStrip = document.createElement("div");
   chainStrip.className = "chain-strip";
   const toolsBox = document.createElement("div");
@@ -464,7 +520,7 @@ async function executeMode(text, mode) {
         const evt = JSON.parse(line.slice(6));
         handleEvent(evt, narr, toolsBox, chainStrip, (s) => { acc += s; });
         if (evt.type === "done" && evt.session_id) currentSessionId = evt.session_id;
-        if (evt.type === "error") toast("后端执行异常: " + (evt.message || ""), "error");
+        if (evt.type === "error") { setAgentStatus("error", evt.message); toast("后端执行异常: " + (evt.message || ""), "error"); }
       }
     }
   } catch (e) {

@@ -333,7 +333,7 @@ def run_pipeline(goal, context="", llm_call=None, max_dispatch=4, do_selfcheck=T
         artifact = None
         if do_render and dom in ("image", "audio", "video"):
             try:
-                artifact = ma.render(dom, brief, plan, ctx_rich)
+                artifact = ma.render(dom, brief, plan, ctx_rich, llm_call=llm_call)
                 if artifact and artifact.get("file"):
                     artifact["url"] = "/outputs/" + os.path.basename(artifact["file"])
             except Exception:

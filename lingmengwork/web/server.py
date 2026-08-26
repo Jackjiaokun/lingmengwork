@@ -3502,7 +3502,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({"error": "不支持的域: %s (可选: %s)" % (domain, ", ".join(_ma.available_domains()))}, status=400)
             if not brief:
                 return self._send_json({"error": "缺少 brief"}, status=400)
-            art = _ma.render(domain, brief, blueprint, "")
+            art = _ma.render(domain, brief, blueprint, "", llm_call=self._make_llm_call())
             if not art:
                 return self._send_json({"error": "适配失败"}, status=500)
             fname = os.path.basename(art.get("file") or "")

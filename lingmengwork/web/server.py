@@ -3211,6 +3211,46 @@ class Handler(SimpleHTTPRequestHandler):
     # ===================================================================
     # 上下文操作: 压缩 / 整理 / 拆解
     # ===================================================================
+    def _make_llm_call(self):
+        """构造一个 llm_call(prompt, system=None)->str|None。
+
+        仅在配置了后端且存在可用 API key 环境变量时尝试; 否则返回 None
+        (context_ops 会回退到确定性规则版, 保证无 key 环境行为不变)。
+        """
+        try:
+            cfg = _get_cfg()
+        except Exception:
+            return None
+        llm = (cfg.get("llm") or {})
+        providers = llm.get("providers") or []
+        has_key = False
+        for p in providers:
+            env = (p.get("api_key_env") if isinstance(p, dict) else None)
+            if env and os.environ.get(env):
+                has_key = True
+                break
+        if not has_key:
+            return None
+        try:
+            client = build_client(llm.get("backend"), cfg=cfg)
+        except Exception:
+            return None
+
+        def call(prompt, system=None):
+            msgs = []
+            if system:
+                msgs.append({"role": "system", "content": system})
+            msgs.append({"role": "user", "content": prompt})
+            try:
+                out = client.chat(msgs, stream=False, temperature=0.2, timeout=120)
+            except Exception:
+                return None
+            if isinstance(out, dict):
+                return (out.get("content") or out.get("text") or "").strip() or None
+            return (str(out) or "").strip() or None
+
+        return call
+
     def _context_op(self, kind):
         """POST /api/context/{compress,organize,decompose}
         {session_id? | messages?} -> {ok, kind, markdown}。"""
@@ -3230,7 +3270,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not fn:
             return self._send_json({"error": "未知操作: %s" % kind}, status=400)
         try:
-            md = fn(messages)
+            md = fn(messages, llm_call=self._make_llm_call())
         except Exception as e:
             from .. import errorlog as _el
             _el.record(os.getcwd(), "context_op", "上下文操作失败: %s" % e, source="api:/api/context/%s" % kind, detail=str(e))

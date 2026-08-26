@@ -1079,8 +1079,26 @@ mark.hl-active {
   box-shadow: 0 24px 80px rgba(0,0,0,.5); }
 .ctx-head { padding: 13px 18px; border-bottom: 1px solid rgba(126,146,210,.16); display: flex; align-items: center; }
 .ctx-title { font-size: 15px; font-weight: 600; }
-.ctx-result { flex: 1; margin: 0; padding: 16px 18px; overflow: auto; white-space: pre-wrap; word-break: break-word;
-  font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--text); background: rgba(8,12,24,.6); }
+.ctx-result { flex: 1; margin: 0; padding: 16px 18px; overflow: auto; white-space: normal; word-break: break-word;
+  font-family: var(--font); font-size: 13.5px; line-height: 1.7; color: var(--text); background: rgba(8,12,24,.6); }
+.ctx-result .ctx-h { margin: 14px 0 8px; line-height: 1.35; color: #fff; }
+.ctx-result .ctx-h:first-child { margin-top: 0; }
+.ctx-result .ctx-h1 { font-size: 17px; }
+.ctx-result .ctx-h2 { font-size: 15px; }
+.ctx-result .ctx-h3 { font-size: 13.5px; }
+.ctx-result .ctx-h4 { font-size: 13px; opacity: .92; }
+.ctx-result .ctx-p { margin: 6px 0; }
+.ctx-result .ctx-ul, .ctx-result .ctx-ol, .ctx-result .ctx-tasks { margin: 6px 0; padding-left: 22px; }
+.ctx-result .ctx-ul li, .ctx-result .ctx-ol li, .ctx-result .ctx-tasks li { margin: 3px 0; }
+.ctx-result .ctx-tasks { list-style: none; padding-left: 4px; }
+.ctx-result .ctx-task { display: flex; align-items: flex-start; gap: 8px; }
+.ctx-result .ctx-task .box { flex: 0 0 auto; width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border-glow, var(--border));
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: var(--brand); margin-top: 2px; }
+.ctx-result .ctx-task.done { opacity: .6; text-decoration: line-through; }
+.ctx-result .ctx-task.done .box { background: var(--brand-soft); border-color: var(--brand); }
+.ctx-result .ctx-quote { margin: 8px 0; padding: 8px 14px; border-left: 3px solid var(--brand); border-radius: 0 8px 8px 0;
+  background: rgba(124,92,255,.07); color: var(--muted); font-size: 12.5px; }
+.ctx-result .ctx-quote p { margin: 2px 0; }
 .ctx-foot { padding: 12px 18px; border-top: 1px solid rgba(126,146,210,.16); display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* ===== 主题切换控件 ===== */

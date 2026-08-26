@@ -804,6 +804,29 @@ function renderMarkdownLite(src) {
   }
   return html;
 }
+// 上下文弹窗专用渲染: 支持标题/列表/粗体/引用块/任务复选框 (全程 esc 转义)
+function renderCtxMarkdown(src) {
+  const lines = (src || "").split("\n");
+  let html = "", inUl = false, inOl = false, inQuote = false;
+  const close = () => {
+    if (inUl) { html += "</ul>"; inUl = false; }
+    if (inOl) { html += "</ol>"; inOl = false; }
+    if (inQuote) { html += "</blockquote>"; inQuote = false; }
+  };
+  for (const line of lines) {
+    const s = line.trim();
+    if (!s) { close(); continue; }
+    let m;
+    if ((m = s.match(/^(#{1,4})\s+(.*)$/))) { close(); const lvl = m[1].length; html += `<h${lvl} class="ctx-h">${inlineBold(esc(m[2]))}</h${lvl}>`; }
+    else if ((m = s.match(/^>\s?(.*)$/))) { if (!inQuote) { close(); html += '<blockquote class="ctx-quote">'; inQuote = true; } html += `<p>${inlineBold(esc(m[1]))}</p>`; }
+    else if ((m = s.match(/^[-*]\s+\[([ xX])\]\s+(.*)$/))) { if (!inUl) { close(); html += '<ul class="ctx-tasks">'; inUl = true; } const done = m[1].toLowerCase() === "x"; html += `<li class="ctx-task${done ? " done" : ""}"><span class="box">${done ? "✓" : "○"}</span>${inlineBold(esc(m[2]))}</li>`; }
+    else if ((m = s.match(/^[-*]\s+(.*)$/))) { if (!inUl) { close(); html += '<ul class="ctx-ul">'; inUl = true; } html += `<li>${inlineBold(esc(m[1]))}</li>`; }
+    else if ((m = s.match(/^\d+\.\s+(.*)$/))) { if (!inOl) { close(); html += '<ol class="ctx-ol">'; inOl = true; } html += `<li>${inlineBold(esc(m[1]))}</li>`; }
+    else { close(); html += `<p class="ctx-p">${inlineBold(esc(s))}</p>`; }
+  }
+  close();
+  return html;
+}
 function bindCodeBlock(block) {
   const linesEl = block.querySelector(".cb-lines");
   if (!linesEl) return;
@@ -3143,7 +3166,7 @@ document.addEventListener("keydown", (e) => {
       const d = await r.json();
       if (d.error) { alert(d.error); return; }
       lastMd = d.markdown || "";
-      $("#ctx-result").textContent = lastMd;
+      $("#ctx-result").innerHTML = renderCtxMarkdown(lastMd);
       $("#ctx-modal-title").textContent = {
         compress: "🗜 上下文压缩报告",
         organize: "🗂 上下文整理笔记",

@@ -1,4 +1,4 @@
-"""灵梦work (LingMeng Work) — 本地优先 AI 编码代理。
+"""灵梦work (LingMeng Work) — 一款次时代 AI 全能工具，强大的编程 · 音频 · 图片 · 视频 全面 AI Agent 能力。
 
 双模: CLI 内核 (lingmengwork) + Web 控制台 (lingmengwork web)。
 LLM 后端可切: 本地 Ollama / 云端 OpenAI 兼容 / Mock 离线。

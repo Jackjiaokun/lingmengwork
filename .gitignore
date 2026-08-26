@@ -53,3 +53,7 @@ e2e*.txt
 
 # 运行时错误日志（烟测/运行期生成）
 logs/
+
+# 运行/测试副产物 (pipeline 运行、outputs 落盘)
+code/
+outputs/

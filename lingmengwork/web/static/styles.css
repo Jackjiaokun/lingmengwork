@@ -386,6 +386,13 @@ body {
 }
 #input:focus { outline: none; border-color: var(--border-glow); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15); }
 .btn-send { height: 44px; padding: 0 20px; font-size: 14px; }
+.btn-pause { height: 44px; padding: 0 20px; font-size: 14px; border: none; border-radius: 12px;
+  background: linear-gradient(135deg, #ff8a5c, #ff5470); color: #fff; font-weight: 700;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  box-shadow: 0 12px 36px rgba(255, 84, 112, 0.4); }
+.btn-pause:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.btn-pause:active { transform: translateY(0) scale(0.98); }
+.btn-pause[hidden] { display: none !important; }
 .send-ico { font-size: 12px; }
 .composer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .composer-hint { font-size: 11px; color: var(--muted-soft); }

@@ -4,6 +4,11 @@ const $ = (id) => document.getElementById(id);
 const messagesEl = $("messages");
 const inputEl = $("input");
 const sendBtn = $("send");
+const pauseBtn = $("btn-pause");
+let activeAbort = null;            // 当前对话流的 AbortController
+function showPause(){ if(pauseBtn){ pauseBtn.hidden = false; sendBtn.hidden = true; } }
+function hidePause(){ if(pauseBtn){ pauseBtn.hidden = true;  sendBtn.hidden = false; } }
+if (pauseBtn) pauseBtn.addEventListener("click", () => { if (activeAbort) activeAbort.abort(); });
 const statusEl = $("status");
 const toolListEl = $("tool-list");
 const providerListEl = $("provider-list");
@@ -328,6 +333,7 @@ const STATUS_META = {
   write: { ico: "✍️", text: "正在写文件" },
   done:  { ico: "✓",  text: "已完成" },
   error: { ico: "⚠",  text: "出错了" },
+  paused:{ ico: "⏸",  text: "已暂停" },
 };
 const READ_TOOLS  = ["read_file", "read_url", "fs_read", "code_search", "grep", "search",
                      "symbol_search", "sqlite_query", "db_query", "git_status", "git_diff",
@@ -408,6 +414,9 @@ async function sendCore(text, submitMode) {
   agentBubble.appendChild(toolsBox);
 
   sendBtn.disabled = true;
+  activeAbort = new AbortController();
+  showPause();
+  let wasPaused = false;
   let acc = "";
   let lastEventAt = Date.now();
   // 看门狗: 超过 90s 无任何事件 -> 提示(仍继续等待, 不中断)
@@ -421,6 +430,7 @@ async function sendCore(text, submitMode) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, session_id: currentSessionId, history: history.slice(0, -1), mode: submitMode, ...getEnhanceSel() }),
+      signal: activeAbort.signal,
     });
     if (!resp.ok) {
       const errTxt = await resp.text().catch(() => "");
@@ -462,6 +472,15 @@ async function sendCore(text, submitMode) {
       showPlanCard(text, acc, narr);
     }
   } catch (e) {
+    if (e && e.name === "AbortError") {
+      // 用户主动暂停: 保留已生成内容, 不视为错误
+      wasPaused = true;
+      setAgentStatus("paused", "已暂停生成");
+      if (submitMode !== "plan") upgradeBubbleToMarkdown(narr);
+      if (acc.trim()) history.push({ role: "assistant", content: acc });
+      toast("已暂停生成, 上下文已保留, 可继续对话", "ok");
+      return;
+    }
     agentBubble.classList.remove("typing");
     const b = document.createElement("div");
     b.className = "bubble";
@@ -473,7 +492,9 @@ async function sendCore(text, submitMode) {
     clearInterval(watch);
     agentBubble.classList.remove("typing");
     sendBtn.disabled = false;
-    history.push({ role: "assistant", content: acc });
+    hidePause();
+    activeAbort = null;
+    if (!wasPaused) history.push({ role: "assistant", content: acc });
     scrollDown();
   }
 }

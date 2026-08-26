@@ -153,6 +153,16 @@
     <div id="resultArea"></div>
   </div>
 
+  <!-- 离线自检 -->
+  <div class="card" id="selfCheckCard">
+    <h2><span class="dot"></span>系统离线自检 <span style="font-size:11px;color:var(--muted);font-weight:400">（无 LLM · 确定性）</span></h2>
+    <div class="row">
+      <button class="primary" id="btnSelf">🔍 运行系统自检</button>
+      <span class="status" id="selfStatus"></span>
+    </div>
+    <div id="selfArea"></div>
+  </div>
+
   <!-- 实时轨迹 -->
   <div class="card">
     <h2><span class="dot"></span>实时轨迹 <span style="font-size:11px;color:var(--muted);font-weight:400">（每 4 秒刷新）</span></h2>
@@ -328,7 +338,36 @@ function renderResult(engine, res){
 }
 
 $("#run").onclick = launch;
+
+async function runSelfCheck(){
+  const btn = $("#btnSelf"); btn.disabled=true;
+  $("#selfStatus").textContent = "自检中…";
+  try{
+    const r = await fetch("/api/selfcheck");
+    const j = await r.json();
+    renderSelfCheck(j);
+    $("#selfStatus").textContent = "健康分 " + j.score + "/100 · " + (j.passed) + "/" + j.total + " 通过";
+  }catch(e){ $("#selfStatus").textContent = "自检失败: " + e.message; }
+  finally{ btn.disabled=false; }
+}
+function renderSelfCheck(j){
+  const area = $("#selfArea"); area.innerHTML="";
+  const wrap = document.createElement("div"); wrap.className="res";
+  let h = '<p class="sm">通过 <b>' + j.passed + '</b> / ' + j.total +
+          ' · 健康分 <b>' + j.score + '/100</b> · ' + (j.ts||"") + '</p><div class="md">';
+  (j.checks||[]).forEach(c=>{
+    h += '<div class="step"><span class="sdom" style="background:' + (c.ok?'var(--ok)':'var(--bad)') + '">' +
+         (c.ok?'✓':'✗') + '</span><span class="stitle">' + esc(c.name) + '</span></div>' +
+         '<div class="sm" style="color:var(--muted);margin-left:30px">' + esc(c.detail) + '</div>';
+  });
+  h += '</div>';
+  wrap.innerHTML = '<h3>🔍 系统自检报告</h3>' + h;
+  area.appendChild(wrap);
+}
+$("#btnSelf").onclick = runSelfCheck;
+
 loadStatus();
+runSelfCheck();
 setInterval(loadStatus, 4000);
 </script>
 </body>

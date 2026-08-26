@@ -1171,6 +1171,10 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 统一引擎总控台 (Phase 10): 四大引擎聚合快照 ----
         if p == "/api/engines":
             return self._send_json(self._engines_status())
+        # ---- 离线自检中枢 (Phase 14): 系统健康探针(无 LLM · 确定性) ----
+        if p == "/api/selfcheck":
+            from .. import selfcheck as _sc
+            return self._send_json(_sc.run())
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()

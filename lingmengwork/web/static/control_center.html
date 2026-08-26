@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>统一引擎总控台 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:rgba(255,255,255,.04); --panel-2:rgba(255,255,255,.06);
+    --stroke:rgba(255,255,255,.10); --txt:#e6e9f2; --muted:#9aa3b8;
+    --brand:#8b5cf6; --brand-2:#22d3ee; --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1100px 600px at 12% -8%, rgba(139,92,246,.18), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,.14), transparent 55%),
+      var(--bg);
+    color:var(--txt);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  header h1{margin:0 0 4px;font-size:24px;letter-spacing:.5px;
+    background:linear-gradient(90deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  header p{margin:0 0 18px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--stroke);border-radius:16px;padding:16px 18px;margin-bottom:16px}
+  .card h2{margin:0 0 12px;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 10px var(--brand)}
+  label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:.6px}
+  textarea,select,input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--stroke);border-radius:10px;color:var(--txt);
+    padding:10px 12px;font:inherit;outline:none}
+  textarea{min-height:84px;resize:vertical}
+  textarea:focus,select:focus,input:focus{border-color:var(--brand)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  button{cursor:pointer;border:1px solid var(--stroke);background:var(--panel-2);color:var(--txt);padding:9px 15px;border-radius:10px;font:inherit;transition:.16s}
+  button:hover{background:rgba(255,255,255,.12)}
+  button.primary{background:linear-gradient(90deg,var(--brand),var(--brand-2));border:none;color:#06121f;font-weight:700}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .status{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+
+  /* KPI 条 */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--stroke);border-radius:14px;padding:12px 14px}
+  .kpi .v{font-size:22px;font-weight:800;background:linear-gradient(90deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .kpi .k{font-size:11px;color:var(--muted);margin-top:2px;letter-spacing:.4px}
+
+  /* 引擎矩阵 */
+  .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .ecard{position:relative;background:var(--panel);border:1px solid var(--stroke);border-radius:16px;padding:16px;overflow:hidden}
+  .ecard::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--ec,#8b5cf6);opacity:.9}
+  .ecard .etop{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .ecard .emoji{font-size:26px}
+  .ecard .ename{font-weight:700;color:#fff;font-size:15px}
+  .ecard .estat{position:absolute;top:14px;right:14px;font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(52,211,153,.16);color:var(--ok)}
+  .ecard .edesc{color:var(--muted);font-size:12.5px;min-height:38px}
+  .ecard .ehits{font-size:11px;color:var(--muted);margin-top:8px}
+  .hidden{display:none}
+
+  /* 启动器 */
+  .opt{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+  .err{color:var(--bad);font-size:12px;margin-top:8px}
+
+  /* 轨迹 */
+  .tl{position:relative;padding-left:16px}
+  .tl::before{content:"";position:absolute;left:5px;top:4px;bottom:4px;width:2px;background:var(--stroke)}
+  .tli{position:relative;padding:8px 0 8px 4px;border-bottom:1px solid var(--stroke)}
+  .tli:last-child{border-bottom:none}
+  .tli::before{content:"";position:absolute;left:-13px;top:13px;width:9px;height:9px;border-radius:50%;background:var(--brand-2);box-shadow:0 0 8px var(--brand-2)}
+  .tli .tm{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tli .eng{font-weight:700;color:#fff}
+  .tli .ts{font-size:11px;color:var(--muted)}
+  .tli .sm{font-size:12px;color:var(--muted)}
+  .tli .ok{font-size:11px;color:var(--ok)}
+  .tli .ok.no{color:var(--bad)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--stroke);color:var(--muted)}
+
+  /* 结果渲染 */
+  .res{border:1px solid var(--brand);border-radius:14px;padding:14px 16px;margin-top:12px;background:rgba(139,92,246,.08)}
+  .res h3{margin:0 0 8px;color:#fff;font-size:14px}
+  .step{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--stroke);align-items:flex-start}
+  .step:last-child{border-bottom:none}
+  .step .sdom{font-size:11px;padding:2px 8px;border-radius:999px;color:#06121f;font-weight:700;white-space:nowrap}
+  .step .stitle{color:var(--txt)}
+  .md{margin-top:4px}
+  .md-h{margin:12px 0 5px;color:#fff;border-left:3px solid var(--brand);padding-left:10px;font-size:14px}
+  .md-p{margin:5px 0}
+  .md-li{margin:3px 0 3px 18px;list-style:none;position:relative}
+  .md-li::before{content:"▸";position:absolute;left:-16px;color:var(--brand-2)}
+  .md-code{background:rgba(0,0,0,.4);border:1px solid var(--stroke);border-radius:10px;padding:12px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  .md-ic{background:rgba(139,92,246,.18);border-radius:5px;padding:1px 5px;font-family:ui-monospace,monospace;font-size:12.5px}
+  .md-sp{height:6px}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:var(--muted);font-size:12px}
+  pre.raw{background:rgba(0,0,0,.35);border:1px solid var(--stroke);border-radius:10px;padding:10px;overflow:auto;font:12px/1.5 ui-monospace,monospace;max-height:280px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>统一引擎总控台</h1>
+    <p>把四大 AI 引擎（编排中枢 · 创作域 · 自主模式 · 全链路流水线）收口到一块指挥屏：实时观测 + 一键启动。</p>
+  </header>
+
+  <!-- KPI 条 -->
+  <div class="kpis" id="kpis">
+    <div class="kpi"><div class="v" id="kOrch">–</div><div class="k">编排任务(总/运行/完成)</div></div>
+    <div class="kpi"><div class="v" id="kDom">–</div><div class="k">创作域数</div></div>
+    <div class="kpi"><div class="v" id="kMem">–</div><div class="k">记忆条目</div></div>
+    <div class="kpi"><div class="v" id="kRun">–</div><div class="k">总控台发起</div></div>
+    <div class="kpi"><div class="v" id="kLlm">–</div><div class="k">LLM 后端</div></div>
+  </div>
+
+  <!-- 引擎矩阵 -->
+  <div class="card">
+    <h2><span class="dot"></span>引擎矩阵</h2>
+    <div class="grid4" id="engineGrid"></div>
+  </div>
+
+  <!-- 统一启动器 -->
+  <div class="card" id="launcher">
+    <h2><span class="dot"></span>统一启动器</h2>
+    <label>选择引擎</label>
+    <select id="engine">
+      <option value="pipeline">🌊 全链路流水线（理解→拆解→编排→执行→自检→交付）</option>
+      <option value="autonomous">🤖 自主模式（自驱循环 · 规划/观察/Critic/反思）</option>
+      <option value="creation">🎨 创作域（编程/音频/图片/视频 四域蓝图）</option>
+      <option value="decompose">🧩 任务拆解（层级分解 + 拓扑编排）</option>
+    </select>
+    <div class="opt" style="margin-top:12px">
+      <div id="fldDomain" class="hidden">
+        <label>创作域</label>
+        <select id="domain">
+          <option value="code">编程</option>
+          <option value="audio">音频</option>
+          <option value="image">图片</option>
+          <option value="video">视频</option>
+        </select>
+      </div>
+      <div id="fldDispatch" class="hidden">
+        <label>派发步数上限</label>
+        <input id="maxDispatch" type="number" value="4" min="1" max="12">
+      </div>
+      <div id="fldIter" class="hidden">
+        <label>自驱轮次</label>
+        <input id="maxIter" type="number" value="6" min="1" max="12">
+      </div>
+    </div>
+    <label style="margin-top:12px">目标 / 需求</label>
+    <textarea id="goal" placeholder="例如：搭建一个可自修复的错误自愈机制，并产出架构文档"></textarea>
+    <div class="row">
+      <button class="primary" id="run">🚀 一键启动</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="err hidden" id="err"></div>
+    <div id="resultArea"></div>
+  </div>
+
+  <!-- 实时轨迹 -->
+  <div class="card">
+    <h2><span class="dot"></span>实时轨迹 <span style="font-size:11px;color:var(--muted);font-weight:400">（每 4 秒刷新）</span></h2>
+    <div class="chips" id="engChips"></div>
+    <div class="tl" id="trace" style="margin-top:10px"><div class="sm" style="color:var(--muted)">暂无发起记录</div></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function inlineMd(t){
+  let s = esc(t);
+  s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  s = s.replace(/`([^`]+?)`/g, '<code class="md-ic">$1</code>');
+  return s;
+}
+function renderMd(src){
+  const lines = String(src||"").split(/\r?\n/);
+  let html="", inCode=false, buf=[];
+  const flush=()=>{ if(buf.length){ html+='<pre class="md-code"><code>'+esc(buf.join("\n"))+'</code></pre>'; buf=[]; } };
+  for(const line of lines){
+    if(/^\s*```/.test(line)){ if(inCode){flush();inCode=false;}else{inCode=true;} continue; }
+    if(inCode){ buf.push(line); continue; }
+    let m;
+    if((m=line.match(/^(#{2,4})\s+(.*)$/))){ html+='<h'+(m[1].length)+' class="md-h">'+inlineMd(m[2])+'</h'+(m[1].length)+'>'; continue; }
+    if(/^\d+[.、]\s+/.test(line)){ html+='<div class="md-li">'+inlineMd(line.replace(/^\d+[.、]\s+/,""))+'</div>'; continue; }
+    if(/^[-*]\s+/.test(line)){ html+='<div class="md-li">'+inlineMd(line.replace(/^[-*]\s+/,""))+'</div>'; continue; }
+    if(line.trim()===""){ html+='<div class="md-sp"></div>'; continue; }
+    html+='<p class="md-p">'+inlineMd(line)+'</p>';
+  }
+  if(inCode) flush();
+  return html;
+}
+
+const ENGINE_NAMES = {orchestrate:"编排中枢",creation:"创作域",autonomous:"自主模式",pipeline:"全链路流水线",decompose:"任务拆解"};
+
+function toggleFields(){
+  const e = $("#engine").value;
+  $("#fldDomain").classList.toggle("hidden", e !== "creation");
+  $("#fldDispatch").classList.toggle("hidden", e !== "pipeline");
+  $("#fldIter").classList.toggle("hidden", e !== "autonomous");
+}
+$("#engine").addEventListener("change", toggleFields);
+toggleFields();
+
+function setEngine(id){
+  if(["pipeline","autonomous","creation","decompose"].includes(id)){
+    $("#engine").value = id; toggleFields();
+    $("#launcher").scrollIntoView({behavior:"smooth", block:"start"});
+  } else {
+    // 编排中枢走独立扇出页
+    location.href = "/orchestrate";
+  }
+}
+
+async function loadStatus(){
+  try{
+    const r = await fetch("/api/engines");
+    const j = await r.json();
+    if(!j.ok) return;
+    const o = j.orchestration || {};
+    $("#kOrch").textContent = (o.total||0)+" / "+(o.running||0)+" / "+(o.done||0);
+    $("#kDom").textContent = (j.creation&&j.creation.domains?j.creation.domains.length:0);
+    $("#kMem").textContent = (j.memory&&j.memory.entries!=null)?j.memory.entries:"-";
+    $("#kRun").textContent = (j.control_center&&j.control_center.total)||0;
+    $("#kLlm").textContent = (j.llm_backend)||"none";
+    renderEngines(j.engines||[]);
+    renderChips((j.control_center&&j.control_center.by_engine)||{});
+    renderTrace((j.control_center&&j.control_center.recent)||[]);
+  }catch(e){ /* 静默, 下一轮重试 */ }
+}
+
+function renderEngines(engines){
+  const g = $("#engineGrid"); g.innerHTML="";
+  engines.forEach(e=>{
+    const d = document.createElement("div");
+    d.className="ecard"; d.style.setProperty("--ec", e.theme||"#8b5cf6");
+    const hits = (e.id==="orchestrate") ? ("扇出 "+(e.hits||0)+" 次")
+               : (e.id==="creation") ? ((e.domains||0)+" 域就绪")
+               : "就绪";
+    d.innerHTML =
+      '<div class="estat">● 就绪</div>'+
+      '<div class="etop"><span class="emoji">'+e.emoji+'</span><span class="ename">'+esc(e.name)+'</span></div>'+
+      '<div class="edesc">'+esc(e.desc)+'</div>'+
+      '<div class="ehits">'+hits+'</div>'+
+      '<div class="row" style="margin-top:10px"><button data-id="'+e.id+'">启动 →</button></div>';
+    d.querySelector("button").onclick = ()=>setEngine(e.id);
+    g.appendChild(d);
+  });
+}
+
+function renderChips(counts){
+  const c = $("#engChips"); c.innerHTML="";
+  Object.keys(counts).forEach(k=>{
+    const s = document.createElement("span"); s.className="chip";
+    s.textContent = (ENGINE_NAMES[k]||k)+" · "+counts[k];
+    c.appendChild(s);
+  });
+  if(!Object.keys(counts).length) c.innerHTML = '<span class="chip">尚未发起</span>';
+}
+
+function renderTrace(recent){
+  const t = $("#trace"); t.innerHTML="";
+  if(!recent.length){ t.innerHTML = '<div class="sm" style="color:var(--muted)">暂无发起记录</div>'; return; }
+  recent.forEach(r=>{
+    const d = document.createElement("div"); d.className="tli";
+    const okc = r.ok ? "ok" : "ok no";
+    d.innerHTML =
+      '<div class="tm"><span class="eng">'+(ENGINE_NAMES[r.engine]||r.engine)+'</span>'+
+      '<span class="'+okc+'">'+(r.ok?"✓":"✗")+'</span>'+
+      '<span class="ts">'+(r.ts||"")+(r.elapsed_sec!=null?" · "+r.elapsed_sec+"s":"")+'</span></div>'+
+      '<div class="sm">'+esc(r.goal||"")+'</div>'+
+      (r.summary?'<div class="sm">'+esc(r.summary)+'</div>':"");
+    t.appendChild(d);
+  });
+}
+
+async function launch(){
+  const engine = $("#engine").value;
+  const goal = $("#goal").value.trim();
+  $("#err").classList.add("hidden"); $("#err").textContent="";
+  if(!goal && engine!=="creation"){ $("#status").textContent="请填写目标"; return; }
+  if(engine==="creation" && !$("#domain").value){ $("#status").textContent="请选择创作域"; return; }
+  const btn = $("#run"); btn.disabled=true;
+  $("#status").textContent = "引擎运行中…";
+  try{
+    const body = { engine, goal, context:"" };
+    if(engine==="pipeline") body.max_dispatch = parseInt($("#maxDispatch").value,10)||4;
+    if(engine==="autonomous") body.max_iter = parseInt($("#maxIter").value,10)||6;
+    if(engine==="creation"){ body.domain = $("#domain").value; body.brief = goal || "创作一个示例"; }
+    const r = await fetch("/api/engines/run", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if(!j.ok){ $("#err").textContent = "失败: "+(j.error||r.status); $("#err").classList.remove("hidden"); $("#status").textContent=""; return; }
+    renderResult(j.engine, j.result);
+    $("#status").textContent = "✅ 完成 · " + (j.engine);
+    loadStatus();
+  }catch(e){ $("#err").textContent="请求异常: "+e.message; $("#err").classList.remove("hidden"); $("#status").textContent=""; }
+  finally{ btn.disabled=false; }
+}
+
+function renderResult(engine, res){
+  const area = $("#resultArea"); area.innerHTML="";
+  const wrap = document.createElement("div"); wrap.className="res";
+  let bodyHtml = "";
+  if(engine==="pipeline"){
+    const d = res.decompose||{}; const sc = (res.selfcheck||{}).score;
+    bodyHtml += '<p class="sm">拆解 <b>'+(d.count||0)+'</b> 步 · 自检评分 <b>'+(sc!=null?sc:"-")+'/100</b> · 用时 '+(res.elapsed_sec||0)+'s</p>';
+    (res.execute||[]).forEach(ex=>{
+      bodyHtml += '<div class="step"><span class="sdom" style="background:'+(ex.theme||'#8b5cf6')+'">'+(ex.emoji||'')+' '+(ex.domain_name||ex.domain)+'</span><span class="stitle">'+esc(ex.title||"")+'</span></div>';
+      if(ex.artifact && ex.artifact.url) bodyHtml += '<div class="sm" style="color:var(--ok)">📎 真实产出: <a style="color:var(--brand-2)" href="'+ex.artifact.url+'" target="_blank">'+esc(ex.artifact.url)+'</a></div>';
+    });
+  } else if(engine==="decompose"){
+    (res.steps||[]).forEach(s=>{
+      bodyHtml += '<div class="step"><span class="sdom" style="background:#8b5cf6">'+(s.domain||"any")+'</span><span class="stitle">'+esc(s.title||"")+'</span></div>';
+    });
+  } else if(engine==="creation"){
+    bodyHtml += '<p class="sm">创作域: <b>'+(res.domain_name||res.domain)+'</b> · 状态 '+(res.status||"")+'</p>';
+    bodyHtml += '<div class="md">'+renderMd(res.plan||"")+'</div>';
+  } else if(engine==="autonomous"){
+    bodyHtml += '<p class="sm">自驱 <b>'+(res.iterations||[]).length+'</b> 轮 · '+(res.reached?'<span style="color:var(--ok)">已达成</span>':'<span style="color:var(--warn)">未达成</span>')+'</p>';
+    (res.iterations||[]).slice(0,3).forEach(it=>{
+      const c = it.critic||{};
+      bodyHtml += '<div class="md"><b>第 '+it.step+' 轮</b> · Critic '+(c.score!=null?c.score:"-")+(c.done?' ✓':' …')+'</div>';
+      bodyHtml += '<div class="md">'+renderMd(it.plan||"")+'</div>';
+    });
+  }
+  const raw = '<details><summary>查看原始 JSON</summary><pre class="raw">'+esc(JSON.stringify(res,null,2))+'</pre></details>';
+  wrap.innerHTML = '<h3>'+(ENGINE_NAMES[engine]||engine)+' · 执行结果</h3>'+bodyHtml+raw;
+  area.appendChild(wrap);
+}
+
+$("#run").onclick = launch;
+loadStatus();
+setInterval(loadStatus, 4000);
+</script>
+</body>
+</html>

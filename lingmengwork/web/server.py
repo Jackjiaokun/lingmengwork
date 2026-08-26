@@ -54,6 +54,18 @@ _REVIEWS = []
 _REVIEWS_LOCK = None
 _REVIEWS_MAX = 100
 
+# 统一引擎总控台 (Phase 10): 进程内 ring buffer 记录经总控台发起的引擎调用, 供实时轨迹展示
+_ENGINE_RUNS = []
+_ENGINE_RUNS_LOCK = None
+_ENGINE_RUNS_MAX = 80
+
+def _engine_runs_lock():
+    global _ENGINE_RUNS_LOCK
+    if _ENGINE_RUNS_LOCK is None:
+        import threading
+        _ENGINE_RUNS_LOCK = threading.Lock()
+    return _ENGINE_RUNS_LOCK
+
 def _reviews_lock():
     global _REVIEWS_LOCK
     if _REVIEWS_LOCK is None:
@@ -1143,6 +1155,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 真实多模态适配层 (Phase 8) ----
         if p == "/multimodal":
             return self._serve_file("multimodal.html")
+        # ---- 统一引擎总控台 (Phase 10): 四大引擎可观测 + 一键启动 ----
+        if p == "/control-center":
+            return self._serve_file("control_center.html")
         if p.startswith("/outputs/"):
             from urllib.parse import unquote
             name = unquote(os.path.basename(p[len("/outputs/"):]))
@@ -1153,6 +1168,9 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/api/creation/domains":
             from .. import creation_domains as _cd
             return self._send_json({"ok": True, "domains": _cd.list_domains()})
+        # ---- 统一引擎总控台 (Phase 10): 四大引擎聚合快照 ----
+        if p == "/api/engines":
+            return self._send_json(self._engines_status())
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()
@@ -1361,6 +1379,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._pipeline_api()
         if p == "/api/pipeline/recall":
             return self._pipeline_recall()
+        # ---- 统一引擎总控台 (Phase 10): 一键启动任意引擎 ----
+        if p == "/api/engines/run":
+            return self._engines_run()
         # ---- 真实多模态适配层 (Phase 8) ----
         if p == "/api/multimodal/render":
             return self._multimodal_render()
@@ -3345,6 +3366,127 @@ class Handler(SimpleHTTPRequestHandler):
                                     "count": len(res.get("results", [])), "memory": res.get("results", [])})
         except Exception as e:
             return self._send_json({"error": "记忆召回失败: %s" % e}, status=500)
+
+    # ---- 统一引擎总控台 (Phase 10) ----
+    def _engines_status(self):
+        """GET /api/engines -> 四大引擎 + 编排 + 记忆 的统一可观测快照。"""
+        from .. import creation_domains as _cd
+        orch_items = _ORCH.list_all() or []
+        orch_running = sum(1 for o in orch_items if o.get("status") == "running")
+        orch_done = sum(1 for o in orch_items if o.get("status") == "done")
+        # 语义记忆条目数(直接读 facts.jsonl, 无副作用)
+        mem_count = 0
+        try:
+            fp = os.path.join(os.getcwd(), ".lmw_memory", "facts.jsonl")
+            if os.path.isfile(fp):
+                with open(fp, encoding="utf-8") as f:
+                    mem_count = sum(1 for ln in f if ln.strip())
+        except Exception:
+            mem_count = 0
+        engines = [
+            {"id": "orchestrate", "name": "编排中枢", "emoji": "🧭", "theme": "#22d3ee",
+             "desc": "多智能体并行扇出 · 统一指挥中心视图", "status": "ready", "hits": orch_running + orch_done},
+            {"id": "creation", "name": "创作域", "emoji": "🎨", "theme": "#f472b6",
+             "desc": "编程/音频/图片/视频 四域统一创作工作台", "status": "ready", "domains": len(_cd.list_domains())},
+            {"id": "autonomous", "name": "自主模式", "emoji": "🤖", "theme": "#34d399",
+             "desc": "目标驱动自驱循环 · 规划→观察→Critic→反思", "status": "ready"},
+            {"id": "pipeline", "name": "全链路流水线", "emoji": "🌊", "theme": "#6366f1",
+             "desc": "理解→拆解→编排→执行→自检→交付 一站式闭环", "status": "ready"},
+        ]
+        with _engine_runs_lock():
+            recent = list(reversed(_ENGINE_RUNS))[:20]
+            counts = {}
+            for r in _ENGINE_RUNS:
+                counts[r["engine"]] = counts.get(r["engine"], 0) + 1
+        backend = "none"
+        try:
+            backend = ((_get_cfg().get("llm") or {}).get("backend") or "none")
+        except Exception:
+            backend = "none"
+        self._send_json({
+            "ok": True,
+            "engines": engines,
+            "orchestration": {"total": len(orch_items), "running": orch_running, "done": orch_done},
+            "creation": {"domains": _cd.list_domains()},
+            "memory": {"entries": mem_count},
+            "control_center": {"total": len(_ENGINE_RUNS), "by_engine": counts, "recent": recent},
+            "llm_backend": backend,
+        })
+
+    def _engine_run_summary(self, engine, goal, result):
+        if not result:
+            return "（无结果）"
+        if engine == "pipeline":
+            sc = (result.get("selfcheck") or {}).get("score")
+            return "拆解 %d 步 · 自检 %s/100" % (result.get("decompose", {}).get("count", 0),
+                                                 sc if sc is not None else "-")
+        if engine == "autonomous":
+            return "自驱 %d 轮 · %s" % (len(result.get("iterations", []) or []),
+                                         "已达成" if result.get("reached") else "未达成")
+        if engine == "creation":
+            return "创作域 %s · %s" % (result.get("domain_name", ""), result.get("status", ""))
+        if engine == "decompose":
+            return "拆解 %d 步" % (len(result.get("steps", []) or []))
+        return "ok"
+
+    def _engines_run(self):
+        """POST /api/engines/run {engine, goal, domain?, context?, max_iter?, max_dispatch?}
+        -> 统一引擎启动器: 把总控台的『一键启动』路由到对应引擎。"""
+        from .. import goal_pipeline as _gp
+        from .. import autonomous as _au
+        from .. import creation_domains as _cd
+        from .. import decompose_engine as _de
+        try:
+            body = self._read_json({})
+            engine = (body.get("engine") or "").strip()
+            goal = (body.get("goal") or "").strip()
+            if not engine:
+                return self._send_json({"error": "缺少 engine"}, status=400)
+            llm = self._make_llm_call()
+            started = time.time()
+            if engine == "pipeline":
+                if not goal:
+                    return self._send_json({"error": "流水线需要 goal"}, status=400)
+                md = int(body.get("max_dispatch") or 4)
+                result = _gp.run_pipeline(goal, context=body.get("context") or "", llm_call=llm,
+                                          max_dispatch=md, memory_dir=os.getcwd(),
+                                          do_learn=bool(body.get("do_learn", True)))
+            elif engine == "autonomous":
+                if not goal:
+                    return self._send_json({"error": "自主模式需要 goal"}, status=400)
+                mi = int(body.get("max_iter") or 6)
+                result = _au.run(goal, llm_call=llm, context=body.get("context") or "", max_iter=mi)
+            elif engine == "creation":
+                domain = (body.get("domain") or "").strip()
+                brief = (body.get("brief") or goal).strip()
+                if not domain or not brief:
+                    return self._send_json({"error": "创作域需要 domain 与 brief"}, status=400)
+                result = _cd.dispatch(domain, brief, context=body.get("context") or "", llm_call=llm)
+            elif engine == "decompose":
+                if not goal:
+                    return self._send_json({"error": "拆解需要 goal"}, status=400)
+                steps = _de.decompose(goal, text=body.get("context") or "", llm_call=llm)
+                result = {"ok": True, "goal": goal, "steps": steps,
+                          "execution_order": _de.execution_order(steps),
+                          "plan": _de.to_plan_payload(goal, steps, title=goal)}
+            else:
+                return self._send_json({"error": "未知引擎: %s" % engine}, status=400)
+            summary = self._engine_run_summary(engine, goal, result)
+            with _engine_runs_lock():
+                _ENGINE_RUNS.append({
+                    "engine": engine, "goal": goal[:120],
+                    "ok": bool((result or {}).get("ok", True)),
+                    "summary": summary, "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "elapsed_sec": round(time.time() - started, 1),
+                })
+                if len(_ENGINE_RUNS) > _ENGINE_RUNS_MAX:
+                    del _ENGINE_RUNS[:len(_ENGINE_RUNS) - _ENGINE_RUNS_MAX]
+            return self._send_json({"ok": True, "engine": engine, "result": result})
+        except Exception as e:
+            from .. import errorlog as _el
+            _el.record(os.getcwd(), "engines", "总控台引擎调用失败: %s" % e,
+                       source="api:/api/engines/run", detail=str(e))
+            return self._send_json({"error": "引擎调用失败: %s" % e}, status=500)
 
     def _multimodal_render(self):
         """POST /api/multimodal/render {domain, brief, blueprint?} -> 真实媒体文件(落 outputs/multimodal)。"""

@@ -2838,6 +2838,7 @@ const COMMANDS = [
   { id: "p-autonomous", title: "打开 · 自主模式", run: () => gotoPage("/autonomous") },
   { id: "p-pipeline", title: "打开 · 目标流水线", run: () => gotoPage("/pipeline") },
   { id: "p-multimodal", title: "打开 · 多模态实验室", run: () => gotoPage("/multimodal") },
+  { id: "p-control", title: "打开 · 统一总控台", run: () => gotoPage("/control-center") },
   { id: "theme-code", title: "主题 · 编码", run: () => setTheme("code") },
   { id: "theme-audio", title: "主题 · 音频", run: () => setTheme("audio") },
   { id: "theme-image", title: "主题 · 图片", run: () => setTheme("image") },

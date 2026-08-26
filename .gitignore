@@ -19,6 +19,8 @@ spec/
 .pytest_cache/
 .lmw_artifacts/
 .lmw_index/
+.lmw_memory/
+logs/errors/*.json
 *.bak_*
 *.log
 

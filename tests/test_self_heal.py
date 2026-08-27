@@ -1,7 +1,8 @@
-"""Phase 18 — 自主进化闭环 (self_heal) 测试。
+"""Phase 18/19 — 自主进化闭环 (self_heal) 测试。
 
 覆盖：无信号健康分、selfcheck 失败信号生成、run_fail 事件生成、
-静态资产缺失精确诊断、严重度扣分、导出落盘、服务端 API。
+静态资产缺失精确诊断、严重度扣分、导出落盘、服务端 API、
+Phase19 补丁预案(patch_plan)结构、可读报告导出。
 """
 import json
 import os
@@ -130,6 +131,87 @@ def test_server_api():
         d3 = json.loads(js3)
         assert d3["ok"] is True and d3["count"] == d1["proposal_count"]
         assert os.path.exists(os.path.join(d, ".lmw_heal", "proposals.jsonl"))
+    finally:
+        srv.shutdown()
+        os.chdir(old)
+
+
+def test_patch_plan_present_on_engine_fail():
+    """Phase19: 引擎失败提议应携带结构化补丁预案 (title/steps/verify/risk)。"""
+    bus = eb.EventBus()
+    bus.emit("engine", "run_fail", "引擎 pipeline 运行失败: Timeout",
+             {"engine": "pipeline"}, audit=True)
+    rep = sh.propose(selfcheck_report=None, bus=bus)
+    p = [x for x in rep["proposals"] if x["area"] == "引擎:pipeline"][0]
+    plan = p["patch_plan"]
+    assert plan, "应含补丁预案"
+    assert plan["title"] and "pipeline" in plan["title"]
+    assert isinstance(plan["steps"], list) and len(plan["steps"]) >= 2
+    assert plan.get("verify") and plan.get("risk")
+    # 应指向审计详情定位
+    assert any("audit" in s for s in plan["steps"])
+
+
+def test_patch_plan_present_on_static_missing():
+    """Phase19: 静态资产缺失预案应给出精准恢复命令(含缺失文件名)。"""
+    bad = {"checks": [
+        {"name": "关键静态资产", "ok": False, "detail": "缺失: web/static/gone.html"}]}
+    rep = sh.propose(selfcheck_report=bad, bus=None)
+    p = rep["proposals"][0]
+    assert "gone.html" in " ".join(p["patch_plan"]["steps"])
+
+
+def test_export_markdown(tmp_path):
+    """Phase19: 导出同时生成可读 .md 报告(含补丁预案)。"""
+    rep = sh.propose(selfcheck_report={"checks": [
+        {"name": "关键静态资产", "ok": False, "detail": "缺失: x.html"}]}, bus=None)
+    res = sh.export_proposals(rep, str(tmp_path))
+    assert res["ok"] is True
+    assert os.path.exists(res["md_path"])
+    with open(res["md_path"], encoding="utf-8") as f:
+        md = f.read()
+    assert "补丁预案" in md
+    assert "x.html" in md
+    assert "验证" in md and "风险" in md
+
+
+def test_server_export_md():
+    """Phase19: /api/heal/export-md 端点落盘可读报告。"""
+    d = tempfile.mkdtemp()
+    old = os.getcwd()
+    os.chdir(d)
+    PORT = 8972
+    srv = _srv.ThreadingHTTPServer(("127.0.0.1", PORT), _srv.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.5)
+    try:
+        def get(path):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
+            c.request("GET", path)
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+            c.request("POST", path, body=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"})
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        # 先注入一条失败事件, 让报告非空
+        eb.get_bus().emit("engine", "run_fail", "引擎 creation 运行失败",
+                          {"engine": "creation"}, audit=True)
+        st, js = post("/api/heal/export-md", {})
+        assert st == 200, (st, js)
+        d4 = json.loads(js)
+        assert d4["ok"] is True and "md_path" in d4
+        assert os.path.exists(d4["md_path"])
+        with open(d4["md_path"], encoding="utf-8") as f:
+            md = f.read()
+        assert "creation" in md and "补丁预案" in md
+        # 页面也含导出按钮
+        st2, html = get("/heal")
+        assert "导出可读报告" in html and "/api/heal/export-md" in html
     finally:
         srv.shutdown()
         os.chdir(old)

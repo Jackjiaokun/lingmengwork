@@ -56,7 +56,7 @@ class Proposal:
     """一条结构化补丁提议。"""
 
     def __init__(self, severity, area, symptom, hypothesis, actions,
-                 confidence, auto_fixable, source_ref, rule_id):
+                 confidence, auto_fixable, source_ref, rule_id, patch_plan=None):
         self.severity = severity          # high / medium / low
         self.area = area
         self.symptom = symptom
@@ -66,6 +66,10 @@ class Proposal:
         self.auto_fixable = bool(auto_fixable)
         self.source_ref = source_ref
         self.rule_id = rule_id
+        # patch_plan: 结构化可执行修复预案, 形如
+        #   {"title": str, "steps": [str], "verify": str, "risk": str}
+        # 仍 human-in-the-loop: 仅给出方案, 不直接改源码。
+        self.patch_plan = patch_plan or {}
 
     def to_dict(self, pid=None):
         return {
@@ -79,6 +83,7 @@ class Proposal:
             "confidence": round(self.confidence, 2),
             "auto_fixable": self.auto_fixable,
             "source_ref": self.source_ref,
+            "patch_plan": self.patch_plan,
         }
 
 
@@ -126,26 +131,42 @@ def _build_selfcheck_proposal(sig):
     name = sig.get("name", "")
     detail = sig.get("detail", "")
     area = _area_for_check(name)
-    actions = ["查看日志定位根因", "在源码层修复并补回归测试", "重新跑 selfcheck 复核"]
+    missing = _parse_missing_static(detail) if name == "关键静态资产" else []
     hypothesis = "自检项『%s』未通过，系统该能力处于降级/不可用状态。" % name
+    actions = ["查看日志定位根因", "在源码层修复并补回归测试", "重新跑 selfcheck 复核"]
+    plan_steps = ["读取 selfcheck 失败 detail 定位具体根因",
+                  "在源码层修复并补回归测试",
+                  "重新跑 `python -m lingmengwork.selfcheck` 复核"]
     if name == "关键静态资产":
-        missing = _parse_missing_static(detail)
-        if missing:
-            hypothesis = "关键前端资产缺失，面板相关页面无法加载。"
-            actions = ["从版本库恢复缺失文件: " + "、".join(missing),
-                       "校验 web/static 目录构建产物完整",
-                       "重新跑 selfcheck 复核"]
+        hypothesis = "关键前端资产缺失，面板相关页面无法加载。"
+        actions = ["从版本库恢复缺失文件: " + "、".join(missing) if missing else "恢复缺失的静态资产",
+                   "校验 web/static 目录构建产物完整",
+                   "重新跑 selfcheck 复核"]
+        plan_steps = (["git -C <repo> checkout -- " + " ".join(missing)] if missing
+                      else ["从版本库/构建产物恢复缺失的 web/static 文件"]) + [
+            "校验 web/static 目录构建产物完整(大小/语法)",
+            "重启面板服务: `python -m lingmengwork.web.server`",
+            "重新跑 `python -m lingmengwork.selfcheck` 确认『关键静态资产』通过"]
     elif name == "核心模块导入":
         hypothesis = "存在模块导入失败，通常是依赖缺失或语法错误。"
         actions = ["检查 import 报错模块与依赖",
                    "运行 target 解释器的 py_compile 校验",
                    "补 requirements / 重建虚拟环境"]
+        plan_steps = ["查看 selfcheck 失败 detail 中的 import 报错堆栈",
+                      "用目标解释器 `python -m py_compile <module>` 定位语法错误",
+                      "补 requirements / 重建虚拟环境后再次 import 验证"]
     return Proposal(
         severity="high", area=area,
         symptom="自检项『%s』失败: %s" % (name, detail),
         hypothesis=hypothesis, actions=actions,
         confidence=0.9, auto_fixable=False,
         source_ref="selfcheck:%s" % name, rule_id="selfcheck_fail",
+        patch_plan={
+            "title": "修复『%s』自检失败" % name,
+            "steps": plan_steps,
+            "verify": "重新跑 `python -m lingmengwork.selfcheck` 确认该检查项 ok=true",
+            "risk": "低：仅恢复/修复既有模块或资产，不改动业务逻辑；导入类修复可能涉及依赖重装(medium)。",
+        },
     )
 
 
@@ -160,6 +181,17 @@ def _build_engine_fail_proposal(sig):
                  "检查该引擎规则兜底路径是否正常"],
         confidence=0.8, auto_fixable=False,
         source_ref="event:engine:%s" % sig.get("kind"), rule_id="engine_run_fail",
+        patch_plan={
+            "title": "排查引擎『%s』运行失败" % eng,
+            "steps": [
+                "在 /api/audit 查看该引擎 run_fail 事件的完整 msg 与 data",
+                "核对 LLM 后端 key 环境变量与网络连通性(无 key → 规则兜底路径)",
+                "在源码服务下手动调用该引擎入口(规则兜底), 确认不抛异常",
+                "补回归测试锁定该失败分支",
+            ],
+            "verify": "手动调用引擎入口(规则兜底)确认返回 ok 不抛异常",
+            "risk": "中：可能涉及 LLM key / 网络配置；规则兜底路径应保证无 key 也能降级运行。",
+        },
     )
 
 
@@ -174,6 +206,17 @@ def _build_automation_fail_proposal(sig):
                  "必要时调整任务参数或下线该任务"],
         confidence=0.75, auto_fixable=False,
         source_ref="event:automation:%s" % sig.get("kind"), rule_id="automation_run_fail",
+        patch_plan={
+            "title": "排查自动化任务『%s』运行失败" % tid,
+            "steps": [
+                "查看任务定义(schedule/goal/kind/domain)是否合理",
+                "在源码服务下手动 `hub.run_now('%s', cwd=...)` 复现" % tid,
+                "若指令/依赖问题 → 调整任务参数; 若环境缺失 → 补依赖",
+                "确认无误后可保留, 否则 `hub.set_enabled('%s', False)` 下线" % tid,
+            ],
+            "verify": "重新 run_now 确认任务达成预期(ok=true)",
+            "risk": "低：仅调度配置/参数调整，不影响其它任务。",
+        },
     )
 
 
@@ -187,6 +230,16 @@ def _build_generic_fail_proposal(sig):
         confidence=0.6, auto_fixable=False,
         source_ref="event:%s:%s" % (sig.get("source"), sig.get("kind")),
         rule_id="generic_fail",
+        patch_plan={
+            "title": "定位并评估异常信号 (source=%s)" % sig.get("source", "system"),
+            "steps": [
+                "在 /api/audit 与运行日志中定位该信号的完整上下文",
+                "评估是否需补防护/重试/降级逻辑",
+                "若确认为偶发 → 加监控; 若为系统性 → 提 Issue",
+            ],
+            "verify": "观察后续是否复现该信号",
+            "risk": "中：视具体来源而定，先观察再决策。",
+        },
     )
 
 
@@ -251,10 +304,58 @@ def propose(selfcheck_report=None, bus=None):
     }
 
 
-def export_proposals(report, out_dir):
-    """把提议落盘到 out_dir/.lmw_heal/proposals.jsonl (human-in-the-loop 待审)。
+def _render_markdown(report):
+    """把提议报告渲染为可读 Markdown(含完整补丁预案)。"""
+    lines = []
+    lines.append("# 灵梦work · 自愈补丁提议报告 (Phase 19)\n")
+    lines.append("> 生成于 **%s**  ·  健康分 **%d**  ·  信号 %d  ·  提议 %d  ·  可自动修复 %d\n" % (
+        report.get("generated_at", "?"), report.get("health_score", 0),
+        report.get("signal_count", 0), report.get("proposal_count", 0),
+        report.get("auto_fixable_count", 0)))
+    lines.append("\n**严重度分布**: 高 %d · 中 %d · 低 %d\n" % (
+        (report.get("by_severity") or {}).get("high", 0),
+        (report.get("by_severity") or {}).get("medium", 0),
+        (report.get("by_severity") or {}).get("low", 0)))
+    lines.append("---\n")
+    props = report.get("proposals", []) or []
+    if not props:
+        lines.append("✅ 当前无异常信号，系统健康。\n")
+        return "\n".join(lines)
+    for i, p in enumerate(props, 1):
+        lines.append("## P%03d · [%s] %s\n" % (i, p.get("severity", "").upper(), p.get("area", "")))
+        lines.append("- **置信度**: %d%%  ·  **自动修复**: %s" % (
+            int((p.get("confidence") or 0) * 100),
+            "可" if p.get("auto_fixable") else "需人工复核"))
+        lines.append("- **来源**: `%s`  ·  **规则**: `%s`" % (p.get("source_ref", ""), p.get("rule_id", "")))
+        lines.append("- **症状**: %s" % p.get("symptom", ""))
+        lines.append("- **假设**: %s" % p.get("hypothesis", ""))
+        acts = p.get("actions") or []
+        if acts:
+            lines.append("- **建议动作**:")
+            for a in acts:
+                lines.append("  - %s" % a)
+        plan = p.get("patch_plan") or {}
+        if plan:
+            lines.append("\n### 🛠 可执行补丁预案: %s\n" % plan.get("title", ""))
+            steps = plan.get("steps") or []
+            for j, s in enumerate(steps, 1):
+                lines.append("  %d. %s" % (j, s))
+            if plan.get("verify"):
+                lines.append("- **验证**: %s" % plan.get("verify"))
+            if plan.get("risk"):
+                lines.append("- **风险**: %s" % plan.get("risk"))
+        lines.append("\n---\n")
+    return "\n".join(lines)
 
-    返回 {ok, path, count}。不直接改动任何源码。
+
+def export_proposals(report, out_dir):
+    """把提议落盘到 out_dir/.lmw_heal/ (human-in-the-loop 待审)。
+
+    生成两份产物:
+      - proposals.jsonl : 机器可读快照(每次追加)
+      - proposals_<ts>.md : 可读报告(含完整补丁预案)
+
+    返回 {ok, path, md_path, count}。不直接改动任何源码。
     """
     try:
         d = os.path.join(out_dir, ".lmw_heal")
@@ -268,16 +369,21 @@ def export_proposals(report, out_dir):
                 "health_score": report.get("health_score"),
                 "proposals": report.get("proposals", []),
             }, ensure_ascii=False) + "\n")
+        # 可读报告(含补丁预案)
+        ts = (report.get("generated_at") or time.strftime("%Y%m%d%H%M%S")).replace(" ", "_").replace(":", "")
+        md_path = os.path.join(d, "proposals_%s.md" % ts)
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(_render_markdown(report))
         readme = os.path.join(d, "README.md")
         if not os.path.exists(readme):
             with open(readme, "w", encoding="utf-8") as f:
                 f.write("# 自愈提议待审区 (.lmw_heal)\n\n"
-                        "本目录由 Phase 18 自主进化闭环生成。\n"
-                        "`proposals.jsonl` 中每条为一次健康快照的补丁提议清单\n"
-                        "(severity/area/symptom/hypothesis/actions/confidence)。\n\n"
-                        "**human-in-the-loop**：系统仅生成建议，不自动改动源码；\n"
-                        "请人工复核后再落地补丁。\n")
-        return {"ok": True, "path": path, "count": report.get("proposal_count", 0)}
+                        "本目录由 Phase 18/19 自主进化闭环生成。\n"
+                        "`proposals.jsonl` 为机器可读快照(每次追加);\n"
+                        "`proposals_<ts>.md` 为可读补丁报告(含结构化修复预案)。\n\n"
+                        "**human-in-the-loop**：系统仅生成建议与可执行预案，不自动改动源码；\n"
+                        "请人工复核 Step 后再落地补丁。\n")
+        return {"ok": True, "path": path, "md_path": md_path, "count": report.get("proposal_count", 0)}
     except Exception as e:
         return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 

@@ -1451,6 +1451,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._automations_create()
         if p == "/api/heal/export":
             return self._heal_export()
+        if p == "/api/heal/export-md":
+            return self._heal_export_md()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1600,6 +1602,23 @@ class Handler(SimpleHTTPRequestHandler):
         if not res.get("ok"):
             return self._send_json({"error": res.get("error", "导出失败")}, status=500)
         return self._send_json({"ok": True, "path": res["path"], "count": res["count"]})
+
+    def _heal_export_md(self):
+        """POST /api/heal/export-md -> 生成可读补丁报告 .lmw_heal/proposals_<ts>.md (含预案)。"""
+        from .. import self_heal as _sh
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        out_dir = body.get("cwd") or os.getcwd()
+        rep = _sh.run()
+        res = _sh.export_proposals(rep, out_dir)
+        if not res.get("ok"):
+            return self._send_json({"error": res.get("error", "导出失败")}, status=500)
+        return self._send_json({"ok": True, "md_path": res["md_path"],
+                                "path": res["path"], "count": res["count"]})
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

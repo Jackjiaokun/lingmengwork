@@ -25,6 +25,7 @@ _STATIC_FILES = [
     "web/static/activity.html",
     "web/static/audit.html",
     "web/static/heal.html",
+    "web/static/federation.html",
 ]
 
 
@@ -44,7 +45,7 @@ def _chk(name, fn):
 def check_imports():
     from . import (decompose_engine, creation_domains, autonomous,
                    goal_pipeline, multimodal_adapters, memory_mgr,
-                   automation_hub, event_bus, self_heal)
+                   automation_hub, event_bus, self_heal, federation)
     from .web import server  # noqa: F401
     return "9 个核心模块导入成功"
 
@@ -144,6 +145,24 @@ def check_static_files():
     return "%d 个关键静态资产齐备" % len(_STATIC_FILES)
 
 
+def check_federation():
+    from . import federation as fed
+    f = fed.get_federation()
+    partners = f.list_partners()
+    assert len(partners) == 4, "应注册 4 个伙伴, 实际 %d" % len(partners)
+    # 路由: 纯编码目标 → 仅 code
+    assert f.route("写一个登录函数") == ["code"], "编码目标应仅路由 code"
+    # 跨域目标 → code + creation + ops 等多伙伴
+    routed = f.route("开发一款命令行待办应用，制作一张产品配图，撰写发布文案并准备上线部署")
+    assert "code" in routed and "creation" in routed and "ops" in routed, "应跨域路由"
+    # 派发闭环(无 LLM 规则兜底), 伙伴应全部成功
+    rep = f.dispatch("开发一款命令行待办应用，制作一张产品配图，撰写发布文案并准备上线部署", llm_call=None)
+    assert rep["ok"] and rep["partners"], "派发应返回伙伴结果"
+    assert all(p["status"] == "ok" for p in rep["partners"]), "伙伴应全部成功"
+    assert rep["merged"]["parts"], "汇聚应有结构"
+    return "联邦 %d 伙伴 + 跨域路由 + 派发闭环(%d 伙伴)" % (len(partners), len(rep["partners"]))
+
+
 def run():
     """执行全部健康检查, 返回结构化报告 dict。"""
     checks = [
@@ -156,6 +175,7 @@ def run():
         _chk("跨会话记忆(捕获+召回)", check_memory),
         _chk("活动总线(事件+审计链)", check_event_bus),
         _chk("自主进化(自愈提议)", check_self_heal),
+        _chk("工作伙伴联邦(路由+派发)", check_federation),
         _chk("关键静态资产", check_static_files),
     ]
     total = len(checks)

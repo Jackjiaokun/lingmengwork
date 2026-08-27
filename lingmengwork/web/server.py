@@ -1173,6 +1173,11 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 自主进化闭环 (Phase 18): 自愈提议页面 ----
         if p == "/heal":
             return self._serve_file("heal.html")
+        # ---- 工作伙伴多智能体联邦 (Phase 25): 伙伴注册/派发/汇聚 ----
+        if p == "/federation":
+            return self._serve_file("federation.html")
+        if p == "/api/federation":
+            return self._federation_get()
         if p == "/api/automations":
             return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
@@ -1467,6 +1472,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._heal_verify()
         if p == "/api/heal/apply":
             return self._heal_apply()
+        # ---- 工作伙伴多智能体联邦 (Phase 25): 目标派发到 1..N 伙伴 ----
+        if p == "/api/federation/dispatch":
+            return self._federation_dispatch()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1703,6 +1711,37 @@ class Handler(SimpleHTTPRequestHandler):
         if not res.get("ok"):
             return self._send_json({"error": res.get("error", "应用失败")}, status=500)
         return self._send_json({"ok": True, **res})
+
+    # ------------------------------------------------------------------
+    # 工作伙伴多智能体联邦 (Phase 25): 目标路由 → 并行派发 → 汇聚
+    # ------------------------------------------------------------------
+    def _federation_get(self):
+        """GET /api/federation -> 已注册伙伴清单(供联邦页初始化)。"""
+        from .. import federation as _fed
+        fed = _fed.get_federation()
+        partners = fed.list_partners()
+        return self._send_json({"ok": True, "partners": partners, "count": len(partners)})
+
+    def _federation_dispatch(self):
+        """POST /api/federation/dispatch {goal, hint_domains?} -> 路由到 1..N 伙伴并行派发 + 汇聚。
+
+        hint_domains: 可选伙伴 id 列表(code/creation/research/ops), 显式覆盖自动路由。
+        """
+        from .. import federation as _fed
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            hint = body.get("hint_domains") or []
+            if isinstance(hint, str):
+                hint = [h.strip() for h in hint.split(",") if h.strip()]
+            if not goal:
+                return self._send_json({"error": "缺少 goal"}, status=400)
+            fed = _fed.get_federation()
+            rep = fed.dispatch(goal, session_id=body.get("session_id") or "",
+                              hint_domains=hint or None, llm_call=self._make_llm_call())
+            return self._send_json({"ok": True, **rep})
+        except Exception as e:
+            return self._send_json({"error": "联邦派发失败: %s" % e}, status=500)
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工作伙伴联邦 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0e17; --panel:#141a2a; --panel2:#1b2236; --line:#262f47;
+    --txt:#e6ecff; --sub:#8b97b8; --accent:#7c5cff; --accent2:#22d3ee;
+    --ok:#34d399; --warn:#fbbf24; --bad:#fb7185;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(160deg,#0b0e17,#0e1424 60%);color:var(--txt);
+    font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 18px 60px;}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  header h1{font-size:20px;margin:0;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  header .tag{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:2px 9px;}
+  .sub{color:var(--sub);font-size:12px;margin:2px 0 18px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+  .kpi .v{font-size:26px;font-weight:700;}
+  .kpi .l{font-size:12px;color:var(--sub);margin-top:2px;}
+  .kpi.count .v{color:var(--accent2);}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0 8px;}
+  .row h2{font-size:15px;margin:0;}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;
+    padding:8px 14px;cursor:pointer;font-size:13px;}
+  .btn:hover{border-color:var(--accent);}
+  .btn.primary{background:linear-gradient(90deg,var(--accent),#9d7bff);border:none;color:#fff;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+  .pcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:12px;
+    border-left:4px solid var(--line);}
+  .pcard.ok{border-left-color:var(--ok);}
+  .pcard.error{border-left-color:var(--bad);}
+  .pcard .ph{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+  .pill{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--sub);}
+  .pill.dom{color:var(--accent2);border-color:#234;}
+  .pill.st.ok{color:var(--ok);border-color:#2b5a45;background:#16241d;}
+  .pill.st.error{color:var(--bad);border-color:#5a2b3a;background:#2a1620;}
+  textarea,input[type=text]{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:10px 12px;font:13px/1.5 -apple-system,"Segoe UI",Roboto,"PingFang SC",sans-serif;resize:vertical;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12px;color:var(--sub);margin-bottom:6px;}
+  .hinthelp{font-size:11px;color:var(--sub);margin-top:4px;}
+  .plan{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);padding:10px 12px;
+    white-space:pre-wrap;font-size:13px;max-height:320px;overflow:auto;}
+  .plan .pt{font-weight:600;color:var(--accent2);font-size:13px;margin-bottom:6px;}
+  .conflict{background:#2a1620;border:1px solid #5a2b3a;border-radius:10px;padding:10px 12px;margin-bottom:8px;color:var(--warn);font-size:13px;}
+  .merged{background:var(--panel2);border:1px dashed var(--line);border-radius:10px;padding:12px;white-space:pre-wrap;font-size:13px;color:var(--txt);}
+  .empty{text-align:center;color:var(--sub);padding:40px;border:1px dashed var(--line);border-radius:14px;}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--accent);
+    border-radius:10px;padding:12px 16px;font-size:13px;display:none;max-width:340px;}
+  .ptools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .ptool{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:1px 8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🕸️ 工作伙伴多智能体联邦</h1>
+    <span class="tag">Phase 25 · Federation</span>
+  </header>
+  <div class="sub">把单循环编码 AGENT 升级为多智能体联邦：目标自动路由到 <b>编码 / 创作 / 研究 / 运维</b> 伙伴，并行派发、结构化汇聚（去重 / 冲突检测），全程进审计链。</div>
+
+  <div class="kpis">
+    <div class="kpi count"><div class="v" id="kCount">--</div><div class="l">注册伙伴</div></div>
+    <div class="kpi"><div class="v" id="kDispatch">0</div><div class="l">累计派发</div></div>
+    <div class="kpi"><div class="v" id="kRouted">--</div><div class="l">最近派发域</div></div>
+    <div class="kpi"><div class="v" id="kConflict">0</div><div class="l">产出冲突</div></div>
+  </div>
+
+  <div class="row"><h2>🤝 伙伴清单</h2><span class="sub" id="partnerAt"></span></div>
+  <div id="partnerList"><div class="empty">正在加载…</div></div>
+
+  <div class="row"><h2>🚀 目标派发</h2></div>
+  <div class="card">
+    <div class="field">
+      <label>目标（模糊即可，联邦自动路由）</label>
+      <textarea id="goalInput" rows="3" placeholder="例如：开发一个命令行待办应用，并撰写发布文案、准备上线部署"></textarea>
+    </div>
+    <div class="field">
+      <label>指定伙伴（可选，逗号分隔；留空则自动路由）</label>
+      <input type="text" id="hintInput" placeholder="code,creation,research,ops" />
+      <div class="hinthelp">可选项：code（编码） · creation（创作） · research（研究） · ops（运维）</div>
+    </div>
+    <button class="btn primary" id="btnDispatch">⚡ 派发到联邦</button>
+  </div>
+
+  <div class="row"><h2>🧩 协同结果</h2><span class="sub" id="dispatchAt"></span></div>
+  <div id="resultBox"><div class="empty">尚未派发。填写目标后点击「派发到联邦」。</div></div>
+
+  <div class="row"><h2>🧭 汇聚报告（struct-panel）</h2></div>
+  <div class="merged" id="mergedBox">—</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none",3600); }
+function escapeHtml(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+let _dispatchCount = 0;
+
+function renderPartners(list){
+  const box = $("#partnerList");
+  if(!list || !list.length){ box.innerHTML = '<div class="empty">暂无伙伴</div>'; return; }
+  box.innerHTML = list.map(p=>{
+    const tools = (p.tools||[]).map(t=>`<span class="ptool">${escapeHtml(t)}</span>`).join("");
+    return `<div class="pcard ok" style="border-left-color:${p.theme}">
+      <div class="ph">
+        <span style="font-size:18px">${p.emoji||"•"}</span>
+        <b>${escapeHtml(p.name)}</b>
+        <span class="pill dom">${escapeHtml(p.domain)}</span>
+      </div>
+      <div style="color:var(--sub);font-size:13px;margin:4px 0;">${escapeHtml(p.desc||"")}</div>
+      <div class="ptools">${tools}</div>
+    </div>`;
+  }).join("");
+  $("#kCount").textContent = list.length;
+}
+
+function renderResult(rep){
+  _dispatchCount += 1;
+  $("#kDispatch").textContent = _dispatchCount;
+  const routed = (rep.routed||[]).join(", ") || "—";
+  $("#kRouted").textContent = routed;
+  $("#dispatchAt").textContent = "派发于 " + (rep.dispatched_at||"");
+
+  const box = $("#resultBox");
+  const partners = rep.partners||[];
+  if(!partners.length){ box.innerHTML = '<div class="empty">无伙伴被派发</div>'; return; }
+  box.innerHTML = partners.map(p=>{
+    const st = (p.status==="ok") ? "ok" : "error";
+    const plan = p.plan ? `<div class="plan"><div class="pt">执行产出</div>${escapeHtml(p.plan)}</div>` : "";
+    const err = p.error ? `<div class="pill st error">${escapeHtml(p.error)}</div>` : "";
+    return `<div class="pcard ${st}">
+      <div class="ph">
+        <b>${escapeHtml(p.name)}</b>
+        <span class="pill dom">${escapeHtml(p.domain)}</span>
+        <span class="pill st ${st}">${st==="ok"?"✅ 成功":"❌ 异常"}</span>
+        ${err}
+      </div>
+      <div>${escapeHtml(p.summary||"")}</div>
+      ${plan}
+    </div>`;
+  }).join("");
+
+  // 冲突
+  const conflicts = (rep.merged&&rep.merged.conflicts)||[];
+  $("#kConflict").textContent = conflicts.length;
+  if(conflicts.length){
+    box.innerHTML += conflicts.map(c=>`<div class="conflict">⚠ ${escapeHtml(c.note)}（${escapeHtml((c.partners||[]).join(" / "))}）</div>`).join("");
+  }
+
+  // 汇聚报告
+  $("#mergedBox").textContent = (rep.merged&&rep.merged.summary) || "—";
+}
+
+async function poll(){
+  try{
+    const r = await fetch("/api/federation");
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const d = await r.json();
+    if(d.ok) renderPartners(d.partners);
+  }catch(e){ /* 静默 */ }
+}
+
+$("#btnDispatch").addEventListener("click", async ()=>{
+  const goal = $("#goalInput").value.trim();
+  if(!goal){ toast("请先填写目标"); return; }
+  const hint = $("#hintInput").value.trim();
+  const body = { goal };
+  if(hint) body.hint_domains = hint.split(",").map(s=>s.trim()).filter(Boolean);
+  try{
+    $("#btnDispatch").disabled = true;
+    const r = await fetch("/api/federation/dispatch",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const d = await r.json();
+    if(d.ok){ renderResult(d); toast("派发完成，命中 "+((d.routed||[]).length)+" 个伙伴"); }
+    else toast("派发失败: "+(d.error||r.status));
+  }catch(e){ toast("请求失败: "+e.message); }
+  finally{ $("#btnDispatch").disabled = false; }
+});
+
+poll();
+setInterval(poll, 6000);
+</script>
+</body>
+</html>

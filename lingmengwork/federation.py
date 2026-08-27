@@ -204,7 +204,11 @@ class Federation:
                              artifacts=[{"type": "ops_plan", "domain": "ops"}])
 
     # ---- 并行派发 ----
-    def dispatch(self, goal, session_id="", hint_domains=None, llm_call=None, max_workers=4):
+    def dispatch(self, goal, session_id="", hint_domains=None, llm_call=None,
+                 max_workers=4, connector_names=None):
+        """connector_names: 预匹配的可用连接器名列表; 派发时逐一调用, 结果注入 returned。
+        连接器调用异常隔离(不崩), 结果结构: matched_connectors=[{name, ok, result/error}]。
+        """
         routed = self.route(goal, hint_domains=hint_domains, llm_call=llm_call)
         results = []
         n = max(1, min(max_workers, len(routed)))
@@ -216,6 +220,28 @@ class Federation:
         # 按路由顺序重排, 保证结果稳定可读
         order = {pid: i for i, pid in enumerate(routed)}
         results.sort(key=lambda r: order.get(r.partner_id, 99))
+        # Phase 34: 连接器能力标签匹配 → 调用可用连接器
+        matched_connectors = []
+        if connector_names:
+            try:
+                from . import plugin_hub as _ph
+                hub = _ph.get_hub()
+                for cname in connector_names:
+                    conn = hub.get_connector(cname)
+                    if conn and conn.check()["available"]:
+                        try:
+                            cr = conn.call(goal=goal)
+                            matched_connectors.append({
+                                "name": cname, "ok": bool(cr.get("ok", False)),
+                                "result": cr.get("result"), "error": cr.get("error"),
+                            })
+                        except Exception as e:
+                            matched_connectors.append({
+                                "name": cname, "ok": False,
+                                "error": "%s: %s" % (type(e).__name__, e),
+                            })
+            except Exception:
+                pass
         # 审计: 派发(关键操作) + 各伙伴完成
         try:
             from . import event_bus as _eb
@@ -226,6 +252,13 @@ class Federation:
                 _eb.emit("federation", "partner_done",
                          "伙伴 %s 完成(%s)" % (r.name, r.status),
                          {"partner": r.partner_id, "status": r.status}, audit=False)
+            if matched_connectors:
+                ok_n = sum(1 for m in matched_connectors if m["ok"])
+                _eb.emit("federation", "connectors_done",
+                         "连接器调用 %d 个(成功 %d): %s"
+                         % (len(matched_connectors), ok_n,
+                            ", ".join(m["name"] for m in matched_connectors)),
+                         {"connectors": matched_connectors}, audit=True)
         except Exception:
             pass
         merged = self.merge(results)
@@ -234,6 +267,7 @@ class Federation:
             "goal": goal,
             "routed": routed,
             "partners": [asdict(r) for r in results],
+            "matched_connectors": matched_connectors,
             "merged": merged,
             "dispatched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "session_id": session_id,

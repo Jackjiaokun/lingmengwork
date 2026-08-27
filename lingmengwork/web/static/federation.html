@@ -19,8 +19,8 @@
     -webkit-background-clip:text;background-clip:text;color:transparent;}
   header .tag{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:2px 9px;}
   .sub{color:var(--sub);font-size:12px;margin:2px 0 18px;}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
-  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 12px;}
   .kpi .v{font-size:26px;font-weight:700;}
   .kpi .l{font-size:12px;color:var(--sub);margin-top:2px;}
   .kpi.count .v{color:var(--accent2);}
@@ -55,6 +55,14 @@
     border-radius:10px;padding:12px 16px;font-size:13px;display:none;max-width:340px;}
   .ptools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
   .ptool{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:1px 8px;}
+  /* Phase 34: 连接器卡片 */
+  .ccard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-top:12px;
+    border-left:4px solid var(--accent2);}
+  .ccard .ch{font-weight:600;font-size:13px;color:var(--accent2);margin-bottom:8px;}
+  .ccard .crow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line);}
+  .ccard .crow:first-of-type{border-top:none;}
+  .ccard .crow .err{color:var(--bad);font-size:12px;}
+  .ccard .crow .plan{margin-top:4px;width:100%;}
 </style>
 </head>
 <body>
@@ -70,6 +78,7 @@
     <div class="kpi"><div class="v" id="kDispatch">0</div><div class="l">累计派发</div></div>
     <div class="kpi"><div class="v" id="kRouted">--</div><div class="l">最近派发域</div></div>
     <div class="kpi"><div class="v" id="kConflict">0</div><div class="l">产出冲突</div></div>
+    <div class="kpi"><div class="v" id="kConn">0</div><div class="l">连接器调用(Phase 34)</div></div>
   </div>
 
   <div class="row"><h2>🤝 伙伴清单</h2><span class="sub" id="partnerAt"></span></div>
@@ -155,6 +164,21 @@ function renderResult(rep){
   $("#kConflict").textContent = conflicts.length;
   if(conflicts.length){
     box.innerHTML += conflicts.map(c=>`<div class="conflict">⚠ ${escapeHtml(c.note)}（${escapeHtml((c.partners||[]).join(" / "))}）</div>`).join("");
+  }
+
+  // Phase 34: 连接器能力标签匹配结果
+  const mcs = (rep.matched_connectors||[]);
+  if(mcs.length){
+    box.innerHTML += `<div class="ccard">
+      <div class="ch">🔌 连接器调用（Phase 34 · 能力标签匹配）</div>
+      ${mcs.map(m=>`<div class="crow ${m.ok?'ok':'error'}">
+        <span class="pill st ${m.ok?'ok':'error'}">${m.ok?'✅ 成功':'❌ 失败'}</span>
+        <b>${escapeHtml(m.name)}</b>
+        ${m.error?`<span class="err">${escapeHtml(m.error)}</span>`:""}
+        ${m.result?`<div class="plan"><div class="pt">connector 结果</div>${escapeHtml(String(m.result))}</div>`:""}
+      </div>`).join("")}
+    </div>`;
+    $("#kConn").textContent = mcs.length;
   }
 
   // 汇聚报告

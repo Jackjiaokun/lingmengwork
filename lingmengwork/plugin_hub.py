@@ -28,7 +28,7 @@ class Connector:
     """外部连接器: 声明能力 + 可用性 + 调用入口。"""
 
     def __init__(self, name, category, description, call_fn=None,
-                 env_required=None, optional_dep=None, extra=None):
+                 env_required=None, optional_dep=None, extra=None, tags=None):
         self.name = name
         self.category = category or "tool"
         self.description = description
@@ -36,6 +36,7 @@ class Connector:
         self.env_required = list(env_required or [])
         self.optional_dep = list(optional_dep or [])
         self.extra = extra or {}
+        self.tags = list(tags or [])  # 能力关键词, 供联邦路由标签匹配
 
     def check(self):
         """检查可用性: 必需 env 变量缺失 → 降级 unavailable。"""
@@ -70,7 +71,7 @@ class Connector:
             "description": self.description, "available": chk["available"],
             "missing_env": chk["missing_env"],
             "optional_dep": self.optional_dep,
-            "extra": self.extra,
+            "extra": self.extra, "tags": self.tags,
         }
 
 
@@ -169,6 +170,25 @@ class PluginHub:
                 _emit("plugin", "discover_error", "加载插件 %s 失败: %s" % (mod_name, e),
                       {"file": fn, "error": "%s: %s" % (type(e).__name__, e)})
         return found
+
+    # ---------------------------------------------------------------- 联邦路由匹配
+    def match_connectors(self, goal):
+        """按目标关键词匹配可用连接器(name/category/tags/description 命中),
+        返回 [{name, category, description, tags}]。无 LLM 亦可用(规则关键词)。"""
+        g = (goal or "").lower()
+        toks = [w for w in re.split(r"[\s,，。.、]+", g) if len(w) >= 2]
+        if not toks:
+            return []
+        matched = []
+        for c in self.connectors.values():
+            if not c.check()["available"]:
+                continue
+            haystack = " %s %s %s" % (c.name, c.category, " ".join(c.tags))
+            hl = haystack.lower()
+            if any(t in hl for t in toks):
+                matched.append({"name": c.name, "category": c.category,
+                                "description": c.description, "tags": c.tags})
+        return matched
 
     # ---------------------------------------------------------------- 接入超级 AGENT
     def wire(self, superagent, goal=""):

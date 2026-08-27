@@ -161,3 +161,53 @@ def test_selfcheck_probe_count():
     assert rep["total"] == 14, "探针数应为 14, 实际 %d" % rep["total"]
     failed = {c["name"]: c["detail"] for c in rep["checks"] if not c["ok"]}
     assert not failed, failed
+
+
+# ------------------------------------------------------------------ Phase 34: 连接器能力标签匹配
+def test_match_connectors_by_name():
+    """match_connectors 按目标关键词命中连接器 name/category/tags。"""
+    from lingmengwork import plugin_hub as ph
+    hub = ph.get_hub()
+    hub.register_connector("search_web", category="search",
+                           description="Web 搜索连接器", tags=["search", "web", "http"],
+                           call_fn=lambda g, **kw: {"ok": True, "result": "searched: " + g})
+    hub.register_connector("offline_tool", category="local",
+                           description="离线工具", tags=["local", "file"],
+                           env_required=["NEVER_SET_ENV_XYZ"],
+                           call_fn=lambda g, **kw: {"ok": True})
+    # 关键词命中 health 内置连接器(name 含 health)
+    matched = hub.match_connectors("系统 health check")
+    names = {m["name"] for m in matched}
+    assert "health" in names, "应匹配 health 连接器"
+    # 关键词命中新注册 search_web (category=search + tags 含 search)
+    matched2 = hub.match_connectors("web search 搜索")
+    assert any(m["name"] == "search_web" for m in matched2), "应匹配 search_web"
+    # offline_tool 不可用, 不应出现在匹配结果
+    matched3 = hub.match_connectors("local file 工具")
+    assert not any(m["name"] == "offline_tool" for m in matched3), "降级连接器不应匹配"
+
+
+def test_dispatch_calls_matched_connectors():
+    """dispatch 传入 connector_names 时, 调用对应连接器并注入 matched_connectors。"""
+    from lingmengwork import plugin_hub as ph
+    hub = ph.get_hub()
+    calls = []
+    hub.register_connector("tst_echo", category="test",
+                           description="测试回显", tags=["echo", "test"],
+                           call_fn=lambda g, **kw: (calls.append(g) or {"ok": True, "result": "echo:" + g}))
+    f = fed.get_federation()
+    rep = f.dispatch("给个测试目标", connector_names=["tst_echo", "nonexistent"])
+    assert "matched_connectors" in rep
+    assert rep["matched_connectors"], "应有 matched_connectors"
+    assert any(m["name"] == "tst_echo" and m["ok"] for m in rep["matched_connectors"]), rep
+    assert "给个测试目标" in calls, "连接器应被调用"
+    # nonexistent 连接器不在 matched_connectors 中(不存在, 被跳过)
+    assert not any(m["name"] == "nonexistent" for m in rep["matched_connectors"])
+
+
+def test_match_connectors_empty_goal():
+    """空目标 → match_connectors 返回空列表, 不报错。"""
+    from lingmengwork import plugin_hub as ph
+    hub = ph.get_hub()
+    assert hub.match_connectors("") == []
+    assert hub.match_connectors("  ") == []

@@ -527,11 +527,12 @@ class SuperAgent:
     def route(self, understand):
         return understand.get("domains") or ["code"]
 
-    # ---- 阶段 3: 并行编排 (联邦派发 N 伙伴) ----
+    # ---- 阶段 3: 并行编排 (联邦派发 N 伙伴 + 连接器标签匹配) ----
     def dispatch(self, understand, session_id="", llm_call=None):
         return _fed.get_federation().dispatch(
             understand["goal"], session_id=session_id,
-            hint_domains=understand.get("domains"), llm_call=llm_call)
+            hint_domains=understand.get("domains"), llm_call=llm_call,
+            connector_names=understand.get("connectors"))
 
     # ---- 阶段 4: 收敛 (三级护栏 + 一致性校验) ----
     def converge(self, dispatch_rep, quality_gate=True):
@@ -661,10 +662,11 @@ class SuperAgent:
         except Exception as e:
             return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 
-    # ---- Phase 32: 插件接入 (专家画像 hint 域 + connector 可用性) ----
+    # ---- Phase 32/34: 插件接入 (专家域 hint + connector 可用性 + 能力标签匹配) ----
     def _wire_plugins(self, goal, understand):
-        """接入 plugin_hub: 把可用 expert 的域并入 understand.domains(不覆盖 LLM 抽取结果),
-        connector 可用性注入 self.plugin_connectors; 返回接入摘要, 失败静默。"""
+        """接入 plugin_hub: 专家域并入 understand.domains; connector 注入 plugin_connectors;
+        按目标关键词匹配可用连接器(match_connectors)存入 understand.connectors,
+        供 dispatch 阶段联邦自动调用。返回接入摘要, 失败静默。"""
         try:
             from . import plugin_hub as _ph
             hub = _ph.get_hub()
@@ -674,11 +676,16 @@ class SuperAgent:
                 d = e.get("domain")
                 if d and d not in merged:
                     merged.append(d)
-            merged = merged[:4]  # 上限 4, 防路由膨胀
+            merged = merged[:4]
             understand["domains"] = merged
+            # Phase 34: 能力标签匹配 — 按目标关键词匹配可用连接器
+            matched = hub.match_connectors(goal)
+            understand["connectors"] = [m["name"] for m in matched]
+            understand["matched_connectors"] = matched
             wired = hub.wire(self, goal=goal)
             return wired
         except Exception:
+            understand["connectors"] = understand.get("connectors", [])
             return {"experts": [], "connectors": [], "downgraded": []}
 
     # ---- 统一入口 ----
@@ -725,11 +732,13 @@ class SuperAgent:
             # 2 域路由(若插件合并了专家域, 路由结果可能随之扩展)
             routed = self.route(understand)
             _trace("域路由", "→ %s" % "/".join(routed))
-            # 3 并行编排(联邦多伙伴)
+            # 3 并行编排(联邦多伙伴 + Phase34 连接器标签匹配)
             dispatch_rep = self.dispatch(understand, session_id=session_id, llm_call=llm_call)
-            _trace("并行编排", "派发 %d 伙伴, %d 成功"
+            mc = dispatch_rep.get("matched_connectors", []) or []
+            _trace("并行编排", "派发 %d 伙伴, %d 成功; 连接器调用 %d"
                    % (len(dispatch_rep.get("partners", [])),
-                      len([p for p in dispatch_rep.get("partners", []) if p.get("status") == "ok"])))
+                      len([p for p in dispatch_rep.get("partners", []) if p.get("status") == "ok"]),
+                      len(mc)))
             # 4 执行落地(方案 → 真实产物, 可插拔执行器)
             exec_rep = self.execute(dispatch_rep, goal=goal, session_id=session_id, llm_call=llm_call)
             _trace("执行落地", "落地 %d 个域, 产出 %d 文件"

@@ -1158,6 +1158,11 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 统一引擎总控台 (Phase 10): 四大引擎可观测 + 一键启动 ----
         if p == "/control-center":
             return self._serve_file("control_center.html")
+        # ---- 自动化调度中枢 (Phase 15): 定时/周期任务自主运行 ----
+        if p == "/automation":
+            return self._serve_file("automation.html")
+        if p == "/api/automations":
+            return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
             from urllib.parse import unquote
             name = unquote(os.path.basename(p[len("/outputs/"):]))
@@ -1415,7 +1420,85 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 文件编辑: 保存 (供 Web 代码编辑器) ----
         if p.startswith("/api/fs"):
             return self._fs_save()
+        # ---- 自动化调度中枢 (Phase 15) ----
+        if p == "/api/automations":
+            return self._automations_create()
+        if p.startswith("/api/automations/"):
+            rest = p[len("/api/automations/"):]
+            if "/" in rest:
+                tid, action = rest.split("/", 1)
+                if action in ("run", "delete", "toggle"):
+                    return getattr(self, "_automations_" + action)(tid)
         return self.send_error(404)
+
+    # ---------------------------------------------------------------
+    # 自动化调度中枢 (Phase 15): 定时 / 周期任务自主运行
+    # ---------------------------------------------------------------
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            return json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return {}
+
+    def _automations_get(self):
+        from .. import automation_hub as _ah
+        hub = _ah.get_hub(os.getcwd())
+        _ah.start_scheduler(hub)
+        return self._send_json({
+            "ok": True,
+            "tasks": hub.list_tasks(),
+            "scheduler": {"running": bool(_ah._SCHED and _ah._SCHED.is_alive()),
+                          "now": _ah.now_str(), "base": hub.base_dir},
+        })
+
+    def _automations_create(self):
+        body = self._read_json_body()
+        name = (body.get("name") or "").strip()
+        kind = (body.get("kind") or "").strip()
+        goal = (body.get("goal") or "").strip()
+        schedule = (body.get("schedule") or "").strip()
+        if not name or not kind or not goal or not schedule:
+            return self._send_json({"error": "name/kind/goal/schedule 均必填"}, status=400)
+        from .. import automation_hub as _ah
+        hub = _ah.get_hub(os.getcwd())
+        try:
+            task = hub.add(name=name, kind=kind, goal=goal, schedule=schedule,
+                           context=(body.get("context") or ""),
+                           domain=(body.get("domain") or "code"),
+                           enabled=body.get("enabled", True))
+        except ValueError as e:
+            return self._send_json({"error": "调度表达式非法: %s" % e}, status=400)
+        return self._send_json({"ok": True, "task": task})
+
+    def _automations_run(self, tid):
+        from .. import automation_hub as _ah
+        hub = _ah.get_hub(os.getcwd())
+        out = hub.run_now(tid, cwd=os.getcwd())
+        if not out.get("ok"):
+            return self._send_json({"error": out.get("error", "运行失败")}, status=404)
+        return self._send_json(out)
+
+    def _automations_delete(self, tid):
+        from .. import automation_hub as _ah
+        hub = _ah.get_hub(os.getcwd())
+        if not hub.remove(tid):
+            return self._send_json({"error": "任务不存在"}, status=404)
+        return self._send_json({"ok": True})
+
+    def _automations_toggle(self, tid):
+        body = self._read_json_body()
+        from .. import automation_hub as _ah
+        hub = _ah.get_hub(os.getcwd())
+        enabled = body.get("enabled")
+        if enabled is None:
+            cur = hub.get(tid)
+            enabled = not (cur.get("enabled") if cur else False)
+        t = hub.set_enabled(tid, enabled)
+        if t is None:
+            return self._send_json({"error": "任务不存在"}, status=404)
+        return self._send_json({"ok": True, "task": t})
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

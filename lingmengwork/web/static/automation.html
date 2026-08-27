@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自动化调度中枢 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:rgba(255,255,255,.04); --panel-2:rgba(255,255,255,.06);
+    --stroke:rgba(255,255,255,.10); --txt:#e6e9f2; --muted:#9aa3b8;
+    --brand:#8b5cf6; --brand-2:#22d3ee; --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1100px 600px at 12% -8%, rgba(139,92,246,.18), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,.14), transparent 55%),
+      var(--bg);
+    color:var(--txt);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  header h1{margin:0 0 4px;font-size:24px;letter-spacing:.5px;
+    background:linear-gradient(90deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  header p{margin:0 0 18px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--stroke);border-radius:16px;padding:16px 18px;margin-bottom:16px}
+  .card h2{margin:0 0 12px;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 10px var(--brand)}
+  label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:.6px}
+  textarea,select,input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--stroke);border-radius:10px;color:var(--txt);
+    padding:10px 12px;font:inherit;outline:none}
+  textarea{min-height:74px;resize:vertical}
+  textarea:focus,select:focus,input:focus{border-color:var(--brand)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .f2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .f3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  button{cursor:pointer;border:1px solid var(--stroke);background:var(--panel-2);color:var(--txt);padding:9px 15px;border-radius:10px;font:inherit;transition:.16s}
+  button:hover{background:rgba(255,255,255,.12)}
+  button.primary{background:linear-gradient(90deg,var(--brand),var(--brand-2));border:none;color:#06121f;font-weight:700}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.danger{border-color:rgba(248,113,113,.4);color:var(--bad)}
+  .status{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+  .err{color:var(--bad);font-size:12px;margin-top:8px}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--stroke);border-radius:14px;padding:12px 14px}
+  .kpi .v{font-size:22px;font-weight:800;background:linear-gradient(90deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .kpi .k{font-size:11px;color:var(--muted);margin-top:2px;letter-spacing:.4px}
+
+  .task{position:relative;background:rgba(255,255,255,.03);border:1px solid var(--stroke);border-radius:14px;padding:14px 16px;margin-bottom:12px;overflow:hidden}
+  .task::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--kc,#8b5cf6);opacity:.9}
+  .task .ttop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .task .tname{font-weight:700;color:#fff;font-size:15px}
+  .badge{font-size:11px;padding:2px 9px;border-radius:999px;color:#06121f;font-weight:700}
+  .task .tgoal{color:var(--muted);font-size:12.5px;margin-top:6px}
+  .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px 14px;margin-top:10px;font-size:12px;color:var(--muted)}
+  .meta b{color:var(--txt);font-weight:600}
+  .state-on{color:var(--ok)} .state-off{color:var(--muted)}
+  .hist{margin-top:10px;border-top:1px solid var(--stroke);padding-top:8px}
+  .hist .hi{font-size:11px;color:var(--muted);display:flex;gap:8px;padding:2px 0}
+  .hist .hi .hs{font-weight:700}
+  .hidden{display:none}
+  .schedbar{font-size:12px;color:var(--muted);margin-top:6px}
+  .schedbar b{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>自动化调度中枢</h1>
+    <p>把目标登记为定时 / 周期任务，平台按计划自主驱动四引擎执行（离线规则兜底，无需任何外部 key），形成智能体 OS 的自主运行闭环。</p>
+  </header>
+
+  <!-- KPI 条 -->
+  <div class="kpis">
+    <div class="kpi"><div class="v" id="kTotal">–</div><div class="k">任务总数</div></div>
+    <div class="kpi"><div class="v" id="kOn">–</div><div class="k">已启用</div></div>
+    <div class="kpi"><div class="v" id="kSched">–</div><div class="k">调度线程</div></div>
+    <div class="kpi"><div class="v" id="kRuns">–</div><div class="k">累计触发</div></div>
+  </div>
+  <div class="schedbar" id="schedStatus">调度状态加载中…</div>
+
+  <!-- 任务列表 -->
+  <div class="card">
+    <h2><span class="dot"></span>自动化任务</h2>
+    <div id="taskList"><div class="sm" style="color:var(--muted)">加载中…</div></div>
+  </div>
+
+  <!-- 新增任务 -->
+  <div class="card">
+    <h2><span class="dot"></span>登记新任务</h2>
+    <div class="f2">
+      <div>
+        <label>任务名称</label>
+        <input id="fName" placeholder="例如：每日项目速览生成">
+      </div>
+      <div>
+        <label>引擎类型</label>
+        <select id="fKind">
+          <option value="pipeline">🌊 全链路流水线（理解→拆解→编排→执行→交付）</option>
+          <option value="autonomous">🤖 自主模式（自驱循环 · 规划/观察/Critic）</option>
+          <option value="decompose">🧩 任务拆解（层级分解 + 拓扑编排）</option>
+          <option value="creation">🎨 创作域（编程/音频/图片/视频 蓝图）</option>
+        </select>
+      </div>
+    </div>
+    <div class="f2" style="margin-top:12px">
+      <div>
+        <label>目标 / 需求</label>
+        <textarea id="fGoal" placeholder="例如：基于今日记忆生成一份投资研究简报"></textarea>
+      </div>
+      <div>
+        <label>上下文（可选）</label>
+        <textarea id="fCtx" placeholder="补充约束 / 背景（可选）"></textarea>
+      </div>
+    </div>
+    <div class="f3" style="margin-top:12px">
+      <div>
+        <label>调度表达式</label>
+        <input id="fSched" placeholder="interval:300 / daily:09:00 / cron:*/5 * * * *">
+      </div>
+      <div id="fDomainWrap" class="hidden">
+        <label>创作域</label>
+        <select id="fDomain">
+          <option value="code">编程</option>
+          <option value="audio">音频</option>
+          <option value="image">图片</option>
+          <option value="video">视频</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <label style="margin:0"><input type="checkbox" id="fEnabled" checked style="width:auto;margin-right:6px">启用</label>
+      </div>
+    </div>
+    <div class="row">
+      <button class="primary" id="btnAdd">⏰ 登记任务</button>
+      <span class="status" id="addStatus"></span>
+    </div>
+    <div class="err hidden" id="addErr"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const KIND_META = {
+  pipeline:   {label:"流水线", color:"#22d3ee", bg:"rgba(34,211,238,.18)"},
+  autonomous: {label:"自主",   color:"#34d399", bg:"rgba(52,211,153,.18)"},
+  decompose:  {label:"拆解",   color:"#8b5cf6", bg:"rgba(139,92,246,.18)"},
+  creation:   {label:"创作",   color:"#fbbf24", bg:"rgba(251,191,36,.18)"},
+};
+
+$('#fKind').addEventListener('change', e => {
+  $('#fDomainWrap').classList.toggle('hidden', e.target.value !== 'creation');
+});
+$('#btnAdd').addEventListener('click', addTask);
+
+async function load(){
+  try{
+    const r = await fetch('/api/automations');
+    const d = await r.json();
+    renderKpis(d.scheduler, d.tasks||[]);
+    renderTasks(d.tasks||[]);
+  }catch(e){
+    $('#schedStatus').textContent = '加载失败: ' + e.message;
+  }
+}
+
+function renderKpis(sched, tasks){
+  $('#kTotal').textContent = tasks.length;
+  $('#kOn').textContent = tasks.filter(t=>t.enabled).length;
+  $('#kSched').textContent = (sched && sched.running) ? '运行中' : '未启动';
+  $('#kRuns').textContent = tasks.reduce((a,t)=>a+(t.run_count||0),0);
+  if(sched){
+    $('#schedStatus').innerHTML = '调度线程: <b>'+(sched.running?'运行中':'未启动')+'</b> · 当前 '+ (sched.now||'') +' · 数据目录 '+ (sched.base||'');
+  }
+}
+
+function renderTasks(tasks){
+  const box = $('#taskList'); box.innerHTML='';
+  if(!tasks.length){
+    box.innerHTML = '<div style="color:var(--muted)">暂无任务，在下方登记第一个自动化计划。</div>';
+    return;
+  }
+  tasks.forEach(t => box.appendChild(card(t)));
+}
+
+function card(t){
+  const m = KIND_META[t.kind] || {label:t.kind, color:"#8b5cf6", bg:"rgba(139,92,246,.18)"};
+  const el = document.createElement('div');
+  el.className = 'task';
+  el.style.setProperty('--kc', m.color);
+  const hist = (t.history||[]).slice(0,3).map(h =>
+    '<div class="hi"><span class="hs" style="color:'+(h.status==='ok'?'var(--ok)':'var(--bad)')+'">'+(h.status==='ok'?'✓':'✗')+'</span>'+
+    '<span>'+ (h.at||'') +'</span><span>'+ (h.summary||'') +'</span></div>').join('');
+  el.innerHTML =
+    '<div class="ttop">'+
+      '<span class="tname">'+ esc(t.name) +'</span>'+
+      '<span class="badge" style="background:'+m.bg+';color:'+m.color+'">'+ m.label +'</span>'+
+      (t.enabled ? '<span class="state-on">● 启用</span>' : '<span class="state-off">○ 停用</span>')+
+    '</div>'+
+    '<div class="tgoal">目标: '+ esc(t.goal) + (t.domain && t.kind==='creation' ? ' ［域: '+t.domain+'］' : '') +'</div>'+
+    '<div class="meta">'+
+      '<div>计划: <b>'+ esc(t.schedule) +'</b></div>'+
+      '<div>上次运行: <b>'+ (t.last_run||'—') +'</b></div>'+
+      '<div>下次运行: <b>'+ (t.next_run||'—') +'</b></div>'+
+      '<div>已触发: <b>'+ (t.run_count||0) +'</b> 次</div>'+
+    '</div>'+
+    (hist ? '<div class="hist">'+hist+'</div>' : '')+
+    '<div class="row">'+
+      '<button data-act="run" data-id="'+t.id+'">▶ 立即运行</button>'+
+      '<button data-act="toggle" data-id="'+t.id+'">'+(t.enabled?'⏸ 停用':'▶ 启用')+'</button>'+
+      '<button class="danger" data-act="del" data-id="'+t.id+'">🗑 删除</button>'+
+    '</div>';
+  return el;
+}
+
+async function addTask(){
+  const name = $('#fName').value.trim();
+  const kind = $('#fKind').value;
+  const goal = $('#fGoal').value.trim();
+  const sched = $('#fSched').value.trim();
+  if(!name || !goal || !sched){ $('#addErr').textContent='名称/目标/调度表达式必填'; $('#addErr').classList.remove('hidden'); return; }
+  const body = { name, kind, goal, schedule: sched,
+    context: $('#fCtx').value.trim(),
+    domain: $('#fDomain').value,
+    enabled: $('#fEnabled').checked };
+  $('#addStatus').textContent = '登记中…';
+  const r = await fetch('/api/automations', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if(!d.ok){ $('#addErr').textContent = d.error||'登记失败'; $('#addErr').classList.remove('hidden'); $('#addStatus').textContent=''; return; }
+  $('#addErr').classList.add('hidden'); $('#addStatus').textContent='已登记 ✓';
+  $('#fName').value=''; $('#fGoal').value=''; $('#fCtx').value=''; $('#fSched').value='';
+  load();
+}
+
+async function act(actName, id){
+  if(actName==='del'){
+    if(!confirm('确认删除该自动化任务？')) return;
+    await fetch('/api/automations/'+id+'/delete', {method:'POST'});
+  } else if(actName==='run'){
+    await fetch('/api/automations/'+id+'/run', {method:'POST'});
+  } else if(actName==='toggle'){
+    await fetch('/api/automations/'+id+'/toggle', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+  }
+  load();
+}
+
+$('#taskList').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if(btn) act(btn.dataset.act, btn.dataset.id);
+});
+
+function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+setInterval(load, 4000);
+load();
+</script>
+</body>
+</html>

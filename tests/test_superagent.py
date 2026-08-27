@@ -230,6 +230,63 @@ def test_exec_research_fallback(tmp_path, monkeypatch):
     assert any(a.endswith(".md") for a in res["artifacts"]), res
 
 
+# ------------------------------------------------------------------ 自主编码(Phase30)
+def test_exec_code_smoke_run_log(tmp_path):
+    """Phase 30: code 执行器对代码块冒烟运行并落 .run.log。"""
+    partner = {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+               "summary": "s",
+               "plan": "实现:\n```python\nprint('hello from generated code')\n```",
+               "artifacts": []}
+    res = sa_mod._exec_code(partner, goal="输出一句话", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert res.get("run_ok") is True, res
+    logs = [a for a in res["artifacts"] if a.endswith(".run.log")]
+    assert logs, "应产出冒烟运行日志"
+    assert "returncode=0" in open(logs[0], encoding="utf-8").read()
+
+
+def test_exec_code_skeleton_smoke_ok(tmp_path):
+    """Phase 30: 无 LLM 骨架应为可运行骨架(冒烟通过, 不再 NotImplementedError)。"""
+    partner = {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+               "summary": "s", "plan": "## 方案\n做点东西", "artifacts": []}
+    res = sa_mod._exec_code(partner, goal="写个服务", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert res.get("run_ok") is True, res
+    sk = [a for a in res["artifacts"] if a.endswith("_skeleton.py")][0]
+    src = open(sk, encoding="utf-8").read()
+    assert "NotImplementedError" not in src
+
+
+def test_exec_code_self_heal(tmp_path):
+    """Phase 30: 首产代码冒烟失败 + LLM 在场 → 有限自修复后通过。"""
+    calls = {"n": 0}
+
+    def llm(prompt, system=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "```python\nraise ValueError('boom')\n```"  # 首次产出带运行期错误
+        return "```python\nprint('fixed output')\n```"        # 自修复产出可运行代码
+
+    partner = {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+               "summary": "s", "plan": "p", "artifacts": []}
+    res = sa_mod._exec_code(partner, goal="修复我", llm_call=llm, base_dir=str(tmp_path))
+    assert res.get("run_ok") is True and res.get("healed") is True, res
+    assert calls["n"] >= 2, "应调用 LLM 做自修复"
+
+
+def test_exec_code_smoke_fail_no_llm(tmp_path):
+    """Phase 30: 运行期错误且无 LLM → run_ok=False 但不崩, run.log 记录报错。"""
+    partner = {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+               "summary": "s",
+               "plan": "实现:\n```python\nraise ValueError('boom')\n```",
+               "artifacts": []}
+    res = sa_mod._exec_code(partner, goal="坏代码", base_dir=str(tmp_path))
+    assert res["status"] == "ok", "产物仍应落盘"
+    assert res.get("run_ok") is False, "冒烟应如实报告失败"
+    log = [a for a in res["artifacts"] if a.endswith(".run.log")][0]
+    assert "ValueError" in open(log, encoding="utf-8").read()
+
+
 # ------------------------------------------------------------------ 自检集成
 def test_selfcheck_probe_count():
     """selfcheck 探针数应为 13 (Phase25 联邦 + Phase26 记忆图谱 + Phase27 超级AGENT)。"""

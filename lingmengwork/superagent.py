@@ -2,7 +2,9 @@
 
 把「单循环编码 AGENT」收口为「统一超级 AGENT 内核」: 用户输入一个模糊目标,
 内核自动完成「目标理解 → 域路由 → 并行编排 → 执行落地(真实产物) → 收敛(三级护栏) → 自检(质量门) → 记忆沉淀」。
-执行落地内置 code/creation/research/ops 真实执行器(可编译代码 / 素材清单 JSON / 真实检索 / 可校验脚本), 均可通过 register_executor 热插拔覆盖(如 code->autonomous 真编码、creation->multimodal 真产出)。
+执行落地内置 code/creation/research/ops 真实执行器
+(自主编码: 生成→编译→冒烟运行自验证→失败有限自修复[LLM]→落 run.log / 素材清单 JSON / 真实检索 / 可校验脚本),
+均可通过 register_executor 热插拔覆盖(如 creation->multimodal 真产出)。
 
 复用既有能力(不长在另起炉灶, 严守不可变内核契约):
 - 域路由 / 并行编排: 多智能体联邦 federation (关键词路由 + ThreadPoolExecutor 并行派发 + 汇聚)
@@ -18,6 +20,9 @@ import collections
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import tempfile
 import time
 import urllib.parse
@@ -89,8 +94,87 @@ def _extract_steps(plan):
     return lines[:5]
 
 
+def _run_code_smoke(path, ext, out_dir):
+    """Phase 30: 子进程冒烟运行生成的代码(带超时), 返回 {rc,stdout,stderr,timed_out,skipped}。
+
+    安全边界: 子进程 + 15s 超时 + 输出截断落日志; 不做任何网络/文件系统白名单(本地自主开发工具语义)。
+    """
+    if ext == "py":
+        cmd = [sys.executable, path]
+    elif ext == "js":
+        node = shutil.which("node")
+        cmd = [node, path] if node else None
+    elif ext in ("sh", "shell"):
+        sh = shutil.which("bash") or shutil.which("sh")
+        cmd = [sh, path] if sh else None
+    else:
+        cmd = None
+    if not cmd:
+        return {"rc": None, "stdout": "", "stderr": "无对应运行时, 冒烟跳过",
+                "timed_out": False, "skipped": True}
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"  # 子进程统一 utf-8, 规避 Windows cp936 中文乱码/崩溃
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=15, cwd=out_dir, env=env)
+        return {"rc": r.returncode, "stdout": r.stdout or "", "stderr": r.stderr or "",
+                "timed_out": False, "skipped": False}
+    except subprocess.TimeoutExpired:
+        return {"rc": None, "stdout": "", "stderr": "运行超时(>15s)",
+                "timed_out": True, "skipped": False}
+    except Exception as e:
+        return {"rc": None, "stdout": "", "stderr": "%s: %s" % (type(e).__name__, e),
+                "timed_out": False, "skipped": False}
+
+
+def _smoke_and_heal(path, ext, out_dir, src_code, goal, llm_call):
+    """Phase 30: 冒烟运行 + 有限自修复(仅 py 且有 LLM)。
+
+    失败时把运行报错喂回 LLM 修正重跑, 最多 2 次; 返回 {ok,healed,log_text,note}。
+    """
+    run = _run_code_smoke(path, ext, out_dir)
+    healed = False
+    if run["rc"] != 0 and llm_call and ext == "py":
+        for _ in range(2):
+            try:
+                fixed = llm_call(
+                    "以下 Python 代码运行失败:\n```python\n%s\n```\n报错:\n%s\n"
+                    "请只输出修正后的完整代码(```python 围栏, 不要解释)."
+                    % (src_code, (run["stderr"] or "")[:1500]),
+                    system="你是资深工程师, 修复代码使其可正常运行, 只输出代码.")
+                if not (isinstance(fixed, str) and fixed.strip()):
+                    break
+                blocks = _extract_code_blocks(fixed)
+                new_code = blocks[0][1] if blocks else fixed
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(new_code)
+                src_code = new_code
+                run = _run_code_smoke(path, ext, out_dir)
+                if run["rc"] == 0:
+                    healed = True
+                    break
+            except Exception:
+                break
+    log_text = ("=== superagent 冒烟运行 ===\n文件: %s\nreturncode=%s%s\n"
+                "--- stdout ---\n%s\n--- stderr ---\n%s\n"
+                % (os.path.basename(path), run["rc"],
+                   " (超时)" if run["timed_out"] else (" (跳过)" if run["skipped"] else ""),
+                   (run["stdout"] or "")[:3000], (run["stderr"] or "")[:3000]))
+    if run["skipped"]:
+        note, ok = "冒烟跳过(运行时不可用), 仅落产物", None
+    elif run["rc"] == 0:
+        note, ok = "冒烟运行通过(rv=0)%s" % (" · 自修复成功" if healed else ""), True
+    else:
+        note, ok = ("冒烟运行失败(rv=%s)%s" % (run["rc"],
+                    " · 自修复成功" if healed else " · 有限自修复未通过(详见 run.log)")), False
+    return {"ok": ok, "healed": healed, "log_text": log_text, "note": note}
+
+
 def _exec_code(partner, goal="", llm_call=None, base_dir=None):
-    """真实编码执行器: 有 LLM 时让 LLM 产出业务代码并编译, 无 LLM 时产出可编译骨架。"""
+    """自主编码执行器(Phase 30): 生成→编译→冒烟运行自验证→(失败+LLM)有限自修复→落代码+run.log。
+
+    有 LLM: LLM 产出业务代码, 冒烟失败自动修正重跑; 无 LLM: 产出可运行骨架(冒烟通过)。
+    """
     out_dir = _resolve_out_dir(base_dir)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     plan = (partner.get("plan") or "") + "\n" + (partner.get("summary") or "")
@@ -105,6 +189,7 @@ def _exec_code(partner, goal="", llm_call=None, base_dir=None):
             pass
     blocks = _extract_code_blocks(plan)
     artifacts, notes = [], []
+    last_run = None
     ext_map = {"python": "py", "py": "py", "javascript": "js", "js": "js",
                "bash": "sh", "sh": "sh", "shell": "sh", "html": "html", "json": "json"}
     if blocks:
@@ -121,14 +206,23 @@ def _exec_code(partner, goal="", llm_call=None, base_dir=None):
                     except SyntaxError as e:
                         notes.append("python 语法警告: %s" % e)
                 artifacts.append(path)
+                # Phase 30: 冒烟运行自验证(+有限自修复), 运行日志落盘为独立产物
+                run_res = _smoke_and_heal(path, ext, out_dir, code, goal, llm_call)
+                log_path = path + ".run.log"
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write(run_res["log_text"])
+                artifacts.append(log_path)
+                notes.append(run_res["note"])
+                last_run = run_res
             except Exception as e:
                 notes.append("写入失败: %s" % e)
     else:
-        sk = ('"""%s\n\n由超级 AGENT 编码执行器生成(无 LLM 规则兜底骨架).\n'
+        sk = ('"""%s\n\n由超级 AGENT 编码执行器生成(无 LLM 规则兜底骨架, 可直接运行).\n'
               '目标: %s\n"""\n\n\ndef main():\n'
               '    # TODO: 依据联邦编码伙伴方案实现业务逻辑\n'
-              '    raise NotImplementedError("依据方案补充实现")\n\n\n'
-              'if __name__ == "__main__":\n    main()\n'
+              '    print("[scaffold] 骨架就绪, 待按方案补充实现")\n'
+              '    return 0\n\n\n'
+              'if __name__ == "__main__":\n    raise SystemExit(main())\n'
               % (partner.get("name", "编码伙伴"), goal))
         path = os.path.join(out_dir, "%s_code_skeleton.py" % ts)
         try:
@@ -136,11 +230,22 @@ def _exec_code(partner, goal="", llm_call=None, base_dir=None):
                 f.write(sk)
             compile(sk, path, "exec")
             artifacts.append(path)
-            notes.append("无 LLM: 产出可编译骨架(compile 通过)")
+            notes.append("无 LLM: 产出可运行骨架(compile 通过)")
+            run_res = _smoke_and_heal(path, "py", out_dir, sk, goal, llm_call)
+            log_path = path + ".run.log"
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write(run_res["log_text"])
+            artifacts.append(log_path)
+            notes.append(run_res["note"])
+            last_run = run_res
         except Exception as e:
             notes.append("骨架生成失败: %s" % e)
-    return {"domain": "code", "status": "ok" if artifacts else "error",
-            "artifacts": artifacts, "note": " | ".join(notes) or "已产出代码产物"}
+    ret = {"domain": "code", "status": "ok" if artifacts else "error",
+           "artifacts": artifacts, "note": " | ".join(notes) or "已产出代码产物"}
+    if last_run is not None:
+        ret["run_ok"] = last_run["ok"]
+        ret["healed"] = last_run["healed"]
+    return ret
 
 
 def _exec_research(partner, goal="", llm_call=None, base_dir=None):

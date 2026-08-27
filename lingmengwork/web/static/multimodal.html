@@ -3,30 +3,30 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>多模态实验室 · 灵梦work</title>
+<title>多模态工坊 · 灵梦work</title>
 <style>
 :root{
   --bg:#0b0a1f; --panel:rgba(22,18,48,.72); --panel-2:rgba(30,24,64,.6);
   --line:rgba(139,92,246,.22); --txt:#e9e6ff; --muted:#a79fd6; --brand:#8b5cf6;
-  --cyan:#22d3ee; --pink:#f472b6; --green:#10b981; --blue:#6366f1;
+  --cyan:#22d3ee; --pink:#f472b6; --green:#10b981; --blue:#6366f1; --red:#f87171;
 }
 *{box-sizing:border-box}
 body{margin:0;background:radial-gradient(1200px 800px at 80% -10%,rgba(139,92,246,.18),transparent),
   radial-gradient(900px 700px at -10% 110%,rgba(34,211,238,.12),transparent),var(--bg);
   color:var(--txt);font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh;padding:32px 20px}
-.wrap{max-width:980px;margin:0 auto}
+.wrap{max-width:1060px;margin:0 auto}
 h1{font-size:30px;margin:0 0 4px;background:linear-gradient(90deg,#a78bfa,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent}
 .sub{color:var(--muted);margin:0 0 24px;font-size:14px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:20px;backdrop-filter:blur(10px)}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+.row h2{font-size:18px;margin:0}
 .lbl{font-size:13px;color:var(--muted);margin:0 0 8px;letter-spacing:.04em}
 .domrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
 .dom{cursor:pointer;flex:1;min-width:150px;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;
   padding:16px;display:flex;align-items:center;gap:12px;transition:.18s;user-select:none}
 .dom:hover{transform:translateY(-2px);border-color:rgba(139,92,246,.5)}
 .dom.on{border-color:var(--accent,#8b5cf6);box-shadow:0 0 0 1px var(--accent,#8b5cf6),0 8px 26px rgba(139,92,246,.18)}
-.dom .ico{font-size:26px}
-.dom .nm{font-weight:700;font-size:15px}
-.dom .ds{font-size:12px;color:var(--muted)}
+.dom .ico{font-size:26px}.dom .nm{font-weight:700;font-size:15px}.dom .ds{font-size:12px;color:var(--muted)}
 textarea{width:100%;background:rgba(10,8,26,.6);border:1px solid var(--line);border-radius:12px;color:var(--txt);
   padding:12px;font-size:14px;font-family:inherit;resize:vertical;min-height:90px;outline:none}
 textarea:focus{border-color:rgba(139,92,246,.55)}
@@ -35,6 +35,12 @@ textarea:focus{border-color:rgba(139,92,246,.55)}
   box-shadow:0 8px 24px rgba(139,92,246,.3);transition:.18s}
 .btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(139,92,246,.42)}
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn.ghost{background:rgba(139,92,246,.16);box-shadow:none;padding:8px 14px;font-size:13px}
+.btn.ghost:hover{background:rgba(139,92,246,.3)}
+.btn.danger{background:rgba(248,113,113,.16);color:var(--red);box-shadow:none;padding:6px 10px;font-size:12px}
+input.q{background:rgba(10,8,26,.6);border:1px solid var(--line);border-radius:10px;color:var(--txt);
+  padding:8px 12px;font-size:13px;outline:none;min-width:180px}
+input.q:focus{border-color:rgba(139,92,246,.55)}
 .out{margin-top:6px}
 .state{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid var(--line)}
 .state.real{color:#bbf7d0;border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.1)}
@@ -43,18 +49,31 @@ textarea:focus{border-color:rgba(139,92,246,.55)}
 .note{color:#cbb8ff;font-size:13px;margin:6px 0 0}
 .prev{margin-top:16px;border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(10,8,26,.5);
   display:flex;flex-direction:column;align-items:center;gap:12px}
-.prev img{max-width:100%;border-radius:10px}
-.prev audio{width:100%}
+.prev img{max-width:100%;border-radius:10px}.prev audio{width:100%}
 .dl{color:#fff;font-size:13px;text-decoration:none;padding:8px 16px;border-radius:10px;background:rgba(139,92,246,.25);border:1px solid var(--line)}
 .dl:hover{background:rgba(139,92,246,.4)}
 .err{color:#fca5a5;font-size:13px;margin-top:10px}
 .hidden{display:none}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-top:8px}
+.gitem{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.gthumb{height:140px;background:rgba(10,8,26,.5);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.gthumb img{width:100%;height:100%;object-fit:cover}
+.gthumb .ph{font-size:34px;color:var(--muted)}
+.gbody{padding:12px;display:flex;flex-direction:column;gap:6px}
+.gbadge{font-size:11px;padding:3px 8px;border-radius:999px;align-self:flex-start;border:1px solid var(--line)}
+.gbadge.image{color:#fbcfe8;border-color:rgba(244,114,182,.4);background:rgba(244,114,182,.1)}
+.gbadge.audio{color:#bbf7d0;border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.1)}
+.gbadge.video{color:#c7d2fe;border-color:rgba(99,102,241,.4);background:rgba(99,102,241,.1)}
+.gnote{font-size:12px;color:var(--muted);line-height:1.4;max-height:48px;overflow:hidden}
+.gmeta{font-size:11px;color:#8a82b8}
+.gacts{display:flex;gap:8px;margin-top:4px}
+.gempty{color:var(--muted);font-size:13px;padding:20px;text-align:center;grid-column:1/-1}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🎬 多模态实验室</h1>
-  <p class="sub">真实多模态适配层 (Phase 8) · 把创作域从「蓝图产出」升级为「真实媒体文件交付」 — 图片(PNG)/音频(MP3·降级占位)/视频(GIF)</p>
+  <h1>🎬 多模态工坊</h1>
+  <p class="sub">综合超级 AGENT · 多模态基座 (Phase 21) — 统一抽象 + 可检索资产库 + 降级链不可破：图片(PNG)/音频(MP3·降级占位)/视频(GIF) 真实产出即入库，跨会话复用</p>
 
   <div class="card">
     <p class="lbl">选择创作域</p>
@@ -65,21 +84,36 @@ textarea:focus{border-color:rgba(139,92,246,.55)}
     </div>
 
     <p class="lbl">创作需求 (brief)</p>
-    <textarea id="brief" placeholder="例如：为金融科技品牌做一张深空蓝紫科技感主视觉海报，主题是「灵梦磐石·智能体 OS」"></textarea>
+    <textarea id="brief" placeholder="例如：为科技品牌做一张深空蓝紫科技感主视觉海报，主题是「灵梦work·综合超级 AGENT」"></textarea>
 
     <p class="lbl" style="margin-top:14px">创作蓝图 (可选，填入将提升产出针对性)</p>
     <textarea id="blueprint" placeholder="可粘贴 /api/creation/dispatch 产出的蓝图，留空则由适配层自动抽取要点"></textarea>
 
-    <button class="btn" id="genBtn">⚡ 生成真实媒体</button>
+    <button class="btn" id="genBtn">⚡ 生成并入库</button>
   </div>
 
   <div class="card out hidden" id="outCard">
-    <p class="lbl">产出</p>
+    <p class="lbl">本次产出</p>
     <div id="badges"></div>
     <div class="meta" id="metaLine"></div>
     <div class="note" id="noteLine"></div>
     <div class="prev" id="prev"></div>
     <div class="err hidden" id="errLine"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <h2>📚 资产库画廊</h2>
+      <select id="kindSel" class="q">
+        <option value="">全部类型</option>
+        <option value="image">图片</option>
+        <option value="audio">音频</option>
+        <option value="video">视频</option>
+      </select>
+      <input id="qInput" class="q" placeholder="搜索 prompt / 说明" />
+      <button class="btn ghost" id="refreshBtn">🔄 刷新</button>
+    </div>
+    <div class="gallery" id="gallery"><div class="gempty">加载中…</div></div>
   </div>
 </div>
 
@@ -101,6 +135,9 @@ const metaLine = document.getElementById("metaLine");
 const noteLine = document.getElementById("noteLine");
 const prev = document.getElementById("prev");
 const errLine = document.getElementById("errLine");
+const gallery = document.getElementById("gallery");
+const kindSel = document.getElementById("kindSel");
+const qInput = document.getElementById("qInput");
 
 genBtn.onclick = async () => {
   const brief = document.getElementById("brief").value.trim();
@@ -110,41 +147,102 @@ genBtn.onclick = async () => {
   outCard.classList.remove("hidden"); errLine.classList.add("hidden");
   badges.innerHTML = ""; metaLine.textContent = ""; noteLine.textContent = ""; prev.innerHTML = "";
   try {
-    const r = await fetch("/api/multimodal/render", {
+    const r = await fetch("/api/multimodal/generate", {
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({domain: curDom, brief, blueprint})
     });
     const j = await r.json();
     if (!r.ok || !j.ok) { flashErr(j.error || ("HTTP " + r.status)); return; }
-    renderResult(j);
+    renderResult(j.asset);
+    loadGallery();
   } catch (e) { flashErr("请求失败: " + e.message); }
-  finally { genBtn.disabled = false; genBtn.textContent = "⚡ 生成真实媒体"; }
+  finally { genBtn.disabled = false; genBtn.textContent = "⚡ 生成并入库"; }
 };
 
-function renderResult(j) {
-  const real = j.real;
+function renderResult(a) {
+  const real = a.real;
   badges.innerHTML = '<span class="state ' + (real ? "real" : "fake") + '">' +
-    (real ? "✅ 真实媒体文件" : "⚠️ 降级占位") + " · " + (j.mime || "") + '</span>';
-  const m = j.meta || {};
+    (real ? "✅ 真实媒体" : "⚠️ 降级占位") + " · " + (a.mime || "") + '</span>';
+  const m = a.meta || {};
   metaLine.textContent = Object.entries(m).map(([k,v]) => k + ": " + v).join("  ·  ") || "—";
-  if (j.note) noteLine.textContent = "说明: " + j.note;
-
-  const url = j.url;
+  if (a.note) noteLine.textContent = "说明: " + a.note;
+  const url = a.url;
   if (!url) { prev.innerHTML = '<div class="meta">未产出可访问文件</div>'; return; }
-  if ((j.mime || "").startsWith("audio")) {
+  if ((a.mime || "").startsWith("audio")) {
     prev.innerHTML = '<audio controls src="' + url + '"></audio>';
   } else {
     prev.innerHTML = '<img src="' + url + '" alt="preview" />';
   }
-  const a = document.createElement("a");
-  a.className = "dl"; a.href = url; a.textContent = "⬇ 下载文件"; a.target = "_blank";
-  prev.appendChild(a);
+  const ael = document.createElement("a");
+  ael.className = "dl"; ael.href = url; ael.textContent = "⬇ 下载文件"; ael.target = "_blank";
+  prev.appendChild(ael);
 }
 
 function flashErr(msg) {
   outCard.classList.remove("hidden");
   errLine.classList.remove("hidden"); errLine.textContent = msg;
 }
+
+async function loadGallery() {
+  const kind = kindSel.value || "";
+  const q = qInput.value.trim() || "";
+  const qs = new URLSearchParams();
+  if (kind) qs.set("kind", kind);
+  if (q) qs.set("q", q);
+  qs.set("limit", "120");
+  try {
+    const r = await fetch("/api/multimodal?" + qs.toString());
+    const j = await r.json();
+    if (!r.ok || !j.ok) { gallery.innerHTML = '<div class="gempty">读取失败: ' + (j.error||"") + '</div>'; return; }
+    paintGallery(j.assets || []);
+  } catch (e) {
+    gallery.innerHTML = '<div class="gempty">请求失败: ' + e.message + '</div>';
+  }
+}
+
+const PH = {image:"🖼️", audio:"🎙️", video:"🎞️"};
+function paintGallery(items) {
+  if (!items.length) { gallery.innerHTML = '<div class="gempty">资产库为空 — 生成一张开始吧</div>'; return; }
+  gallery.innerHTML = "";
+  for (const a of items) {
+    const it = document.createElement("div");
+    it.className = "gitem";
+    const thumb = (a.kind === "audio")
+      ? '<div class="gthumb"><span class="ph">🎙️</span></div>'
+      : '<div class="gthumb"><img src="' + a.url + '" loading="lazy" alt="thumb" /></div>';
+    const m = a.meta || {};
+    const metaline = Object.entries(m).slice(0,3).map(([k,v]) => k+":"+v).join(" · ");
+    it.innerHTML = thumb +
+      '<div class="gbody">' +
+      '<span class="gbadge ' + a.kind + '">' + (a.real ? "真实" : "降级") + ' · ' + a.kind + '</span>' +
+      '<div class="gnote">' + escapeHtml(a.note || a.id) + '</div>' +
+      '<div class="gmeta">' + (metaline || "—") + '</div>' +
+      '<div class="gacts">' +
+        '<a class="dl" href="' + a.url + '" target="_blank">查看</a>' +
+        '<button class="btn danger" data-del="' + a.id + '">删除</button>' +
+      '</div>' +
+      '</div>';
+    gallery.appendChild(it);
+  }
+  gallery.querySelectorAll("[data-del]").forEach(b => {
+    b.onclick = async () => {
+      if (!confirm("确认删除该资产?")) return;
+      const r = await fetch("/api/multimodal/" + b.dataset.del, {method:"DELETE"});
+      const j = await r.json();
+      if (j.ok) loadGallery();
+    };
+  });
+}
+
+function escapeHtml(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
+
+kindSel.onchange = loadGallery;
+qInput.oninput = debounce(loadGallery, 300);
+document.getElementById("refreshBtn").onclick = loadGallery;
+
+function debounce(fn, ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
+
+loadGallery();
 </script>
 </body>
 </html>

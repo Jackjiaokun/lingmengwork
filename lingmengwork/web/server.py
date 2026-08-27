@@ -1155,6 +1155,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 真实多模态适配层 (Phase 8) ----
         if p == "/multimodal":
             return self._serve_file("multimodal.html")
+        # ---- 多模态基座 (Phase 21): 资产库画廊 ----
+        if p == "/api/multimodal":
+            return self._multimodal_list()
         # ---- 统一引擎总控台 (Phase 10): 四大引擎可观测 + 一键启动 ----
         if p == "/control-center":
             return self._serve_file("control_center.html")
@@ -1422,6 +1425,8 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 真实多模态适配层 (Phase 8) ----
         if p == "/api/multimodal/render":
             return self._multimodal_render()
+        if p == "/api/multimodal/generate":
+            return self._multimodal_generate()
         # ---- 上下文操作: 压缩 / 整理 / 拆解 ----
         if p == "/api/context/compress":
             return self._context_op("compress")
@@ -2612,6 +2617,13 @@ class Handler(SimpleHTTPRequestHandler):
             if sid and sess_del(sid):
                 return self._send_json({"ok": True})
             return self._send_json({"ok": False, "error": "not found"}, status=404)
+        if p.startswith("/api/multimodal/"):
+            aid = p[len("/api/multimodal/"):].strip("/")
+            if not aid:
+                return self._send_json({"ok": False, "error": "缺少资产 id"}, status=400)
+            from .. import multimodal as _mm
+            ok = _mm.AssetLibrary(os.getcwd()).delete(aid)
+            return self._send_json({"ok": ok})
         return self.send_error(404)
 
 
@@ -3779,6 +3791,46 @@ class Handler(SimpleHTTPRequestHandler):
                        source="api:/api/engines/run", detail=str(e))
             self._emit("engine", "run_fail", "引擎调用失败 %s: %s" % (engine, e), {"engine": engine}, audit=True)
             return self._send_json({"error": "引擎调用失败: %s" % e}, status=500)
+
+    def _multimodal_list(self):
+        """GET /api/multimodal?kind=&q=&limit= -> 资产库画廊 (按域/语义检索)。"""
+        from .. import multimodal as _mm
+        try:
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            kind = (qs.get("kind", [""])[0] or None)
+            q = (qs.get("q", [""])[0] or None)
+            try:
+                limit = int(qs.get("limit", ["60"])[0] or 60)
+            except ValueError:
+                limit = 60
+            lib = _mm.AssetLibrary(os.getcwd())
+            items = lib.list(kind=kind, q=q, limit=limit)
+            return self._send_json({"ok": True, "assets": items, "count": len(items)})
+        except Exception as e:
+            return self._send_json({"error": "资产库读取失败: %s" % e}, status=500)
+
+    def _multimodal_generate(self):
+        """POST /api/multimodal/generate {domain,brief,blueprint?,session_id?}
+        -> 统一生成入口 (包装 multimodal_adapters.render + 登记资产库)。"""
+        from .. import multimodal as _mm
+        try:
+            body = self._read_json({})
+            domain = (body.get("domain") or "").strip().lower()
+            brief = (body.get("brief") or "").strip()
+            blueprint = body.get("blueprint") or ""
+            session_id = body.get("session_id") or ""
+            if domain not in ("audio", "image", "video"):
+                return self._send_json({"error": "不支持的域: %s (可选: audio/image/video)" % domain}, status=400)
+            if not brief:
+                return self._send_json({"error": "缺少 brief"}, status=400)
+            asset = _mm.generate(domain, brief, blueprint, "", session_id, os.getcwd(),
+                                 llm_call=self._make_llm_call())
+            if not asset:
+                return self._send_json({"error": "生成失败 (适配层未产出文件)"}, status=500)
+            return self._send_json({"ok": True, "asset": asset})
+        except Exception as e:
+            return self._send_json({"error": "多模态生成失败: %s" % e}, status=500)
 
     def _multimodal_render(self):
         """POST /api/multimodal/render {domain, brief, blueprint?} -> 真实媒体文件(落 outputs/multimodal)。"""

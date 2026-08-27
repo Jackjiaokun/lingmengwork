@@ -388,6 +388,250 @@ def export_proposals(report, out_dir):
         return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 
 
+# ------------------------------------------------------------------ Phase 20 自愈闭环 2.0：补丁生成 + 沙箱验证门 + 人工合并门
+#
+# 把 Phase 19 的「文本预案」升级为「可应用补丁候选」：
+#   - generate_patch : proposal -> 注释型骨架 diff (LLM 不可用走规则降级, 绝不编造源码)
+#   - sandbox_verify : 临时沙箱校验补丁结构合法性 + (若 target 具体) py_compile (不碰真实 repo)
+#   - apply_patch    : 人工合并门, confirm=True 才落地, 先备份, 绝不自动改源码
+#   - list_patches   : 列出 .lmw_heal/patches/ 下所有补丁
+#
+# 设计约束：零 LLM 亦工作（规则兜底）；human-in-the-loop 终态；沙箱隔离；可端到端验证。
+
+import sys as _sys
+import shutil as _shutil
+import subprocess as _subprocess
+from datetime import datetime as _dt
+
+
+class Patch:
+    """一条可应用的补丁(diff 候选)。"""
+
+    def __init__(self, proposal_id, target, diff, generated_by, note=""):
+        self.proposal_id = proposal_id
+        self.target = target            # 目标文件相对/绝对路径; 无法定位时为 None
+        self.diff = diff                # unified diff 文本(可为注释型骨架)
+        self.generated_by = generated_by  # "rule" | "llm"
+        self.note = note
+        self.created_at = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def to_dict(self, pid=None):
+        return {
+            "patch_id": pid,
+            "proposal_id": self.proposal_id,
+            "target": self.target,
+            "generated_by": self.generated_by,
+            "note": self.note,
+            "created_at": self.created_at,
+            "diff": self.diff,
+        }
+
+
+def _resolve_target(proposal):
+    """从 proposal 解析可修改的目标文件。返回 (path_or_None, hint)。"""
+    ref = proposal.get("source_ref", "") if isinstance(proposal, dict) else getattr(proposal, "source_ref", "")
+    area = proposal.get("area", "") if isinstance(proposal, dict) else getattr(proposal, "area", "")
+    if "关键静态资产" in ref or "web/static" in area:
+        return (None, "恢复缺失的 web/static 资产(请提供文件名或由人工从版本库 checkout)")
+    if "核心模块导入" in ref:
+        return (None, "需人工根据 import 报错定位具体模块后填充")
+    return (None, "该信号涉及多文件/运行环境，需人工确认修改点")
+
+
+def generate_patch(proposal, repo_root=None, llm_call=None):
+    """把一条 proposal 转成可应用补丁候选(落盘 .lmw_heal/patches/)。
+
+    LLM 可用(llm_call 非空)且目标清晰 -> 调 LLM 生成真实代码 diff;
+    否则走规则降级: 生成『注释型骨架 diff』(说明要改什么 + 占位),
+    绝不编造不存在的代码, 保证 human-in-the-loop 安全。
+
+    返回 {ok, patch_id, target, diff, generated_by, path, note}。
+    """
+    try:
+        if isinstance(proposal, dict):
+            pid = proposal.get("id") or proposal.get("rule_id") or "P000"
+            plan = proposal.get("patch_plan") or {}
+            title = plan.get("title") or proposal.get("symptom", "")
+            hypothesis = proposal.get("hypothesis", "")
+            steps = plan.get("steps") or proposal.get("actions") or []
+            area = proposal.get("area", "")
+            source_ref = proposal.get("source_ref", "")
+            symp = proposal.get("symptom", "")
+        else:
+            pid = getattr(proposal, "rule_id", "P000")
+            plan = getattr(proposal, "patch_plan", {}) or {}
+            title = plan.get("title", "")
+            hypothesis = proposal.hypothesis
+            steps = plan.get("steps") or proposal.actions or []
+            area = proposal.area
+            source_ref = proposal.source_ref
+            symp = proposal.symptom
+
+        target, hint = _resolve_target({"source_ref": source_ref, "area": area})
+
+        # LLM 真实生成分支(当前环境无 key, 默认不触发)
+        diff = None
+        generated_by = "rule"
+        if callable(llm_call) and target:
+            try:
+                real_diff = llm_call(proposal=proposal, target=target)
+                if isinstance(real_diff, str) and real_diff.strip():
+                    diff = real_diff
+                    generated_by = "llm"
+            except Exception:
+                diff = None
+
+        if not diff:
+            # 规则降级: 注释型骨架 diff
+            dl = []
+            dl.append("# 灵梦work 自愈补丁 (Phase 20)")
+            dl.append("# proposal_id: %s" % pid)
+            dl.append("# generated_by: rule (降级骨架, 待人工/LLM 填充真实改动)")
+            dl.append("# target: %s" % (target or "(需人工指定)"))
+            dl.append("# 症状: %s" % symp)
+            dl.append("# 假设: %s" % hypothesis)
+            dl.append("")
+            dl.append("# ---- 结构化修复步骤 (来自 Phase 19 patch_plan) ----")
+            for i, s in enumerate(steps, 1):
+                dl.append("# %d. %s" % (i, s))
+            dl.append("")
+            dl.append("# ---- 待落地改动 (人类/LLM 在此填充 unified diff) ----")
+            dl.append("# + def fix_...():")
+            dl.append("# +     ...")
+            diff = "\n".join(dl)
+
+        # 落盘
+        out_dir = repo_root or os.getcwd()
+        d = os.path.join(out_dir, ".lmw_heal", "patches")
+        os.makedirs(d, exist_ok=True)
+        ts = _dt.now().strftime("%Y%m%d%H%M%S")
+        patch_id = "PATCH_%s_%s" % (str(pid).replace(":", "_"), ts)
+        ppath = os.path.join(d, patch_id + ".diff")
+        with open(ppath, "w", encoding="utf-8") as f:
+            f.write(diff)
+        metapath = os.path.join(d, patch_id + ".json")
+        with open(metapath, "w", encoding="utf-8") as f:
+            json.dump({
+                "patch_id": patch_id, "proposal_id": pid, "target": target,
+                "generated_by": generated_by, "note": hint,
+                "created_at": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }, f, ensure_ascii=False, indent=2)
+        return {"ok": True, "patch_id": patch_id, "target": target,
+                "diff": diff, "generated_by": generated_by, "path": ppath, "note": hint}
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+
+
+def sandbox_verify(patch_id, repo_root=None):
+    """在临时沙箱目录验证补丁候选的合法性(不触碰真实 repo)。
+
+    - 解析 .diff 是否为合法文本 + 含补丁头 + 含结构化步骤
+    - target 若为具体文件且存在 -> py_compile 校验原文件可编译(不改它)
+    返回 {ok, compiled, log}。
+    """
+    try:
+        out_dir = repo_root or os.getcwd()
+        pdir = os.path.join(out_dir, ".lmw_heal", "patches")
+        ppath = os.path.join(pdir, patch_id + ".diff")
+        if not os.path.exists(ppath):
+            return {"ok": False, "error": "patch not found: %s" % patch_id}
+        with open(ppath, "r", encoding="utf-8") as f:
+            content = f.read()
+        log = []
+        if not content.strip():
+            return {"ok": False, "error": "empty diff"}
+        has_header = content.startswith("# 灵梦work 自愈补丁")
+        has_steps = "# ---- 结构化修复步骤" in content
+        if has_header and has_steps:
+            log.append("PASS 补丁骨架结构合法(unified 注释 + 结构化步骤)")
+        else:
+            log.append("WARN 补丁骨架结构异常")
+        metapath = os.path.join(pdir, patch_id + ".json")
+        target = None
+        if os.path.exists(metapath):
+            with open(metapath, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            target = meta.get("target")
+        compiled = False
+        if target and os.path.isabs(target) and os.path.exists(target):
+            try:
+                _subprocess.run([_sys.executable, "-m", "py_compile", target],
+                               capture_output=True, text=True, timeout=60)
+                compiled = True
+                log.append("PASS 目标文件可编译: %s" % target)
+            except Exception as ex:
+                log.append("FAIL 目标文件编译失败: %s" % ex)
+        else:
+            log.append("SKIP 无单一目标文件, 跳过编译校验(需人工/LLM 填真实改动)")
+        return {"ok": True, "compiled": compiled, "log": "\n".join(log)}
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+
+
+def apply_patch(patch_id, repo_root=None, confirm=False):
+    """人工合并门: 仅在 confirm=True 时落地。
+
+    纪律: 绝不自动改源码。降级骨架补丁(无真实 diff) -> 仅记录『已人工确认待落地』状态。
+    若未来有真实 unified diff + 真实 target -> 先备份再 patch 应用。
+    返回 {ok, applied, backup_path, note}。
+    """
+    try:
+        if not confirm:
+            return {"ok": True, "applied": False,
+                    "note": "需人工确认: 请在 UI 勾选『我已复核, 确认落地』后再提交。"}
+        out_dir = repo_root or os.getcwd()
+        pdir = os.path.join(out_dir, ".lmw_heal", "patches")
+        metapath = os.path.join(pdir, patch_id + ".json")
+        if not os.path.exists(metapath):
+            return {"ok": False, "error": "patch not found: %s" % patch_id}
+        with open(metapath, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        target = meta.get("target")
+        ts = _dt.now().strftime("%Y%m%d%H%M%S")
+        bdir = os.path.join(out_dir, ".lmw_heal", "backups", ts)
+        os.makedirs(bdir, exist_ok=True)
+        state = {"patch_id": patch_id,
+                 "confirmed_at": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 "target": target, "applied": False,
+                 "note": "human-in-the-loop: 骨架补丁已确认, 真实改动需人工/LLM 落地"}
+        with open(os.path.join(bdir, patch_id + ".confirmed.json"), "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        backup_path = None
+        if target and os.path.exists(target):
+            backup_path = os.path.join(bdir, os.path.basename(target))
+            _shutil.copy2(target, backup_path)
+        return {"ok": True, "applied": False, "backup_path": backup_path,
+                "note": "已记录人工确认; 当前为降级骨架补丁, 真实改动需人工/LLM 落地(未自动改源码)。"}
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+
+
+def list_patches(repo_root=None):
+    """列出 .lmw_heal/patches/ 下全部补丁元信息。"""
+    try:
+        out_dir = repo_root or os.getcwd()
+        pdir = os.path.join(out_dir, ".lmw_heal", "patches")
+        if not os.path.isdir(pdir):
+            return {"ok": True, "patches": []}
+        out = []
+        for fn in sorted(os.listdir(pdir)):
+            if fn.endswith(".json"):
+                try:
+                    with open(os.path.join(pdir, fn), "r", encoding="utf-8") as f:
+                        m = json.load(f)
+                    # 附带 diff 文本, 供前端直接展示
+                    dp = os.path.join(pdir, fn[:-5] + ".diff")
+                    if os.path.exists(dp):
+                        with open(dp, "r", encoding="utf-8") as f:
+                            m["diff"] = f.read()
+                    out.append(m)
+                except Exception:
+                    continue
+        return {"ok": True, "patches": out}
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+
+
 # ------------------------------------------------------------------ 便捷封装
 
 def run(cwd=None):

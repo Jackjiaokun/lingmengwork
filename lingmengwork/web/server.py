@@ -1194,6 +1194,8 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 自主进化闭环 (Phase 18): 自愈提议器 ----
         if p == "/api/heal":
             return self._heal_get()
+        if p == "/api/heal/patches":
+            return self._heal_patches()
         if p == "/api/selfcheck":
             from .. import selfcheck as _sc
             sc = _sc.run()
@@ -1453,6 +1455,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self._heal_export()
         if p == "/api/heal/export-md":
             return self._heal_export_md()
+        # ---- 自愈闭环 2.0 (Phase 20): 补丁生成 / 沙箱验证 / 人工合并 ----
+        if p == "/api/heal/generate":
+            return self._heal_generate()
+        if p == "/api/heal/verify":
+            return self._heal_verify()
+        if p == "/api/heal/apply":
+            return self._heal_apply()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1619,6 +1628,76 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"error": res.get("error", "导出失败")}, status=500)
         return self._send_json({"ok": True, "md_path": res["md_path"],
                                 "path": res["path"], "count": res["count"]})
+
+    def _heal_patches(self):
+        """GET /api/heal/patches -> 列出已生成的补丁候选。"""
+        from .. import self_heal as _sh
+        out_dir = os.getcwd()
+        res = _sh.list_patches(out_dir)
+        if not res.get("ok"):
+            return self._send_json({"error": res.get("error", "列出失败")}, status=500)
+        return self._send_json({"ok": True, **res})
+
+    def _heal_generate(self):
+        """POST /api/heal/generate {proposal_id, cwd} -> 生成补丁候选(规则/LLM降级)。"""
+        from .. import self_heal as _sh
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        pid = (body.get("proposal_id") or "").strip()
+        out_dir = body.get("cwd") or os.getcwd()
+        rep = _sh.run()
+        proposal = None
+        for p in (rep.get("proposals") or []):
+            if p.get("id") == pid:
+                proposal = p
+                break
+        if proposal is None:
+            return self._send_json({"error": "未找到提议: %s" % pid}, status=404)
+        res = _sh.generate_patch(proposal, repo_root=out_dir)
+        if not res.get("ok"):
+            return self._send_json({"error": res.get("error", "生成失败")}, status=500)
+        return self._send_json({"ok": True, **res})
+
+    def _heal_verify(self):
+        """POST /api/heal/verify {patch_id, cwd} -> 沙箱验证补丁结构合法性。"""
+        from .. import self_heal as _sh
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        patch_id = (body.get("patch_id") or "").strip()
+        out_dir = body.get("cwd") or os.getcwd()
+        if not patch_id:
+            return self._send_json({"error": "缺少 patch_id"}, status=400)
+        res = _sh.sandbox_verify(patch_id, repo_root=out_dir)
+        if not res.get("ok"):
+            return self._send_json({"error": res.get("error", "验证失败")}, status=500)
+        return self._send_json({"ok": True, **res})
+
+    def _heal_apply(self):
+        """POST /api/heal/apply {patch_id, confirm, cwd} -> 人工合并门(confirm=True 才落地)。"""
+        from .. import self_heal as _sh
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        patch_id = (body.get("patch_id") or "").strip()
+        confirm = bool(body.get("confirm", False))
+        out_dir = body.get("cwd") or os.getcwd()
+        if not patch_id:
+            return self._send_json({"error": "缺少 patch_id"}, status=400)
+        res = _sh.apply_patch(patch_id, repo_root=out_dir, confirm=confirm)
+        if not res.get("ok"):
+            return self._send_json({"error": res.get("error", "应用失败")}, status=500)
+        return self._send_json({"ok": True, **res})
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

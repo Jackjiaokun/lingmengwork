@@ -215,3 +215,148 @@ def test_server_export_md():
     finally:
         srv.shutdown()
         os.chdir(old)
+
+
+# ------------------------------------------------------------------ Phase 20 自愈闭环 2.0 测试
+
+_PROP = {
+    "id": "P001",
+    "rule_id": "engine_run_fail",
+    "severity": "high",
+    "area": "引擎:autonomous",
+    "symptom": "引擎 autonomous 运行失败",
+    "hypothesis": "异常导致未闭环",
+    "actions": ["查看 /api/audit", "核对 key"],
+    "confidence": 0.8,
+    "auto_fixable": False,
+    "source_ref": "event:engine:run_fail",
+    "patch_plan": {
+        "title": "排查引擎失败",
+        "steps": ["看审计", "核对 key", "补测试"],
+        "verify": "手动确认",
+        "risk": "中",
+    },
+}
+
+
+def test_phase20_patch_lifecycle(tmp_path):
+    """Phase20: 生成 → 列表(含diff) → 沙箱验证 → 人工合并门(确认/未确认) 全链路。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        res = sh.generate_patch(_PROP, repo_root=str(tmp_path))
+        assert res["ok"]
+        assert res["patch_id"].startswith("PATCH_")
+        assert res["generated_by"] == "rule"          # 无 LLM → 规则降级骨架
+        assert "# 灵梦work 自愈补丁" in res["diff"]
+        assert "# ---- 结构化修复步骤" in res["diff"]
+        pid = res["patch_id"]
+
+        # 列表含一条且带 diff 文本
+        lp = sh.list_patches(str(tmp_path))
+        assert lp["ok"] and len(lp["patches"]) == 1
+        assert lp["patches"][0]["patch_id"] == pid
+        assert "# 灵梦work 自愈补丁" in lp["patches"][0]["diff"]
+
+        # 沙箱验证 (不碰真实 repo)
+        v = sh.sandbox_verify(pid, repo_root=str(tmp_path))
+        assert v["ok"]
+        assert "PASS" in v["log"]
+
+        # 未确认 → 不落地
+        a0 = sh.apply_patch(pid, repo_root=str(tmp_path), confirm=False)
+        assert a0["ok"] and a0["applied"] is False
+
+        # 已确认 → 记录确认状态 + 生成备份目录 (仍不自动改源码)
+        a1 = sh.apply_patch(pid, repo_root=str(tmp_path), confirm=True)
+        assert a1["ok"] and a1["applied"] is False
+        bdir = os.path.join(str(tmp_path), ".lmw_heal", "backups")
+        assert os.path.isdir(bdir)
+        confirmed = []
+        for _root, _dirs, _files in os.walk(bdir):
+            confirmed += [f for f in _files if f.endswith(".confirmed.json")]
+        assert confirmed, "应生成人工确认状态文件"
+
+        # 应用不存在的补丁 → 报错不崩
+        a2 = sh.apply_patch("PATCH_NOPE", repo_root=str(tmp_path), confirm=True)
+        assert not a2["ok"]
+    finally:
+        os.chdir(old)
+
+
+def test_phase20_verify_missing_patch(tmp_path):
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        v = sh.sandbox_verify("PATCH_GHOST", repo_root=str(tmp_path))
+        assert not v["ok"] and "not found" in v["error"]
+    finally:
+        os.chdir(old)
+
+
+def test_phase20_server_api():
+    """Phase20: /api/heal/generate|verify|patches|apply 服务端全链路。"""
+    d = tempfile.mkdtemp()
+    old = os.getcwd()
+    os.chdir(d)
+    PORT = 8973
+    srv = _srv.ThreadingHTTPServer(("127.0.0.1", PORT), _srv.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.5)
+    try:
+        def get(path):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
+            c.request("GET", path)
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+            c.request("POST", path, body=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"})
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        # 注入失败事件, 让 propose 产出提议
+        eb.get_bus().emit("engine", "run_fail", "引擎 goal_pipeline 运行失败",
+                          {"engine": "goal_pipeline"}, audit=True)
+        st, js = get("/api/heal")
+        assert st == 200, (st, js)
+        d1 = json.loads(js)
+        assert d1["ok"] and d1["proposal_count"] >= 1
+        pid = d1["proposals"][0]["id"]
+
+        # generate
+        stg, jsg = post("/api/heal/generate", {"proposal_id": pid})
+        assert stg == 200, (stg, jsg)
+        dg = json.loads(jsg)
+        assert dg["ok"] and dg["patch_id"]
+        patch_id = dg["patch_id"]
+
+        # verify
+        stv, jsv = post("/api/heal/verify", {"patch_id": patch_id})
+        assert stv == 200
+        dv = json.loads(jsv)
+        assert dv["ok"] and "PASS" in dv["log"]
+
+        # patches list
+        stp, jsp = get("/api/heal/patches")
+        assert stp == 200
+        dp = json.loads(jsp)
+        assert dp["ok"] and len(dp["patches"]) >= 1
+
+        # apply without confirm
+        sta, jsa = post("/api/heal/apply", {"patch_id": patch_id, "confirm": False})
+        assert sta == 200 and json.loads(jsa)["applied"] is False
+
+        # apply with confirm
+        sta2, jsa2 = post("/api/heal/apply", {"patch_id": patch_id, "confirm": True})
+        assert sta2 == 200 and json.loads(jsa2)["ok"]
+
+        # 页面含 Phase20 UI
+        st2, html = get("/heal")
+        assert "补丁仓库" in html and "生成补丁" in html and "patchRepo" in html
+    finally:
+        srv.shutdown()
+        os.chdir(old)
+

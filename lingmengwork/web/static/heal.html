@@ -63,6 +63,25 @@
   .plan .pr{font-size:12px;color:var(--warn);margin-top:2px;}
   .toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--accent);
     border-radius:10px;padding:12px 16px;font-size:13px;display:none;max-width:340px;}
+  .pcard .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .pcard .acts .btn{padding:6px 12px;font-size:12px;}
+  .repobox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px;}
+  .repobox h3{font-size:14px;margin:0 0 10px;}
+  .repobox .empty{color:var(--sub);font-size:13px;padding:6px 0;}
+  .patchrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;
+    border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel2);}
+  .patchrow .pid{font-weight:600;color:var(--accent2);font-size:13px;}
+  .patchrow .meta{font-size:11px;color:var(--sub);margin-top:2px;}
+  .patchrow .acts{display:flex;gap:6px;}
+  .patchrow .acts .btn{padding:5px 10px;font-size:12px;}
+  .patchdiff{background:#0a0d16;border:1px solid var(--line);border-radius:10px;padding:10px;
+    font:12px/1.5 Consolas,Menlo,monospace;white-space:pre-wrap;color:#b9c4e6;
+    max-height:280px;overflow:auto;margin-top:8px;display:none;}
+  .modal{position:fixed;inset:0;background:rgba(4,7,14,.7);display:none;align-items:center;justify-content:center;z-index:50;}
+  .modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;max-width:480px;width:90%;}
+  .modal h3{margin:0 0 12px;font-size:16px;}
+  .modal label{display:flex;gap:8px;align-items:center;font-size:13px;margin:12px 0;color:var(--sub);}
+  .modal .mbtns{display:flex;gap:10px;justify-content:flex-end;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -92,9 +111,24 @@
     <span class="sev high">高 0</span><span class="sev medium">中 0</span><span class="sev low">低 0</span>
   </div>
 
+  <div class="repobox">
+    <h3>📦 补丁仓库 (Phase 20 · 人工合并门)</h3>
+    <div id="patchRepo"><div class="empty">暂无已生成补丁。在下方提议卡点击「🛠 生成补丁」即可产出可应用 diff 候选。</div></div>
+  </div>
+
   <div class="row"><h2>补丁提议清单</h2><span class="sub" id="genAt"></span></div>
   <div id="feed"><div class="empty">正在加载…</div></div>
 </div>
+
+<div class="modal" id="applyModal"><div class="box">
+  <h3>⚙ 人工合并确认</h3>
+  <div class="meta" id="applyMeta" style="font-size:12px;color:var(--sub);"></div>
+  <label><input type="checkbox" id="applyConfirm" /> 我已复核补丁内容，确认落地（仍不自动改源码，仅记录确认状态与备份）</label>
+  <div class="mbtns">
+    <button class="btn" id="applyCancel">取消</button>
+    <button class="btn primary" id="applyDo">确认合并</button>
+  </div>
+</div></div>
 
 <div class="toast" id="toast"></div>
 
@@ -148,6 +182,10 @@ function render(d){
       <div class="hyp">假设：${escapeHtml(p.hypothesis)}</div>
       <ul>${acts}</ul>
       ${plan}
+      <div class="acts">
+        <button class="btn" data-act="gen" data-pid="${escapeHtml(p.id||"")}">🛠 生成补丁</button>
+        <button class="btn" data-act="apply" data-pid="${escapeHtml(p.id||"")}">⚙ 人工合并</button>
+      </div>
       <div class="ref">来源：${escapeHtml(p.source_ref||"")} · 规则 ${escapeHtml(p.rule_id||"")}</div>
     </div>`;
   }).join("");
@@ -182,8 +220,81 @@ $("#btnExportMd").addEventListener("click", async ()=>{
   }catch(e){ toast("导出请求失败: " + e.message); }
 });
 
+// ---- Phase 20 自愈闭环 2.0 前端逻辑 ----
+async function generatePatch(pid){
+  try{
+    const r = await fetch("/api/heal/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proposal_id:pid})});
+    const d = await r.json();
+    if(d.ok) toast("已生成补丁 "+d.patch_id+" ("+d.generated_by+")");
+    else toast("生成失败: "+(d.error||"未知"));
+    renderPatches();
+  }catch(e){ toast("请求失败: "+e.message); }
+}
+async function verifyPatch(patchId){
+  try{
+    const r = await fetch("/api/heal/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({patch_id:patchId})});
+    const d = await r.json();
+    if(d.ok) toast("沙箱验证:\n"+d.log);
+    else toast("验证失败: "+(d.error||"未知"));
+  }catch(e){ toast("请求失败: "+e.message); }
+}
+async function applyPatch(patchId, confirm){
+  try{
+    const r = await fetch("/api/heal/apply",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({patch_id:patchId, confirm:confirm})});
+    const d = await r.json();
+    toast(d.note || (d.ok?"已处理":"失败:"+(d.error||"")));
+  }catch(e){ toast("请求失败: "+e.message); }
+}
+function toggleDiff(patchId){
+  const el = document.getElementById("diff_"+patchId);
+  if(el) el.style.display = el.style.display==="block" ? "none" : "block";
+}
+async function renderPatches(){
+  try{
+    const r = await fetch("/api/heal/patches");
+    const d = await r.json();
+    const box = $("#patchRepo");
+    const list = (d.patches||[]);
+    if(!list.length){ box.innerHTML = '<div class="empty">暂无已生成补丁。在下方提议卡点击「🛠 生成补丁」即可产出可应用 diff 候选。</div>'; return; }
+    box.innerHTML = list.map(m=>{
+      const diff = escapeHtml(m.diff||"");
+      const meta = (m.generated_by||"rule") + (m.target? (" · "+escapeHtml(m.target)) : " · 需人工指定目标");
+      return `<div class="patchrow">
+        <div>
+          <div class="pid">${escapeHtml(m.patch_id)}</div>
+          <div class="meta">${meta}</div>
+        </div>
+        <div class="acts">
+          <button class="btn" onclick="toggleDiff('${escapeHtml(m.patch_id)}')">📋 diff</button>
+          <button class="btn" onclick="verifyPatch('${escapeHtml(m.patch_id)}')">✓ 验证</button>
+          <button class="btn primary" onclick="openApply('${escapeHtml(m.patch_id)}')">⚙ 合并</button>
+        </div>
+        <div class="patchdiff" id="diff_${escapeHtml(m.patch_id)}">${diff}</div>
+      </div>`;
+    }).join("");
+  }catch(e){ /* 静默 */ }
+}
+$("#feed").addEventListener("click", (e)=>{
+  const btn = e.target.closest("button[data-act]");
+  if(!btn) return;
+  const pid = btn.getAttribute("data-pid");
+  const act = btn.getAttribute("data-act");
+  if(act==="gen") generatePatch(pid);
+  else if(act==="apply") openApply(pid);
+});
+let _applyPid = null;
+function openApply(patchId){ _applyPid = patchId; $("#applyMeta").textContent = "补丁: " + patchId; $("#applyConfirm").checked = false; $("#applyModal").style.display = "flex"; }
+$("#applyCancel").addEventListener("click", ()=>{ $("#applyModal").style.display="none"; });
+$("#applyDo").addEventListener("click", async ()=>{
+  if(!$("#applyConfirm").checked){ toast("请先勾选确认框"); return; }
+  $("#applyModal").style.display="none";
+  await applyPatch(_applyPid, true);
+});
+
 poll();
 setInterval(poll, 4000);
+renderPatches();
+setInterval(renderPatches, 8000);
 </script>
 </body>
 </html>

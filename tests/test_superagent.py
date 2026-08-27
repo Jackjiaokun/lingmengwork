@@ -220,14 +220,66 @@ def test_exec_creation_manifest(tmp_path):
     assert m["sub_domain"] == "image"
 
 
-def test_exec_research_fallback(tmp_path, monkeypatch):
-    """research 执行器: 未开启抓取 → 落地研究简报(.md), 不挂起。"""
-    monkeypatch.delenv("LMW_SA_ALLOW_FETCH", raising=False)
+def test_exec_research_fetch_fallback(tmp_path, monkeypatch):
+    """Phase 33: 抓取失败(网络异常) → 回退研究简报(.md), 不挂起。"""
+    class _FakeErr(Exception):
+        pass
+    class _FakeResp:
+        def __enter__(self):
+            raise _FakeErr("模拟网络失败")
+        def __exit__(self, *a):
+            return False
+    class _FakeURlopen:
+        def __call__(self, *a, **kw):
+            return _FakeResp()
+    monkeypatch.setattr("lingmengwork.superagent._urllib_req.urlopen", _FakeURlopen())
     partner = {"partner_id": "research", "name": "研究伙伴", "domain": "research", "status": "ok",
                "summary": "s", "plan": "## 研究目标\n量子计算", "artifacts": []}
     res = sa_mod._exec_research(partner, goal="调研量子计算", base_dir=str(tmp_path))
     assert res["status"] == "ok"
-    assert any(a.endswith(".md") for a in res["artifacts"]), res
+    assert any(a.endswith(".md") and "research.md" in a for a in res["artifacts"]), res
+    assert "抓取失败" in res["note"]
+
+
+def test_exec_research_fetch_success(tmp_path, monkeypatch):
+    """Phase 33: 真实抓取成功 → 落 research_fetch.md; 有 LLM 时另出摘要。"""
+    class _FakeResp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self, n):
+            return b"<html><body>DuckDuckGo result page for quantum computing</body></html>"
+    class _FakeURlopen:
+        def __call__(self, *a, **kw):
+            return _FakeResp()
+    monkeypatch.setattr("lingmengwork.superagent._urllib_req.urlopen", _FakeURlopen())
+    partner = {"partner_id": "research", "name": "研究伙伴", "domain": "research", "status": "ok",
+               "summary": "s", "plan": "研究目标: 量子计算现状", "artifacts": []}
+    # 无 LLM
+    res = sa_mod._exec_research(partner, goal="量子计算现状", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    fetch_files = [a for a in res["artifacts"] if "research_fetch" in a]
+    assert fetch_files, "应产出 research_fetch.md"
+    assert "DuckDuckGo" in open(fetch_files[0], encoding="utf-8").read()
+    assert "已真实抓取" in res["note"]
+    # 有 LLM → 摘要
+    def _fake_llm(prompt, system=None):
+        return "1. 量子比特是核心单元\n2. 容错是主要瓶颈\n3. 商业化预计 2030 前后"
+    res2 = sa_mod._exec_research(partner, goal="量子计算现状", base_dir=str(tmp_path),
+                                 llm_call=_fake_llm)
+    summary_files = [a for a in res2["artifacts"] if "research_summary" in a]
+    assert summary_files, "有 LLM 时应产出摘要文件"
+    assert "已生成 LLM 摘要" in res2["note"]
+
+
+def test_exec_research_empty_goal(tmp_path):
+    """Phase 33: 空目标 → _derive_research_url 返回空 → 直接落研究简报。"""
+    partner = {"partner_id": "research", "name": "研究伙伴", "domain": "research", "status": "ok",
+               "summary": "s", "plan": "无具体内容", "artifacts": []}
+    res = sa_mod._exec_research(partner, goal="", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert any(a.endswith(".md") and "research.md" in a for a in res["artifacts"]), res
 
 
 # ------------------------------------------------------------------ 自主编码(Phase30)

@@ -1,9 +1,8 @@
 """灵梦work · 超级 AGENT 内核 (Phase 27).
-
 把「单循环编码 AGENT」收口为「统一超级 AGENT 内核」: 用户输入一个模糊目标,
 内核自动完成「目标理解 → 域路由 → 并行编排 → 执行落地(真实产物) → 收敛(三级护栏) → 自检(质量门) → 记忆沉淀」。
 执行落地内置 code/creation/research/ops 真实执行器
-(自主编码: 生成→编译→冒烟运行自验证→失败有限自修复[LLM]→落 run.log / 素材清单 JSON / 真实检索 / 可校验脚本),
+(自主编码: 生成→编译→冒烟运行自验证→失败有限自修复[LLM]→落 run.log / 素材清单 JSON / 真实检索(默认真抓+LLM摘要) / 可校验脚本),
 均可通过 register_executor 热插拔覆盖(如 creation->multimodal 真产出)。
 
 复用既有能力(不长在另起炉灶, 严守不可变内核契约):
@@ -26,6 +25,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+import urllib.request as _urllib_req
 from datetime import datetime
 
 from . import federation as _fed
@@ -249,27 +249,43 @@ def _exec_code(partner, goal="", llm_call=None, base_dir=None):
 
 
 def _exec_research(partner, goal="", llm_call=None, base_dir=None):
-    """真实研究执行器: 开启 LMW_SA_ALLOW_FETCH=1 时真实抓取, 否则落地研究简报(真实文件)。"""
+    """真实研究执行器: 默认走真实 DuckDuckGo 抓取, 网络失败时回退研究简报;
+    有 LLM 时对抓取结果做中文要点摘要(独立产物)."""
     out_dir = _resolve_out_dir(base_dir)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     plan = (partner.get("plan") or "").strip() or (partner.get("summary") or "")
     artifacts, note = [], ""
-    if os.environ.get("LMW_SA_ALLOW_FETCH") == "1":
-        url = _derive_research_url(goal)
-        if url:
-            try:
-                import urllib.request
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = resp.read(200000).decode("utf-8", "replace")
-                path = os.path.join(out_dir, "%s_research_fetch.md" % ts)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write("# 抓取结果\n\n**来源**: %s\n\n```text\n%s\n```\n"
-                            % (url, data[:5000]))
-                artifacts.append(path)
-                note = "已真实抓取: %s" % url
-            except Exception as e:
-                note = "抓取失败(%s), 回退研究简报" % type(e).__name__
+    url = _derive_research_url(goal)
+    fetched_data = None
+    if url:
+        try:
+            req = _urllib_req.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+            with _urllib_req.urlopen(req, timeout=8) as resp:
+                fetched_data = resp.read(200000).decode("utf-8", "replace")
+            path = os.path.join(out_dir, "%s_research_fetch.md" % ts)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# 抓取结果\n\n**来源**: %s\n\n%s\n" % (url, fetched_data[:8000]))
+            artifacts.append(path)
+            note = "已真实抓取: %s" % url
+        except Exception as e:
+            note = "抓取失败(%s), 回退研究简报" % type(e).__name__
+    # LLM 摘要: 有 LLM 且抓取成功 → 摘要抓取内容; 抓取失败 → 摘要方案要点
+    if llm_call:
+        try:
+            sys_prompt = ("你是研究摘要员。用中文提炼以下内容的关键发现(3-5 条要点), 简洁陈述, 不要标题或格式符号。"
+                          "只输出要点文本, 不要解释。")
+            raw = llm_call((("研究目标: %s\n\n参考方案: %s\n\n"
+                             "抓取内容: %s") % (goal, plan, (fetched_data or plan)))[:3000],
+                           system=sys_prompt)
+            if raw and str(raw).strip():
+                summary_path = os.path.join(out_dir, "%s_research_summary.md" % ts)
+                with open(summary_path, "w", encoding="utf-8") as f:
+                    f.write("# 研究摘要(LLM 智能提炼)\n\n**目标**: %s\n\n%s\n"
+                            % (goal, str(raw).strip()))
+                artifacts.append(summary_path)
+                note += "; 已生成 LLM 摘要"
+        except Exception:
+            pass
     if not artifacts:
         path = os.path.join(out_dir, "%s_research.md" % ts)
         try:
@@ -277,7 +293,7 @@ def _exec_research(partner, goal="", llm_call=None, base_dir=None):
                 f.write("# 研究简报(超级 AGENT 研究执行器)\n\n**目标**: %s\n\n%s\n"
                         % (goal, plan))
             artifacts.append(path)
-            note = note or "无网络/未开启抓取, 已落地研究简报"
+            note = note or "抓取失败, 已落地研究简报"
         except Exception as e:
             note = "写入失败: %s" % e
     return {"domain": "research", "status": "ok" if artifacts else "error",

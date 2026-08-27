@@ -105,6 +105,17 @@
     </div>
   </section>
 
+  <!-- Phase 40: 超级 AGENT 编排 LLM 用量(内存 + 磁盘历史, 重启不丢) -->
+  <section>
+    <h2 class="sec-title">🤖 超级 AGENT 编排用量 (含历史)</h2>
+    <div class="grid top-cards" id="sa-cards">
+      <div class="card stat-lg"><span class="num" id="sa-runs">0</span><span class="lab">编排次数</span></div>
+      <div class="card stat-lg"><span class="num" id="sa-calls">0</span><span class="lab">LLM 调用</span></div>
+      <div class="card stat-lg"><span class="num" id="sa-tok">0</span><span class="lab">估算总 Token</span></div>
+      <div class="card stat-lg"><span class="num" id="sa-cost">¥0</span><span class="lab">估算总成本</span></div>
+    </div>
+  </section>
+
   <section>
     <h2 class="sec-title">价目参考 (元 / 千 token)</h2>
     <div class="card" style="padding:6px 6px">
@@ -155,6 +166,12 @@ async function load(){
       <td class="num">¥${Number(p.out).toFixed(4)}</td>
     </tr>`).join("");
     $("#price-body").innerHTML=pr||'<tr><td colspan="4" class="empty">无</td></tr>';
+    // Phase 40: 超级 AGENT 编排用量
+    const sa=d.superagent||{};
+    $("#sa-runs").textContent=fmtInt(sa.runs);
+    $("#sa-calls").textContent=fmtInt(sa.llm_calls);
+    $("#sa-tok").textContent=fmtInt(sa.est_total_tokens);
+    $("#sa-cost").textContent=fmtCny(sa.est_cost_cny);
   }catch(e){$("#meta-time").textContent="加载失败: "+e}
 }
 let timer=null;

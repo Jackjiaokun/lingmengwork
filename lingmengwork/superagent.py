@@ -31,6 +31,7 @@ from datetime import datetime
 from . import federation as _fed
 from . import memory_graph as _mg
 from . import selfcheck as _sc
+from .llm import pricing as _pricing
 
 _STAGE_NAMES = ["目标理解", "插件接入", "域路由", "并行编排", "执行落地", "收敛护栏", "记忆沉淀"]
 
@@ -475,6 +476,60 @@ def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+class _UsageMeter:
+    """Phase 40: 编排 LLM 用量计量器 — 包装 llm_call 统计调用与字符数。
+
+    估算口径与 agent.loop 一致: ~1.6 字符/token (中英混合经验值),
+    成本按 llm.pricing 价格档(model 可空 → 默认档)。
+    """
+
+    _CHAR_PER_TOKEN = 1.6
+
+    def __init__(self, llm_call=None, model=""):
+        self._fn = llm_call
+        self.model = model or ""
+        self.llm_calls = 0
+        self.in_chars = 0
+        self.out_chars = 0
+
+    def __call__(self, prompt, system=None):
+        if not self._fn:
+            return None  # 无后端: 规则兜底, 不计用量
+        self.llm_calls += 1
+        self.in_chars += len(prompt or "") + len(system or "")
+        out = self._fn(prompt, system=system)
+        if isinstance(out, str):
+            self.out_chars += len(out)
+        return out
+
+    def stats(self):
+        inp = int(self.in_chars / self._CHAR_PER_TOKEN) if self.in_chars else 0
+        out = int(self.out_chars / self._CHAR_PER_TOKEN) if self.out_chars else 0
+        return {
+            "model": self.model,
+            "llm_calls": self.llm_calls,
+            "est_input_tokens": inp,
+            "est_output_tokens": out,
+            "est_total_tokens": inp + out,
+            "est_cost_cny": round(_pricing.cost(inp, out, self.model), 6),
+        }
+
+
+def get_usage_totals(limit=500, base_dir=None):
+    """编排 LLM 用量聚合(内存优先 + 磁盘历史补缺, 供成本看板 /api/cost)。"""
+    runs = get_recent_runs(limit, base_dir=base_dir)
+    t_in = sum(r.get("est_input_tokens", 0) or 0 for r in runs)
+    t_out = sum(r.get("est_output_tokens", 0) or 0 for r in runs)
+    return {
+        "runs": len(runs),
+        "llm_calls": sum(r.get("llm_calls", 0) or 0 for r in runs),
+        "est_input_tokens": t_in,
+        "est_output_tokens": t_out,
+        "est_total_tokens": t_in + t_out,
+        "est_cost_cny": round(sum(r.get("est_cost_cny", 0.0) or 0.0 for r in runs), 6),
+    }
+
+
 class SuperAgent:
     """统一超级 AGENT 内核。"""
 
@@ -689,7 +744,7 @@ class SuperAgent:
             return {"experts": [], "connectors": [], "downgraded": []}
 
     # ---- 统一入口 ----
-    def run(self, goal, session_id="", llm_call=None, quality_gate=True, on_stage=None):
+    def run(self, goal, session_id="", llm_call=None, quality_gate=True, on_stage=None, model=""):
         """超级 AGENT 统一编排入口。
 
         goal: 用户模糊目标
@@ -697,6 +752,7 @@ class SuperAgent:
         quality_gate: 是否执行第三级护栏(系统自检质量门); selfcheck 探针传 False 防递归
         on_stage: 可选回调 on_stage({stage, ts, ok, detail}), 每阶段完成即触发
                   (Phase 38: 供 Web SSE 流式推送实时进度; 回调异常不阻塞主流程)
+        model: 可选模型名(供成本估算按价格档计费, Phase 40); 空 → 默认估算档
         """
         started = time.time()
         trace = []
@@ -708,6 +764,9 @@ class SuperAgent:
         mem = {}
         plugins_rep = {}
         understand = {}
+        # Phase 40: LLM 用量计量(包装 llm_call 统计调用次数/字符数 → 同 loop 口径估算 token/成本)
+        meter = _UsageMeter(llm_call, model=model)
+        llm_call = meter
 
         def _trace(stage, detail, sub_ok=True):
             entry = {"stage": stage, "ts": _now(), "ok": sub_ok, "detail": detail}
@@ -768,6 +827,7 @@ class SuperAgent:
             result = {
                 "ok": False, "goal": goal, "error": "%s: %s" % (type(e).__name__, e),
                 "trace": trace, "elapsed_sec": round(time.time() - started, 1),
+                "usage": meter.stats(),
             }
             self._record(result)
             return result
@@ -786,6 +846,7 @@ class SuperAgent:
             "memory": mem,
             "trace": trace,
             "elapsed_sec": round(time.time() - started, 1),
+            "usage": meter.stats(),
         }
         self._record(result)
         return result
@@ -795,6 +856,7 @@ class SuperAgent:
             ts = _now()
             cv = result.get("converge") or {}
             mem = result.get("memory") or {}
+            usage = result.get("usage") or {}
             summary = {
                 "goal": result.get("goal", ""),
                 "ts": ts,
@@ -808,6 +870,12 @@ class SuperAgent:
                 "entities_added": mem.get("entities_added", 0),
                 "artifacts": len((result.get("executions") or {}).get("artifacts", []) or []),
                 "elapsed_sec": result.get("elapsed_sec", 0),
+                # Phase 40: 编排 LLM 用量入账
+                "llm_calls": usage.get("llm_calls", 0),
+                "est_input_tokens": usage.get("est_input_tokens", 0),
+                "est_output_tokens": usage.get("est_output_tokens", 0),
+                "est_total_tokens": usage.get("est_total_tokens", 0),
+                "est_cost_cny": usage.get("est_cost_cny", 0.0),
             }
             _RUNS.append(summary)
             self._persist_result(ts, summary, result)

@@ -1885,10 +1885,18 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({"error": "缺少 goal"}, status=400)
             sa = _sa.SuperAgent(base_dir=os.getcwd())
             rep = sa.run(goal, session_id=body.get("session_id") or "",
-                         llm_call=self._make_llm_call())
+                         llm_call=self._make_llm_call(),
+                         model=self._cfg_llm_model())
             return self._send_json({"ok": True, **rep})
         except Exception as e:
             return self._send_json({"error": "超级AGENT编排失败: %s" % e}, status=500)
+
+    def _cfg_llm_model(self):
+        """当前配置的 LLM 模型名(供编排成本按价格档估算)。"""
+        try:
+            return (_get_cfg().get("llm") or {}).get("model") or ""
+        except Exception:
+            return ""
 
     def _superagent_run_stream(self):
         """POST /api/superagent/run/stream {goal, session_id?} -> SSE 实时编排进度 (Phase 38).
@@ -1933,7 +1941,8 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             sa = _sa.SuperAgent(base_dir=os.getcwd())
             rep = sa.run(goal, session_id=body.get("session_id") or "",
-                         llm_call=self._make_llm_call(), on_stage=on_stage)
+                         llm_call=self._make_llm_call(), on_stage=on_stage,
+                         model=self._cfg_llm_model())
             emit({"type": "done", "result": rep})
         except Exception as e:
             emit({"type": "error", "message": "超级AGENT编排失败: %s" % e})
@@ -3162,6 +3171,13 @@ class Handler(SimpleHTTPRequestHandler):
             t_out += st.get("est_output_tokens", 0)
             t_cost += cost
         sessions.sort(key=lambda x: -x["est_total_tokens"])
+        # Phase 40: 超级 AGENT 编排 LLM 用量聚合(内存 + 磁盘历史, 重启不丢)
+        sa_usage = {}
+        try:
+            from .. import superagent as _sa
+            sa_usage = _sa.get_usage_totals(base_dir=os.getcwd())
+        except Exception:
+            sa_usage = {}
         return {
             "sessions": sessions,
             "total": {
@@ -3172,6 +3188,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "threshold": threshold,
                 "over_threshold": bool(t_cost > threshold),
             },
+            "superagent": sa_usage,
             "pricing": _pricing.reference_list(),
             "currency": "CNY",
         }

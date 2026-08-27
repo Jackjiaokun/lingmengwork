@@ -329,12 +329,86 @@ def test_exec_creation_subdomain_route(tmp_path):
 
 # ------------------------------------------------------------------ 自检集成
 def test_selfcheck_probe_count():
-    """selfcheck 探针数应为 13 (Phase25 联邦 + Phase26 记忆图谱 + Phase27 超级AGENT)。"""
+    """selfcheck 探针数应为 14 (Phase25–27 + Phase32 插件中枢)。"""
     from lingmengwork import selfcheck as sc
     rep = sc.run()
-    assert rep["total"] == 13, "探针数应为 13, 实际 %d" % rep["total"]
+    assert rep["total"] == 14, "探针数应为 14, 实际 %d" % rep["total"]
     failed = {c["name"]: c["detail"] for c in rep["checks"] if not c["ok"]}
     assert not failed, failed
+
+
+# ------------------------------------------------------------------ 插件中枢(Phase32)
+def test_plugin_hub_bootstrap():
+    """Phase 32: 默认 3+ connector / 3+ expert 已 bootstrap。"""
+    import lingmengwork.plugin_hub as ph
+    ph.reset_hub()
+    hub = ph.get_hub()
+    cons = hub.list_connectors()
+    exps = hub.list_experts()
+    assert len(cons) >= 3 and len(exps) >= 3, (len(cons), len(exps))
+    names = {c["name"] for c in cons}
+    assert "health" in names and "recall" in names and "recent_runs" in names
+
+
+def test_plugin_hub_env_downgrade():
+    """Phase 32: env 缺失的连接器应自动标 unavailable。"""
+    import lingmengwork.plugin_hub as ph
+    ph.reset_hub()
+    hub = ph.get_hub()
+    hub.register_connector(name="need_env", category="tool",
+                           description="测试", env_required=["__LMW_FAKE_ENV__"])
+    chk = hub.get_connector("need_env").check()
+    assert chk["available"] is False and "__LMW_FAKE_ENV__" in chk["missing_env"]
+
+
+def test_plugin_wire_integrates_into_run(tmp_path):
+    """Phase 32: wire 专家域应并入超级 AGENT 编排路由, 不崩。"""
+    import lingmengwork.plugin_hub as ph
+    ph.reset_hub()
+    hub = ph.get_hub()
+    rep = sa_mod.SuperAgent(base_dir=str(tmp_path)).run(
+        "做段产品介绍视频并写发布文案、准备上线部署到服务器", quality_gate=False)
+    assert rep["ok"], rep.get("error")
+    plugs = rep.get("plugins") or {}
+    assert isinstance(plugs, dict) and "experts" in plugs
+    # trace 应含"插件接入"阶段
+    stages = [t["stage"] for t in rep.get("trace") or []]
+    assert "插件接入" in stages
+
+
+def test_plugin_server_api():
+    """Phase 32: /plugins 页面 + /api/plugins* 端点 HTTP 可达。"""
+    d = tempfile.mkdtemp()
+    old = os.getcwd()
+    os.chdir(d)
+    PORT = 8988
+    srv = _srv.ThreadingHTTPServer(("127.0.0.1", PORT), _srv.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.4)
+    try:
+        def get(path):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
+            c.request("GET", path); r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
+            c.request("POST", path, body=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"}); r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+        st, html = get("/plugins")
+        assert st == 200 and "插件中枢" in html
+        st, js = get("/api/plugins")
+        assert st == 200
+        d2 = json.loads(js); assert d2["ok"]
+        assert len(d2["connectors"]) >= 3 and len(d2["experts"]) >= 3
+        st, js = post("/api/plugins/experts/register",
+                      {"name": "test_expert", "domain": "ops", "system_prompt": "测试"})
+        assert st == 200 and json.loads(js)["ok"]
+        st, js = post("/api/plugins/connectors/register",
+                      {"name": "test_conn", "category": "tool", "description": "测"})
+        assert st == 200 and json.loads(js)["ok"]
+    finally:
+        srv.shutdown(); os.chdir(old)
 
 
 # ------------------------------------------------------------------ 执行落地(Phase28)

@@ -32,7 +32,7 @@ from . import federation as _fed
 from . import memory_graph as _mg
 from . import selfcheck as _sc
 
-_STAGE_NAMES = ["目标理解", "域路由", "并行编排", "执行落地", "收敛护栏", "记忆沉淀"]
+_STAGE_NAMES = ["目标理解", "插件接入", "域路由", "并行编排", "执行落地", "收敛护栏", "记忆沉淀"]
 
 # 进程内最近编排缓冲(供 API / 页面轮询, 重启清空), maxlen 上限防内存膨胀
 _RUNS = collections.deque(maxlen=60)
@@ -645,6 +645,26 @@ class SuperAgent:
         except Exception as e:
             return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 
+    # ---- Phase 32: 插件接入 (专家画像 hint 域 + connector 可用性) ----
+    def _wire_plugins(self, goal, understand):
+        """接入 plugin_hub: 把可用 expert 的域并入 understand.domains(不覆盖 LLM 抽取结果),
+        connector 可用性注入 self.plugin_connectors; 返回接入摘要, 失败静默。"""
+        try:
+            from . import plugin_hub as _ph
+            hub = _ph.get_hub()
+            experts = hub.list_experts()
+            merged = list(understand.get("domains") or [])
+            for e in experts:
+                d = e.get("domain")
+                if d and d not in merged:
+                    merged.append(d)
+            merged = merged[:4]  # 上限 4, 防路由膨胀
+            understand["domains"] = merged
+            wired = hub.wire(self, goal=goal)
+            return wired
+        except Exception:
+            return {"experts": [], "connectors": [], "downgraded": []}
+
     # ---- 统一入口 ----
     def run(self, goal, session_id="", llm_call=None, quality_gate=True):
         """超级 AGENT 统一编排入口。
@@ -661,6 +681,7 @@ class SuperAgent:
         exec_rep = {}
         converge_rep = {}
         mem = {}
+        plugins_rep = {}
         understand = {}
 
         def _trace(stage, detail, sub_ok=True):
@@ -678,7 +699,14 @@ class SuperAgent:
             _trace("目标理解", "intent=%s | 域=%s | 约束%d | 召回%d字"
                    % (understand["intent"][:24], "/".join(understand["domains"]),
                       len(understand["constraints"]), len(understand["memory_recap"])))
-            # 2 域路由
+            # Phase 32: 插件接入 (expert 域 hint 合并 + connector 可用性, 失败不阻塞)
+            plugins_rep = self._wire_plugins(goal, understand)
+            w = plugins_rep
+            _trace("插件接入", "专家域+%d | connector %d 可用/%d 降级"
+                   % (len(w.get("experts", []) or []),
+                      len(w.get("connectors", []) or []),
+                      len(w.get("downgraded", []) or [])))
+            # 2 域路由(若插件合并了专家域, 路由结果可能随之扩展)
             routed = self.route(understand)
             _trace("域路由", "→ %s" % "/".join(routed))
             # 3 并行编排(联邦多伙伴)
@@ -720,6 +748,7 @@ class SuperAgent:
             "executions": exec_rep,
             "artifacts": exec_rep.get("artifacts", []),
             "converge": converge_rep,
+            "plugins": plugins_rep,
             "selfcheck": converge_rep.get("selfcheck_score"),
             "memory": mem,
             "trace": trace,

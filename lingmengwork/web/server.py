@@ -1188,6 +1188,22 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("superagent.html")
         if p == "/api/superagent":
             return self._superagent_get()
+        # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
+        if p == "/plugins":
+            return self._serve_file("plugin_hub.html")
+        if p == "/api/plugins":
+            return self._plugin_get()
+        if p == "/api/plugins/discover":
+            return self._plugin_discover()
+        if p == "/api/plugins/wire":
+            return self._plugin_wire()
+        if p.startswith("/api/plugins/connectors/"):
+            name = p[len("/api/plugins/connectors/"):]
+            return self._plugin_call_connector(name)
+        if p == "/api/plugins/connectors":
+            return self._plugin_conn_list()
+        if p == "/api/plugins/experts":
+            return self._plugin_expert_list()
         if p == "/api/automations":
             return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
@@ -1493,6 +1509,11 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 超级 AGENT 内核 (Phase 27): 目标编排闭环 ----
         if p == "/api/superagent/run":
             return self._superagent_run()
+        # ---- 插件中枢 (Phase 32): 动态注册 connector/expert ----
+        if p == "/api/plugins/connectors/register":
+            return self._plugin_connector_register()
+        if p == "/api/plugins/experts/register":
+            return self._plugin_expert_register()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1851,6 +1872,127 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"ok": True, **rep})
         except Exception as e:
             return self._send_json({"error": "超级AGENT编排失败: %s" % e}, status=500)
+
+    # ---------------------------------------------------------------
+    # 插件中枢 (Phase 32): Connector/Expert 注册/发现/接入
+    # ---------------------------------------------------------------
+    def _plugin_get(self):
+        """GET /api/plugins -> 插件中枢概览(最近编排+已注册连接器+专家)。"""
+        try:
+            from .. import plugin_hub as _ph
+            hub = _ph.get_hub()
+            return self._send_json({"ok": True,
+                                    "connectors": hub.list_connectors(),
+                                    "experts": hub.list_experts()})
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+
+    def _plugin_conn_list(self):
+        try:
+            from .. import plugin_hub as _ph
+            q = parse_qs(urlparse(self.path).query)
+            cat = (q.get("category") or [""])[0] or None
+            return self._send_json({"ok": True, "connectors": _ph.get_hub().list_connectors(category=cat)})
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+
+    def _plugin_expert_list(self):
+        try:
+            from .. import plugin_hub as _ph
+            q = parse_qs(urlparse(self.path).query)
+            domain = (q.get("domain") or [""])[0] or None
+            return self._send_json({"ok": True, "experts": _ph.get_hub().list_experts(domain=domain)})
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+
+    def _plugin_discover(self):
+        """POST /api/plugins/discover {plugin_dir} -> 扫描目录注册插件。"""
+        try:
+            from .. import plugin_hub as _ph
+            body = self._read_json({})
+            plugin_dir = (body.get("plugin_dir") or "").strip()
+            if not plugin_dir:
+                return self._send_json({"error": "缺少 plugin_dir"}, status=400)
+            found = _ph.get_hub().discover(plugin_dir)
+            return self._send_json({"ok": True, "found": found})
+        except Exception as e:
+            return self._send_json({"error": "插件发现失败: %s" % e}, status=500)
+
+    def _plugin_wire(self):
+        """POST /api/plugins/wire {goal} -> 把可用插件接入超级 AGENT, 返回接入摘要。"""
+        try:
+            from .. import plugin_hub as _ph
+            from .. import superagent as _sa
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            sa = _sa.SuperAgent(base_dir=os.getcwd())
+            wired = _ph.get_hub().wire(sa, goal=goal)
+            return self._send_json({"ok": True, "wired": wired})
+        except Exception as e:
+            return self._send_json({"error": "插件接入失败: %s" % e}, status=500)
+
+    def _plugin_call_connector(self, name):
+        """POST/GET /api/plugins/connectors/<name> -> 直接调用某连接器。"""
+        try:
+            from .. import plugin_hub as _ph
+            hub = _ph.get_hub()
+            c = hub.get_connector(name)
+            if c is None:
+                return self._send_json({"error": "连接器不存在: %s" % name}, status=404)
+            body = self._read_json({}) if self.command == "POST" else {}
+            goal = (body.get("goal") or "").strip()
+            res = c.call(goal, **{k: v for k, v in body.items() if k != "goal"})
+            res["name"] = name
+            res["available"] = c.check()["available"]
+            return self._send_json({"ok": True, **res})
+        except Exception as e:
+            return self._send_json({"error": "连接器调用失败: %s" % e}, status=500)
+
+    def _plugin_connector_register(self):
+        """POST /api/plugins/connectors/register {name, category, description, env_required?}
+        -> 注册 connector(占位; 调用需通过 /api/plugins/connectors/<name> 的 call_fn 由 hub 内部设定,
+        此处只演示注册表; 真实调用需 register_connector(call_fn=...) 在服务端预置)。"""
+        try:
+            from .. import plugin_hub as _ph
+            body = self._read_json({})
+            name = (body.get("name") or "").strip()
+            if not name:
+                return self._send_json({"error": "缺少 name"}, status=400)
+            if not name.isidentifier():
+                return self._send_json({"error": "非法 name(须为标识符)"}, status=400)
+            hub = _ph.get_hub()
+            hub.register_connector(
+                name=name,
+                category=body.get("category") or "tool",
+                description=body.get("description") or "用户注册连接器",
+                env_required=body.get("env_required") or [],
+                optional_dep=body.get("optional_dep") or [],
+                extra=body.get("extra") or {})
+            return self._send_json({"ok": True, "name": name,
+                                    "available": hub.get_connector(name).check()["available"]})
+        except Exception as e:
+            return self._send_json({"error": "连接器注册失败: %s" % e}, status=500)
+
+    def _plugin_expert_register(self):
+        """POST /api/plugins/experts/register {name, domain, system_prompt, description?, tags?} -> 注册专家画像。"""
+        try:
+            from .. import plugin_hub as _ph
+            body = self._read_json({})
+            name = (body.get("name") or "").strip()
+            domain = (body.get("domain") or "code").strip()
+            sys_prompt = (body.get("system_prompt") or "").strip()
+            if not name or not sys_prompt:
+                return self._send_json({"error": "缺少 name 或 system_prompt"}, status=400)
+            if not name.isidentifier():
+                return self._send_json({"error": "非法 name"}, status=400)
+            hub = _ph.get_hub()
+            hub.register_expert(
+                name=name, domain=domain, system_prompt=sys_prompt,
+                description=body.get("description") or "用户注册专家",
+                tags=body.get("tags") or [])
+            return self._send_json({"ok": True, "name": name, "domain": domain})
+        except Exception as e:
+            return self._send_json({"error": "专家注册失败: %s" % e}, status=500)
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

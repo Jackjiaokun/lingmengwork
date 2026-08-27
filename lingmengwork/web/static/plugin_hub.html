@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>灵梦work · 插件中枢</title>
+<style>
+:root{--bg:#0b0e1a;--bg2:#11152a;--panel:rgba(28,33,58,.72);--panel2:rgba(40,46,80,.55);--bd:rgba(130,140,200,.18);--tx:#e7e9f5;--sub:#9aa3c7;--mut:#6b7299;--accent:#8b5cf6;--accent2:#22d3ee;--good:#34d399;--warn:#fbbf24;--bad:#f87171;--grad:linear-gradient(135deg,#8b5cf6,#22d3ee)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1100px 600px at 12% -8%,rgba(139,92,246,.18),transparent 60%),radial-gradient(900px 520px at 100% 0%,rgba(34,211,238,.14),transparent 55%),var(--bg);color:var(--tx);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:22px}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
+h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--sub);font-size:12.5px;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpi{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;backdrop-filter:blur(8px)}
+.kpi .v{font-size:24px;font-weight:700;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.kpi .l{color:var(--sub);font-size:12px;margin-top:2px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:920px){.grid{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:16px;backdrop-filter:blur(8px)}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--tx);display:flex;align-items:center;gap:8px}
+.card h3 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+textarea,input{width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit;resize:vertical}
+textarea{min-height:54px}
+.row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+button{cursor:pointer;border:none;border-radius:10px;padding:8px 16px;font-weight:600;color:#fff;background:var(--grad);box-shadow:0 6px 18px rgba(139,92,246,.35);font-size:13px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btn2{background:var(--panel2);border:1px solid var(--bd);box-shadow:none;color:var(--sub)}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;background:var(--panel2);border:1px solid var(--bd);color:var(--sub);margin:2px 4px 2px 0}
+.pill.ok{color:var(--good);border-color:rgba(52,211,153,.4)}
+.pill.err{color:var(--bad);border-color:rgba(248,113,133,.4)}
+.pill.warn{color:var(--warn);border-color:rgba(251,191,36,.4)}
+.tab{display:inline-flex;gap:4px;padding:2px;background:var(--bg2);border-radius:999px;border:1px solid var(--bd);margin-bottom:10px}
+.tab button{border-radius:999px;background:transparent;color:var(--sub);box-shadow:none;font-size:12px;padding:4px 12px;font-weight:500}
+.tab button.active{background:var(--grad);color:#fff;box-shadow:0 3px 10px rgba(139,92,246,.4)}
+.ctable{width:100%;border-collapse:collapse;font-size:12.5px}
+.ctable th{color:var(--sub);text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);font-weight:600}
+.ctable td{padding:8px 10px;border-bottom:1px dashed var(--bd);color:var(--tx)}
+.ctable tr:hover{background:var(--bg2)}
+.exp{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--bg2)}
+.exp .eh{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.exp .en{font-weight:600;font-size:13px}
+.exp .ed{color:var(--sub);font-size:12px;margin-top:2px}
+.muted{color:var(--mut);font-size:12px}
+.hidden{display:none}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:var(--bg2);border:1px solid var(--bd);color:var(--sub);margin:2px 3px 2px 0}
+.note{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:12px;color:var(--good)}
+.pre{white-space:pre-wrap;word-break:break-word;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px;font-size:12px;color:var(--sub);max-height:180px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="g">插件中枢</span> · Connector / Expert 注册与接入</h1>
+  <p class="sub">Phase 32 · 连接器注册(env 可用性自动降级)/ 专家画像注入路由 hint / 目录扫描发现 / 一键接入超级 AGENT。零三方依赖, 无 key 全程可用。</p>
+  <div class="kpis" id="kpis">
+    <div class="kpi"><div class="v" id="kConn">0</div><div class="l">连接器</div></div>
+    <div class="kpi"><div class="v" id="kConnOk">0</div><div class="l">连接器可用</div></div>
+    <div class="kpi"><div class="v" id="kExp">0</div><div class="l">专家画像</div></div>
+    <div class="kpi"><div class="v" id="kDown">0</div><div class="l">已降级</div></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <h3><span class="dot"></span>快速操作</h3>
+    <div class="row">
+      <textarea id="goalInput" placeholder="输入一个目标, 用于测试一键接入(可选)"></textarea>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:0 4px">
+        <button onclick="doWire()">🔗 一键接入超级 AGENT</button>
+        <button class="btn2" onclick="loadPlugins()">🔄 刷新</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="discoverDir" placeholder="插件目录(相对/绝对), 内含 *.py 暴露 register_connectors(hub) / register_experts(hub)">
+      <button class="btn2" onclick="doDiscover()">🔍 扫描发现</button>
+    </div>
+    <div id="actionNote" class="note hidden"></div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot"></span>连接器 (Connectors)</h3>
+      <div class="tab">
+        <button class="active" data-filter="all" onclick="filterConn('all',this)">全部</button>
+        <button data-filter="available" onclick="filterConn('available',this)">可用</button>
+        <button data-filter="downgraded" onclick="filterConn('downgraded',this)">已降级</button>
+      </div>
+      <table class="ctable"><thead><tr><th>名称</th><th>分类</th><th>状态</th><th>说明</th></tr></thead><tbody id="connBody"></tbody></table>
+      <div style="margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px">
+        <div class="row"><input id="regCName" placeholder="名称(标识符)"><input id="regCCat" placeholder="分类"><input id="regCEnv" placeholder="env_required (逗号分隔)"></div>
+        <textarea id="regCDesc" placeholder="说明" style="margin-top:8px"></textarea>
+        <button class="btn2" style="margin-top:8px" onclick="regConnector()">注册连接器</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3><span class="dot"></span>专家画像 (Experts)</h3>
+      <div id="expList"></div>
+      <div style="margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px">
+        <div class="row"><input id="regEName" placeholder="名称"><input id="regEDomain" placeholder="域 (code/creation/ops/research)"></div>
+        <textarea id="regESys" placeholder="系统提示(system prompt)" style="margin-top:8px"></textarea>
+        <textarea id="regEDesc" placeholder="说明" style="margin-top:8px"></textarea>
+        <button class="btn2" style="margin-top:8px" onclick="regExpert()">注册专家</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+let connectors=[], experts=[], filterMode="all";
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+async function loadPlugins(){
+  const j = await (await fetch("/api/plugins")).json();
+  connectors = j.connectors||[]; experts = j.experts||[];
+  render();
+}
+function render(){
+  const ok = connectors.filter(c=>c.available).length;
+  const down = connectors.length-ok;
+  document.getElementById("kConn").textContent = connectors.length;
+  document.getElementById("kConnOk").textContent = ok;
+  document.getElementById("kExp").textContent = experts.length;
+  document.getElementById("kDown").textContent = down;
+  const list = filterMode==="available" ? connectors.filter(c=>c.available)
+    : filterMode==="downgraded" ? connectors.filter(c=>!c.available) : connectors;
+  document.getElementById("connBody").innerHTML = list.map(c=>
+    '<tr><td><b>'+esc(c.name)+'</b></td><td><span class="tag">'+esc(c.category)+'</span></td>'+
+    '<td><span class="pill '+(c.available?'ok':'warn')+'">'+(c.available?'✅ 可用':'⚠️ '+esc((c.missing_env||[]).join(",")))+'</span></td>'+
+    '<td style="max-width:280px">'+esc(c.description)+'</td></tr>'
+  ).join("") || '<tr><td colspan="4"><span class="muted">暂无</span></td></tr>';
+  document.getElementById("expList").innerHTML = experts.map(e=>
+    '<div class="exp"><div class="eh"><span class="en">'+esc(e.name)+'</span>'+
+    '<span><span class="tag">'+esc(e.domain)+'</span>'+(e.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("")+
+    '</span></div><div class="ed">'+esc(e.description||"")+'</div></div>'
+  ).join("") || '<span class="muted">暂无</span>';
+}
+function filterConn(mode, btn){
+  filterMode = mode;
+  document.querySelectorAll(".tab button").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+}
+async function doWire(){
+  const note = document.getElementById("actionNote");
+  note.className="note"; note.textContent="正在接入..."; note.classList.remove("hidden");
+  try{
+    const goal = document.getElementById("goalInput").value.trim();
+    const j = await (await fetch("/api/plugins/wire",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal})})).json();
+    const w = j.wired||{};
+    note.textContent = "✅ 接入完成 · 专家域+%d | connector %d 可用 / %d 降级"
+      .replace("%d", (w.experts||[]).length)
+      .replace("%d", (w.connectors||[]).length)
+      .replace("%d", (w.downgraded||[]).length);
+  }catch(e){note.textContent="❌ 接入失败: "+e; note.className="note err";}
+  loadPlugins();
+}
+async function doDiscover(){
+  const note = document.getElementById("actionNote");
+  note.className="note"; note.textContent="正在扫描..."; note.classList.remove("hidden");
+  try{
+    const dir = document.getElementById("discoverDir").value.trim();
+    if(!dir) return;
+    const j = await (await fetch("/api/plugins/discover",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({plugin_dir:dir})})).json();
+    note.textContent = "✅ 发现: connector +"+((j.found||{}).connectors||0)+" / expert +"+((j.found||{}).experts||0);
+  }catch(e){note.textContent="❌ 扫描失败: "+e;}
+  loadPlugins();
+}
+async function regConnector(){
+  const name = document.getElementById("regCName").value.trim();
+  const cat = document.getElementById("regCCat").value.trim();
+  const env = document.getElementById("regCEnv").value.trim().split(",").map(s=>s.trim()).filter(Boolean);
+  const desc = document.getElementById("regCDesc").value.trim();
+  if(!name) return;
+  const note = document.getElementById("actionNote"); note.className="note"; note.classList.remove("hidden");
+  try{
+    const j = await (await fetch("/api/plugins/connectors/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,category:cat||"tool",description:desc||"用户注册连接器",env_required:env})})).json();
+    note.textContent = j.ok ? "✅ 已注册连接器 "+name+(j.available?"(可用)":"(已降级, 缺 env)") : "❌ "+(j.error||"");
+  }catch(e){note.textContent="❌ "+e;}
+  loadPlugins();
+}
+async function regExpert(){
+  const name = document.getElementById("regEName").value.trim();
+  const domain = document.getElementById("regEDomain").value.trim()||"code";
+  const sys = document.getElementById("regESys").value.trim();
+  const desc = document.getElementById("regEDesc").value.trim();
+  if(!name||!sys) return;
+  const note = document.getElementById("actionNote"); note.className="note"; note.classList.remove("hidden");
+  try{
+    const j = await (await fetch("/api/plugins/experts/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,domain,system_prompt:sys,description:desc||""})})).json();
+    note.textContent = j.ok ? "✅ 已注册专家 "+name+" (domain="+domain+")" : "❌ "+(j.error||"");
+  }catch(e){note.textContent="❌ "+e;}
+  loadPlugins();
+}
+loadPlugins();
+setInterval(loadPlugins, 5000);
+</script>
+</body>
+</html>

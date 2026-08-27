@@ -29,6 +29,7 @@ _STATIC_FILES = [
     "web/static/federation.html",
     "web/static/memory_graph.html",
     "web/static/superagent.html",
+    "web/static/plugin_hub.html",
 ]
 
 
@@ -49,9 +50,9 @@ def check_imports():
     from . import (decompose_engine, creation_domains, autonomous,
                    goal_pipeline, multimodal_adapters, memory_mgr,
                    automation_hub, event_bus, self_heal, federation,
-                   memory_graph, superagent)
+                   memory_graph, superagent, plugin_hub)
     from .web import server  # noqa: F401
-    return "9 个核心模块导入成功"
+    return "10 个核心模块导入成功"
 
 
 def check_decompose():
@@ -224,10 +225,37 @@ def check_superagent():
     # Phase 29: 默认真实执行器应产出 >=1 个可验证真实产物(非仅方案占位)
     real = [e for e in (ex.get("executions") or []) if e.get("status") == "ok" and (e.get("artifacts") or [])]
     assert real, "默认真实执行器应产出 >=1 个真实产物(如 asset_manifest.json / deploy.sh / code)"
-    # 结构化 trace 进审计链(6 阶段)
+    # 结构化 trace 进审计链(7 阶段: 目标理解 + 插件接入 + 域路由 + 并行编排 + 执行落地 + 收敛护栏 + 记忆沉淀)
     assert len(rep.get("trace") or []) >= 5, "应产出分阶段 trace"
     return "超级AGENT 跨域编排(路由 %s · %d 伙伴成功 · 真实产物%d · 记忆沉淀)" % (
         "/".join(routed), ok_n, len(real))
+
+
+def check_plugin_hub():
+    """Phase 32: 插件中枢(Connector/Expert 注册 + 可用性降级 + 自动接入超级 AGENT)。
+
+    验收: 默认 3+ connector / 3+ expert 已 bootstrap; 可用性降级可用; wire 接入不崩。
+    """
+    from . import plugin_hub as ph
+    ph.reset_hub()
+    hub = ph.get_hub()
+    cons = hub.list_connectors()
+    exps = hub.list_experts()
+    assert len(cons) >= 3, "应默认注册 >=3 个连接器, 实际 %d" % len(cons)
+    assert len(exps) >= 3, "应默认注册 >=3 个专家, 实际 %d" % len(exps)
+    avail = [c for c in cons if c["available"]]
+    assert avail, "应有至少 1 个连接器可用"
+    hub.register_connector(name="phantom", category="tool",
+                           description="测试连接器", env_required=["NONEXISTENT_ENV_XYZ"])
+    chk = hub.get_connector("phantom").check()
+    assert not chk["available"] and "NONEXISTENT_ENV_XYZ" in chk["missing_env"], \
+        "缺 env 应降级 unavailable"
+    from . import superagent as sa
+    sa_inst = sa.SuperAgent(base_dir=":memory:")
+    wired = hub.wire(sa_inst, goal="测试接入")
+    assert isinstance(wired, dict) and "experts" in wired, "wire 应返回接入摘要"
+    return "插件中枢(%d 连接器/%d 可用/%d 专家/降级链与 wire 正常)" % (
+        len(cons), len(avail), len(exps))
 
 
 def run():
@@ -245,6 +273,7 @@ def run():
         _chk("工作伙伴联邦(路由+派发)", check_federation),
         _chk("长期记忆图谱(抽取+召回)", check_memory_graph),
         _chk("超级AGENT内核(跨域编排闭环)", check_superagent),
+        _chk("插件中枢(连接器+专家)", check_plugin_hub),
         _chk("关键静态资产", check_static_files),
     ]
     total = len(checks)

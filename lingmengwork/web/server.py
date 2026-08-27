@@ -3811,11 +3811,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"error": "资产库读取失败: %s" % e}, status=500)
 
     def _multimodal_generate(self):
-        """POST /api/multimodal/generate {domain,brief,blueprint?,session_id?,mode?,voice?,rate?,pitch?}
+        """POST /api/multimodal/generate {domain,brief,blueprint?,session_id?,mode?,voice?,rate?,pitch?,image_path?}
         -> 统一生成入口 (包装 multimodal_adapters.render + 登记资产库)。
 
-        mode(仅 audio 域): tts(默认语音合成) / music(本地配乐合成) / clone(语音克隆占位)
-        voice/rate/pitch: edge_tts 语音参数 (tts 模式), 缺失用默认
+        audio 域 mode: tts(默认语音合成) / music(本地配乐合成) / clone(语音克隆占位)
+        audio 域 voice/rate/pitch: edge_tts 语音参数 (tts 模式)
+        image 域 mode: gen(文生图,默认) / inpaint(局部重绘) / upscale(超分放大)
+        image 域 image_path: inpaint/upscale 参考图路径(可选, 留空用演示画布)
         """
         from .. import multimodal as _mm
         try:
@@ -3828,15 +3830,19 @@ class Handler(SimpleHTTPRequestHandler):
             voice = body.get("voice") or ""
             rate = body.get("rate") or ""
             pitch = body.get("pitch") or ""
+            image_path = body.get("image_path") or ""
             if domain not in ("audio", "image", "video"):
                 return self._send_json({"error": "不支持的域: %s (可选: audio/image/video)" % domain}, status=400)
             if mode in ("music", "clone") and domain != "audio":
                 return self._send_json({"error": "模式 %s 仅支持 audio 域" % mode}, status=400)
+            if mode in ("inpaint", "upscale") and domain != "image":
+                return self._send_json({"error": "模式 %s 仅支持 image 域" % mode}, status=400)
             if not brief:
                 return self._send_json({"error": "缺少 brief"}, status=400)
             asset = _mm.generate(domain, brief, blueprint, "", session_id, os.getcwd(),
                                  llm_call=self._make_llm_call(),
-                                 mode=mode, voice=voice, rate=rate, pitch=pitch)
+                                 mode=mode, voice=voice, rate=rate, pitch=pitch,
+                                 image_path=image_path)
             if not asset:
                 return self._send_json({"error": "生成失败 (适配层未产出文件)"}, status=500)
             return self._send_json({"ok": True, "asset": asset})

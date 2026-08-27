@@ -78,7 +78,7 @@ input.q:focus{border-color:rgba(139,92,246,.55)}
   <div class="card">
     <p class="lbl">选择创作域</p>
     <div class="domrow" id="domRow">
-      <div class="dom on" data-dom="image" style="--accent:#f472b6"><span class="ico">🖼️</span><span><span class="nm">图片</span><br><span class="ds">Pillow 真实 PNG 信息图</span></span></div>
+      <div class="dom on" data-dom="image" style="--accent:#f472b6"><span class="ico">🖼️</span><span><span class="nm">图片</span><br><span class="ds">文生图/局部重绘/超分 PNG</span></span></div>
       <div class="dom" data-dom="audio" style="--accent:#10b981"><span class="ico">🎙️</span><span><span class="nm">音频</span><br><span class="ds">edge_tts 真实 MP3 / 降级占位</span></span></div>
       <div class="dom" data-dom="video" style="--accent:#6366f1"><span class="ico">🎞️</span><span><span class="nm">视频</span><br><span class="ds">Pillow 真实 GIF 动图</span></span></div>
     </div>
@@ -94,6 +94,18 @@ input.q:focus{border-color:rgba(139,92,246,.55)}
         <input id="voiceInput" class="q" placeholder="voice (tts, 如 zh-CN-YunxiNeural)" />
         <input id="rateInput" class="q" placeholder="rate (如 +10% / -20%)" />
         <input id="pitchInput" class="q" placeholder="pitch (如 +5Hz / -10Hz)" />
+      </div>
+    </div>
+
+    <div class="card image-opts hidden" id="imageOpts">
+      <p class="lbl">图像模式</p>
+      <div class="domrow" id="imgModeRow">
+        <div class="dom on" data-mode="gen" style="--accent:#f472b6"><span class="ico">🎨</span><span><span class="nm">文生图</span><br><span class="ds">文本→信息图 PNG</span></span></div>
+        <div class="dom" data-mode="inpaint" style="--accent:#22d3ee"><span class="ico">🖌️</span><span><span class="nm">局部重绘</span><br><span class="ds">中心区域重绘·支持参考图</span></span></div>
+        <div class="dom" data-mode="upscale" style="--accent:#6366f1"><span class="ico">🔍</span><span><span class="nm">超分放大</span><br><span class="ds">LANCZOS 2x 放大</span></span></div>
+      </div>
+      <div class="row" id="imgPathRow">
+        <input id="imgPathInput" class="q" style="min-width:360px" placeholder="参考图路径(可选, inpaint/upscale 使用, 留空用演示画布)" />
       </div>
     </div>
 
@@ -140,6 +152,7 @@ domRow.querySelectorAll(".dom").forEach(el => {
     el.classList.add("on");
     curDom = el.dataset.dom;
     document.getElementById("audioOpts").classList.toggle("hidden", curDom !== "audio");
+    document.getElementById("imageOpts").classList.toggle("hidden", curDom !== "image");
   };
 });
 const audioOpts = document.getElementById("audioOpts");
@@ -152,6 +165,16 @@ modeRow.querySelectorAll(".dom").forEach(el => {
     modeRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
     el.classList.add("on");
     curMode = el.dataset.mode;
+  };
+});
+
+let curImgMode = "gen";
+const imgModeRow = document.getElementById("imgModeRow");
+imgModeRow.querySelectorAll(".dom").forEach(el => {
+  el.onclick = () => {
+    imgModeRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
+    el.classList.add("on");
+    curImgMode = el.dataset.mode;
   };
 });
 
@@ -183,6 +206,10 @@ genBtn.onclick = async () => {
       if (v) body.voice = v;
       if (rt) body.rate = rt;
       if (pt) body.pitch = pt;
+    } else if (curDom === "image") {
+      body.mode = curImgMode;
+      const ip = document.getElementById("imgPathInput").value.trim();
+      if (ip) body.image_path = ip;
     }
     const r = await fetch("/api/multimodal/generate", {
       method: "POST", headers: {"Content-Type":"application/json"},

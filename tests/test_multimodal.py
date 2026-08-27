@@ -260,3 +260,99 @@ def test_server_audio_music_mode():
     finally:
         srv.shutdown()
         os.chdir(old)
+
+
+# ----------------------------------------------------------------------------
+# Phase 23 — 图像域深化 (文生图 / 局部重绘 / 超分放大)
+# ----------------------------------------------------------------------------
+
+def test_image_gen_local_real(tmp_path):
+    """文生图(gen, 默认): 无图像生成 key 时本地 Pillow 真实 PNG (real=True), 标注 gen=local。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("image", "科技品牌主视觉海报", mode="gen", llm_call=None)
+        assert a, "gen 应产出"
+        assert a["kind"] == "image"
+        assert a["real"] is True, "本地 Pillow 信息图是真实媒体"
+        assert a["mime"] == "image/png"
+        assert os.path.exists(a["path"])
+        assert (a["meta"] or {}).get("gen") == "local"
+    finally:
+        os.chdir(old)
+
+
+def test_image_inpaint_real(tmp_path):
+    """局部重绘(inpaint): 无参考图时用演示画布, 仍产出真实 PNG (real=True, meta.inpaint)。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("image", "把中心区域换成产品 logo", mode="inpaint", llm_call=None)
+        assert a, "inpaint 应产出"
+        assert a["kind"] == "image"
+        assert a["real"] is True
+        assert (a["meta"] or {}).get("inpaint") is True
+        assert os.path.exists(a["path"])
+    finally:
+        os.chdir(old)
+
+
+def test_image_upscale_real(tmp_path):
+    """超分放大(upscale): 无参考图时用演示样本 LANCZOS 2x, 尺寸放大且 real=True。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("image", "放大这张缩略图", mode="upscale", llm_call=None)
+        assert a, "upscale 应产出"
+        assert a["real"] is True
+        m = a["meta"] or {}
+        assert m.get("upscale") is True
+        assert m.get("scale") == 2
+        # 真实文件尺寸应大于源 (演示画布 640x400 -> 1280x800)
+        assert m.get("width", 0) > m.get("src_width", 0)
+        from PIL import Image
+        im = Image.open(a["path"])
+        assert im.size[0] == m.get("width")
+    finally:
+        os.chdir(old)
+
+
+def test_server_image_mode_routing():
+    d = tempfile.mkdtemp()
+    old = os.getcwd()
+    os.chdir(d)
+    PORT = 8977
+    srv = _srv.ThreadingHTTPServer(("127.0.0.1", PORT), _srv.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.5)
+    try:
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+            c.request("POST", path, body=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"})
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        # inpaint 经服务端返回真实 PNG
+        st, js = post("/api/multimodal/generate",
+                      {"domain": "image", "brief": "重绘中心", "mode": "inpaint"})
+        assert st == 200, (st, js)
+        dg = json.loads(js)
+        assert dg["ok"] and dg["asset"]["mime"] == "image/png"
+        assert (dg["asset"]["meta"] or {}).get("inpaint") is True
+
+        # upscale 经服务端返回真实 PNG (尺寸放大)
+        st2, js2 = post("/api/multimodal/generate",
+                        {"domain": "image", "brief": "放大", "mode": "upscale"})
+        assert st2 == 200, (st2, js2)
+        dg2 = json.loads(js2)
+        assert dg2["ok"] and dg2["asset"]["real"] is True
+        assert (dg2["asset"]["meta"] or {}).get("upscale") is True
+
+        # inpaint 模式误用于 audio 域应被拒
+        st3, js3 = post("/api/multimodal/generate",
+                        {"domain": "audio", "brief": "x", "mode": "inpaint"})
+        assert st3 == 400
+    finally:
+        srv.shutdown()
+        os.chdir(old)

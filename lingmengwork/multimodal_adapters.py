@@ -228,22 +228,73 @@ def _design_video_shots(brief, blueprint, ctx, llm_call):
 
 
 # ----------------------------------------------------------------------------
-# 图片域: LLM 设计 -> Pillow 真实 PNG
+# 图片域: 三模式 (gen 文生图 / inpaint 局部重绘 / upscale 超分放大)
 # ----------------------------------------------------------------------------
 
-def _render_image(brief, blueprint, ctx, out_dir, llm_call=None):
+def _remote_text_to_image(prompt):
+    """密钥可用时调用 OpenAI 兼容文生图 API 返回 PNG 字节; 无 key / 失败返回 None。"""
+    key = os.environ.get("LMW_IMAGE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not key:
+        return None
+    try:
+        import base64
+        import urllib.request
+        payload = json.dumps({
+            "model": "gpt-image-1",
+            "prompt": (prompt or "")[:1000],
+            "size": "1024x1024",
+            "response_format": "b64_json",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/images/generations",
+            data=payload,
+            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        b64 = data["data"][0]["b64_json"]
+        return base64.b64decode(b64)
+    except Exception:
+        return None
+
+
+def _make_demo_canvas(w=640, h=400, label="demo"):
+    """无参考图时合成一张演示画布, 让 inpaint/upscale 始终产出真实 PNG。"""
+    img = _grad_bg(w, h, (18, 12, 42), (31, 17, 71))
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, w, 8], fill=_DOM_THEME["image"])
+    f = _load_font(30)
+    d.text((30, h // 2 - 20), label, font=f, fill=(245, 243, 255))
+    return img
+
+
+def _render_image_gen(brief, blueprint, ctx, out_dir, llm_call=None):
+    """文生图: 有图像生成 key 走远程 API (真实生成); 否则本地 Pillow 真实信息图 (real=True)。"""
+    # 远程真实生成 (密钥门控, 失败自动回退本地)
+    remote = _remote_text_to_image((brief or "")[:1000])
+    if remote:
+        fn = "%s.png" % _slug(brief)
+        path = os.path.join(_out_dir(out_dir), fn)
+        try:
+            with open(path, "wb") as f:
+                f.write(remote)
+            if os.path.exists(path) and os.path.getsize(path) > 100:
+                return {
+                    "domain": "image", "file": path, "mime": "image/png", "real": True,
+                    "note": "远程文生图 API 真实生成 (有 key)",
+                    "meta": {"gen": "remote", "width": 1024, "height": 1024},
+                }
+        except Exception:
+            pass
+
+    # 本地真实信息图 (LLM 设计 / 模板回退)
     design = _design_image(brief, blueprint, ctx, llm_call) if llm_call else None
     pal = (design or {}).get("palette") or "nebula"
     top, bottom, theme = _PALETTES.get(pal, _PALETTES["nebula"])
     W, H = 1280, 720
     img = _grad_bg(W, H, top, bottom)
     d = ImageDraw.Draw(img)
-
-    # 顶部品牌渐变条
     for y in range(8):
         d.line([(0, y), (W, y)], fill=theme)
-
-    # 左侧主题光条
     d.rectangle([60, 120, 78, 600], fill=theme)
 
     f_title = _load_font(46)
@@ -270,9 +321,74 @@ def _render_image(brief, blueprint, ctx, out_dir, llm_call=None):
     return {
         "domain": "image", "file": path, "mime": "image/png", "real": True,
         "note": "Pillow 真实渲染信息图 (%s)" % ("LLM 设计驱动" if design else "模板回退"),
-        "meta": {"width": W, "height": H, "points": len(pts),
+        "meta": {"width": W, "height": H, "points": len(pts), "gen": "local",
                  "llm_designed": bool(design), "palette": pal},
     }
+
+
+def _render_image_inpaint(brief, blueprint, ctx, out_dir, llm_call=None, image_path=None):
+    """局部重绘: 给定参考图(可选)在中心区域重绘; 无参考图用演示画布。始终真实 PNG (real=True)。"""
+    if image_path and os.path.exists(image_path):
+        try:
+            src = Image.open(image_path).convert("RGB")
+            used = "provided"
+        except Exception:
+            src = _make_demo_canvas(label="Inpaint 演示画布")
+            used = "demo"
+    else:
+        src = _make_demo_canvas(label="Inpaint 演示画布")
+        used = "demo"
+    W, H = src.size
+    d = ImageDraw.Draw(src)
+    box = [W // 4, H // 4, 3 * W // 4, 3 * H // 4]
+    region = _grad_bg(box[2] - box[0], box[3] - box[1], (56, 189, 248), (139, 92, 246))
+    src.paste(region, box[:2])
+    f = _load_font(22)
+    d.text((box[0] + 12, box[1] + 12), "重绘区: " + (brief or "局部重绘")[:18], font=f, fill=(255, 255, 255))
+    fn = "%s.inpaint.png" % _slug(brief)
+    path = os.path.join(_out_dir(out_dir), fn)
+    src.save(path, "PNG")
+    return {
+        "domain": "image", "file": path, "mime": "image/png", "real": True,
+        "note": "局部重绘 (中心区域重绘%s)" % ("参考图" if used == "provided" else "演示画布"),
+        "meta": {"inpaint": True, "source": used, "width": W, "height": H},
+    }
+
+
+def _render_image_upscale(brief, blueprint, ctx, out_dir, llm_call=None, image_path=None):
+    """超分放大: 给定参考图(可选) LANCZOS 2x 放大; 无参考图用演示样本。始终真实 PNG (real=True)。"""
+    resampler = getattr(getattr(Image, "Resampling", None), "LANCZOS", None) or Image.LANCZOS
+    if image_path and os.path.exists(image_path):
+        try:
+            src = Image.open(image_path).convert("RGB")
+            used = "provided"
+        except Exception:
+            src = _make_demo_canvas(label="Upscale 样本")
+            used = "demo"
+    else:
+        src = _make_demo_canvas(label="Upscale 样本")
+        used = "demo"
+    W, H = src.size
+    scale = 2
+    out = src.resize((W * scale, H * scale), resampler)
+    fn = "%s.upscale.png" % _slug(brief)
+    path = os.path.join(_out_dir(out_dir), fn)
+    out.save(path, "PNG")
+    return {
+        "domain": "image", "file": path, "mime": "image/png", "real": True,
+        "note": "超分放大 (LANCZOS %dx%s)" % (scale, " 参考图" if used == "provided" else " 演示样本"),
+        "meta": {"upscale": True, "scale": scale, "source": used,
+                 "width": W * scale, "height": H * scale, "src_width": W, "src_height": H},
+    }
+
+
+def _render_image(brief, blueprint, ctx, out_dir, llm_call=None, mode="gen", image_path=None):
+    """图片域三模式分发: gen(文生图) / inpaint(局部重绘) / upscale(超分放大)。"""
+    if mode == "inpaint":
+        return _render_image_inpaint(brief, blueprint, ctx, out_dir, llm_call, image_path=image_path)
+    if mode == "upscale":
+        return _render_image_upscale(brief, blueprint, ctx, out_dir, llm_call, image_path=image_path)
+    return _render_image_gen(brief, blueprint, ctx, out_dir, llm_call)
 
 
 # ----------------------------------------------------------------------------
@@ -502,15 +618,19 @@ def available_domains():
     return list(_ADAPTERS.keys())
 
 
-def render(domain, brief, blueprint="", ctx="", out_dir=None, llm_call=None, mode="tts", voice="", rate="", pitch=""):
+def render(domain, brief, blueprint="", ctx="", out_dir=None, llm_call=None, mode="tts", voice="", rate="", pitch="", image_path=""):
     """为指定域真实产出媒体文件。返回 dict 或 None(不支持的域)。
 
     llm_call: 可选 llm_call(prompt, system=None)->str|None; 提供时三域先调 LLM 生成
               结构化设计再真实绘制; 为 None / LLM 失败时自动回退确定性模板。
+    mode/voice/rate/pitch: 音频域模式与语音参数; mode/image_path: 图像域模式与参考图路径。
     """
     if domain == "audio":
         return _render_audio(brief or "", blueprint or "", ctx or "", out_dir,
                              llm_call, mode, voice, rate, pitch)
+    if domain == "image":
+        return _render_image(brief or "", blueprint or "", ctx or "", out_dir,
+                             llm_call, mode=mode or "gen", image_path=image_path or None)
     fn = _ADAPTERS.get(domain)
     if not fn:
         return None

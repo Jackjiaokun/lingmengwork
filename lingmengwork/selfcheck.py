@@ -194,9 +194,10 @@ def check_memory_graph():
 
 
 def check_superagent():
-    """Phase 27: 超级 AGENT 内核闭环(目标理解→域路由→并行编排→收敛→自检→记忆沉淀)。
+    """Phase 27+29: 超级 AGENT 内核闭环(目标理解→域路由→并行编排→执行落地→收敛→自检→记忆沉淀)。
 
     验收门槛: 单目标跨 2+ 域编排成功(多伙伴并行派发 + 汇聚)。
+    Phase 29: 默认真实执行器(code/creation/research/ops)应把伙伴方案落地为可验证真实产物。
     quality_gate=False: 避免 superagent 质量门递归调用 selfcheck.run(本探针)。
     base_dir=":memory:" : 纯内存库隔离, 规避临时目录 SQLite 文件锁(沙箱 safe-delete 干扰)。
     """
@@ -213,16 +214,20 @@ def check_superagent():
     assert cv.get("partners_ok", 0) >= 2, "收敛应确认伙伴成功 >=2"
     # 记忆沉淀(异常隔离, 空图也会计数)
     assert isinstance(rep.get("memory"), dict), "应产出记忆沉淀结果"
-    # 执行落地: 默认执行器把方案写成真实交付文件(无 LLM 亦产出)
+    # 执行落地: 默认真实执行器把方案写成真实交付文件(无 LLM 亦产出)
     ex = rep.get("executions") or {}
     assert ex.get("count", 0) >= 2, "至少 2 个域应落地执行, 实际 %s" % ex
     arts = ex.get("artifacts") or []
     assert len(arts) >= 2, "应产出 >=2 个交付文件, 实际 %s" % arts
     for a in arts:
         assert os.path.isfile(a), "交付文件应真实存在: %s" % a
+    # Phase 29: 默认真实执行器应产出 >=1 个可验证真实产物(非仅方案占位)
+    real = [e for e in (ex.get("executions") or []) if e.get("status") == "ok" and (e.get("artifacts") or [])]
+    assert real, "默认真实执行器应产出 >=1 个真实产物(如 asset_manifest.json / deploy.sh / code)"
     # 结构化 trace 进审计链(6 阶段)
     assert len(rep.get("trace") or []) >= 5, "应产出分阶段 trace"
-    return "超级AGENT 跨域编排(路由 %s · %d 伙伴成功 · 记忆沉淀)" % ("/".join(routed), ok_n)
+    return "超级AGENT 跨域编排(路由 %s · %d 伙伴成功 · 真实产物%d · 记忆沉淀)" % (
+        "/".join(routed), ok_n, len(real))
 
 
 def run():

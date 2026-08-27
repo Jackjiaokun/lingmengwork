@@ -55,6 +55,10 @@
   .ps.ok{color:var(--good);background:rgba(52,211,153,.12)}
   .ps.err{color:var(--bad);background:rgba(248,113,113,.12)}
   .partner .pl{color:var(--sub);font-size:12px;margin-top:6px;white-space:pre-wrap;max-height:140px;overflow:auto}
+  .exchip{display:inline-flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--bd);margin:2px 6px 2px 0;max-width:280px}
+  .exchip .fn{color:var(--tx);font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
+  .exchip .ft{color:var(--accent2);font-size:11px}
+  .exhint{color:var(--sub);font-size:11.5px;margin-top:6px;font-style:italic}
   .guard{border-left:3px solid var(--warn);background:rgba(251,191,36,.08);padding:8px 12px;border-radius:0 8px 8px 0;margin:6px 0;font-size:12.5px;color:var(--warn)}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;background:var(--panel2);border:1px solid var(--bd);color:var(--sub)}
   .pill b{color:var(--tx)}
@@ -68,7 +72,7 @@
 <body>
 <div class="wrap">
   <h1><span class="g">超级 AGENT 内核</span> · 统一目标编排闭环</h1>
-  <p class="sub">Phase 27 · 目标理解 → 域路由 → 并行编排(多智能体联邦) → 收敛(三级护栏) → 自检质量门 → 记忆沉淀。无 LLM 全程规则兜底，单伙伴失败隔离，每阶段 trace 进审计链可回放。</p>
+  <p class="sub">Phase 29 · 目标理解 → 域路由 → 并行编排(多智能体联邦) → 执行落地(真实产物) → 收敛(三级护栏) → 自检质量门 → 记忆沉淀。内置 code/creation/research/ops 真实执行器(可编译代码 / 素材清单 / 真实检索 / 可校验脚本)，均可通过 register_executor 热插拔；无 LLM 全程规则兜底，单伙伴失败隔离。</p>
 
   <div class="kpis" id="kpis">
     <div class="kpi"><div class="v" id="kRuns">0</div><div class="l">最近编排</div></div>
@@ -195,15 +199,27 @@ function renderResult(j){
   // 执行落地
   const ex = j.executions||{};
   const exs = ex.executions||[];
+  const EX_TYPE = {
+    code:["代码","可 py_compile / 运行"], creation:["素材清单","可喂 multimodal 适配层产出真实素材"],
+    research:["研究简报","可阅读 / 二次检索"], ops:["运维脚本","可 bash 校验 / 执行"] };
+  function artChip(a){
+    const name = (a||"").split(/[\\/]/).pop();
+    const ext = (name.split(".").pop()||"").toLowerCase();
+    const label = {py:"python",js:"javascript",sh:"bash",json:"json",md:"markdown"}[ext]||ext;
+    return '<span class="exchip"><span class="fn">'+esc(name)+'</span><span class="ft">'+esc(label)+'</span></span>';
+  }
   if(!exs.length){
     document.getElementById("execBox").innerHTML = '<span class="muted">无执行产物</span>';
   }else{
     document.getElementById("execBox").innerHTML = exs.map(e=>{
       const ok = e.status==="ok"||e.status==="artifact";
-      const arts = (e.artifacts||[]).map(a=>'<a class="tag ok" href="'+esc(a)+'" target="_blank" rel="noopener">📄 '+esc(a.split(/[\\/]/).pop())+'</a>').join(" ") || '<span class="muted">无文件</span>';
-      return '<div class="partner"><div class="ph"><span class="pn">'+esc(e.domain||"?")+'</span>'+
+      const meta = EX_TYPE[(e.domain||"").toLowerCase()]||["产物","已落盘服务器 outputs/superagent/"];
+      const arts = (e.artifacts||[]).map(artChip).join(" ") || '<span class="muted">无文件</span>';
+      return '<div class="partner"><div class="ph"><span class="pn">'+esc(e.domain||"?")+
+        ' <span class="muted">· '+esc(meta[0])+'</span></span>'+
         '<span class="ps '+(ok?'ok':'err')+'">'+(ok?'✅ '+esc(e.status):'❌ '+esc(e.status))+'</span></div>'+
-        '<div class="pl">'+esc(e.note||"")+'</div><div style="margin-top:6px">'+arts+'</div></div>';
+        '<div class="pl">'+esc(e.note||"")+'</div><div style="margin-top:6px">'+arts+'</div>'+
+        '<div class="exhint">可执行动作: '+esc(meta[1])+'</div></div>';
     }).join("");
   }
 }

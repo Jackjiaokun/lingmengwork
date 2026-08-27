@@ -147,6 +147,11 @@ def test_server_api():
         assert len(d2["routed"]) >= 2
         assert all(p["status"] == "ok" for p in d2["dispatch"]["partners"])
         assert d2["converge"]["partners_ok"] >= 2
+        # Phase 29: 默认真实执行器产物经 HTTP 落盘校验
+        arts29 = (d2.get("executions") or {}).get("artifacts") or []
+        assert len(arts29) >= 1, "应产出真实执行产物(经 API)"
+        for a in arts29:
+            assert os.path.isfile(a), "真实产物应落盘: " + a
 
         # 缺 goal → 400
         st3, js3 = post("/api/superagent/run", {})
@@ -161,6 +166,68 @@ def test_server_api():
     finally:
         srv.shutdown()
         os.chdir(old)
+
+
+# ------------------------------------------------------------------ 真实执行器(Phase29)
+def test_real_executors_registered():
+    """Phase 29: code/creation/research/ops 默认热插拔真实执行器。"""
+    for d in ("code", "creation", "research", "ops"):
+        assert sa_mod.get_executor(d) is not None, "应注册真实执行器: %s" % d
+
+
+def test_exec_code_compiles(tmp_path):
+    """code 执行器: 伙伴 plan 含 python 代码块 → 落盘 .py 且 compile 通过。"""
+    partner = {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+               "summary": "s", "plan": "实现如下:\n```python\ndef add(a,b):\n    return a+b\n```",
+               "artifacts": []}
+    res = sa_mod._exec_code(partner, goal="写加法函数", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert res["artifacts"], "应产出代码文件"
+    py = [a for a in res["artifacts"] if a.endswith(".py")][0]
+    assert os.path.isfile(py)
+    compile(open(py, encoding="utf-8").read(), py, "exec")  # 二次校验可编译
+
+
+def test_exec_code_skeleton_when_no_block(tmp_path):
+    """code 执行器: 无代码块(无 LLM) → 产出可编译骨架。"""
+    partner = {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+               "summary": "s", "plan": "## 方案\n做点东西", "artifacts": []}
+    res = sa_mod._exec_code(partner, goal="写个服务", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    sk = [a for a in res["artifacts"] if a.endswith("_skeleton.py")][0]
+    assert os.path.isfile(sk)
+    compile(open(sk, encoding="utf-8").read(), sk, "exec")
+
+
+def test_exec_ops_script(tmp_path):
+    """ops 执行器: 落盘 deploy.sh 真实文件。"""
+    partner = {"partner_id": "ops", "name": "运维伙伴", "domain": "ops", "status": "ok",
+               "summary": "s", "plan": "1) 构建镜像\n2) 推送到仓库\n3) 灰度发布", "artifacts": []}
+    res = sa_mod._exec_ops(partner, goal="上线部署", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert any(a.endswith(".sh") for a in res["artifacts"]), res
+    assert os.path.isfile([a for a in res["artifacts"] if a.endswith(".sh")][0])
+
+
+def test_exec_creation_manifest(tmp_path):
+    """creation 执行器: 落盘可回读 asset_manifest.json。"""
+    partner = {"partner_id": "creation", "name": "创作伙伴", "domain": "creation", "status": "ok",
+               "summary": "s", "plan": "p", "artifacts": [{"type": "blueprint", "domain": "image"}]}
+    res = sa_mod._exec_creation(partner, goal="画一张海报", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert any(a.endswith(".json") for a in res["artifacts"])
+    m = json.load(open([a for a in res["artifacts"] if a.endswith(".json")][0], encoding="utf-8"))
+    assert m["sub_domain"] == "image"
+
+
+def test_exec_research_fallback(tmp_path, monkeypatch):
+    """research 执行器: 未开启抓取 → 落地研究简报(.md), 不挂起。"""
+    monkeypatch.delenv("LMW_SA_ALLOW_FETCH", raising=False)
+    partner = {"partner_id": "research", "name": "研究伙伴", "domain": "research", "status": "ok",
+               "summary": "s", "plan": "## 研究目标\n量子计算", "artifacts": []}
+    res = sa_mod._exec_research(partner, goal="调研量子计算", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    assert any(a.endswith(".md") for a in res["artifacts"]), res
 
 
 # ------------------------------------------------------------------ 自检集成
@@ -195,6 +262,7 @@ def test_execute_real_executor_injection(tmp_path):
         return {"domain": "code", "status": "ok",
                 "artifacts": [os.path.join(str(tmp_path), "gen_code.txt")],
                 "note": "已调用真实 code 执行器"}
+    prev = sa_mod.EXECUTORS.get("code")  # 可能是默认真实执行器
     sa_mod.register_executor("code", fake_code_executor)
     try:
         sa = sa_mod.SuperAgent(base_dir=str(tmp_path))
@@ -212,11 +280,14 @@ def test_execute_real_executor_injection(tmp_path):
         assert code_ex is not None, "应存在 code 域执行记录"
         assert code_ex["status"] == "ok" and any("gen_code.txt" in a for a in code_ex["artifacts"]), code_ex
         assert "code" in calls, "真实 code 执行器应被调用"
-        # ops 无注册执行器 → 走默认执行器产出交付文件
+        # ops 走默认真实执行器(已注册) → 落盘真实脚本
         ops_ex = next((e for e in ex["executions"] if e.get("domain") == "ops"), None)
-        assert ops_ex["status"] == "artifact", "ops 应走默认执行器落地"
+        assert ops_ex["status"] in ("ok", "artifact"), "ops 应走默认真实执行器落地"
     finally:
-        sa_mod.EXECUTORS.pop("code", None)  # 清理, 避免污染其他测试
+        if prev is not None:
+            sa_mod.EXECUTORS["code"] = prev  # 还原默认真实执行器, 避免污染其他测试
+        else:
+            sa_mod.EXECUTORS.pop("code", None)
 
 
 def test_execute_partner_error_isolated(tmp_path):
@@ -233,6 +304,6 @@ def test_execute_partner_error_isolated(tmp_path):
     }
     ex = sa.execute(fake_dispatch)
     recs = {e["domain"]: e for e in ex["executions"]}
-    assert recs["code"]["status"] == "artifact", "成功伙伴应落地执行"
+    assert recs["code"]["status"] in ("ok", "artifact"), "成功伙伴应落地执行"
     assert recs["creation"]["status"] == "skipped", "异常伙伴应跳过"
     assert any(os.path.isfile(a) for a in ex["artifacts"]), "成功伙伴应产出文件"

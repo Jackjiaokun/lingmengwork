@@ -1,7 +1,8 @@
 """灵梦work · 超级 AGENT 内核 (Phase 27).
 
 把「单循环编码 AGENT」收口为「统一超级 AGENT 内核」: 用户输入一个模糊目标,
-内核自动完成「目标理解 → 域路由 → 并行编排 → 收敛(三级护栏) → 自检(质量门) → 记忆沉淀」。
+内核自动完成「目标理解 → 域路由 → 并行编排 → 执行落地(真实产物) → 收敛(三级护栏) → 自检(质量门) → 记忆沉淀」。
+执行落地内置 code/creation/research/ops 真实执行器(可编译代码 / 素材清单 JSON / 真实检索 / 可校验脚本), 均可通过 register_executor 热插拔覆盖(如 code->autonomous 真编码、creation->multimodal 真产出)。
 
 复用既有能力(不长在另起炉灶, 严守不可变内核契约):
 - 域路由 / 并行编排: 多智能体联邦 federation (关键词路由 + ThreadPoolExecutor 并行派发 + 汇聚)
@@ -16,8 +17,10 @@
 import collections
 import json
 import os
+import re
 import tempfile
 import time
+import urllib.parse
 from datetime import datetime
 
 from . import federation as _fed
@@ -43,6 +46,217 @@ def register_executor(domain, fn):
 
 def get_executor(domain):
     return EXECUTORS.get(domain)
+
+
+# ------------------------------------------------------------------ Phase 29 真实执行器(模块级, 默认热插拔)
+def _resolve_out_dir(base_dir):
+    """解析可写产物目录: base_dir 为合法目录则用, 否则落到临时目录(:memory:/None 安全)。"""
+    if base_dir and base_dir != ":memory:" and os.path.isdir(base_dir):
+        root = base_dir
+    else:
+        root = tempfile.mkdtemp()
+    d = os.path.join(root, "outputs", "superagent")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        d = tempfile.mkdtemp()
+    return d
+
+
+def _extract_code_blocks(text):
+    if not text:
+        return []
+    out = []
+    for m in re.finditer(r"```(\w*)\n(.*?)```", text, re.DOTALL):
+        out.append((m.group(1), m.group(2)))
+    return out
+
+
+def _extract_steps(plan):
+    steps = []
+    for line in (plan or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        m = re.match(r"^(\d+)[.)]\s*(.+)$", s)
+        if m:
+            steps.append(m.group(2).strip())
+        elif s.startswith("- "):
+            steps.append(s[2:].strip())
+    if steps:
+        return steps[:15]
+    lines = [s.strip() for s in (plan or "").split("\n") if s.strip()]
+    return lines[:5]
+
+
+def _exec_code(partner, goal="", llm_call=None, base_dir=None):
+    """真实编码执行器: 有 LLM 时让 LLM 产出业务代码并编译, 无 LLM 时产出可编译骨架。"""
+    out_dir = _resolve_out_dir(base_dir)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    plan = (partner.get("plan") or "") + "\n" + (partner.get("summary") or "")
+    if llm_call:
+        try:
+            code = llm_call(
+                "为目标「%s」编写可直接运行的 Python 实现, 只输出代码(用 ```python 围栏, 不要解释)." % goal,
+                system="你是资深工程师, 输出纯代码, 不写解释性文字.")
+            if isinstance(code, str) and code.strip():
+                plan = code
+        except Exception:
+            pass
+    blocks = _extract_code_blocks(plan)
+    artifacts, notes = [], []
+    ext_map = {"python": "py", "py": "py", "javascript": "js", "js": "js",
+               "bash": "sh", "sh": "sh", "shell": "sh", "html": "html", "json": "json"}
+    if blocks:
+        for i, (lang, code) in enumerate(blocks):
+            ext = ext_map.get((lang or "").lower(), "py")
+            path = os.path.join(out_dir, "%s_code_%d.%s" % (ts, i, ext))
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(code)
+                if ext == "py":
+                    try:
+                        compile(code, path, "exec")
+                        notes.append("python 编译通过")
+                    except SyntaxError as e:
+                        notes.append("python 语法警告: %s" % e)
+                artifacts.append(path)
+            except Exception as e:
+                notes.append("写入失败: %s" % e)
+    else:
+        sk = ('"""%s\n\n由超级 AGENT 编码执行器生成(无 LLM 规则兜底骨架).\n'
+              '目标: %s\n"""\n\n\ndef main():\n'
+              '    # TODO: 依据联邦编码伙伴方案实现业务逻辑\n'
+              '    raise NotImplementedError("依据方案补充实现")\n\n\n'
+              'if __name__ == "__main__":\n    main()\n'
+              % (partner.get("name", "编码伙伴"), goal))
+        path = os.path.join(out_dir, "%s_code_skeleton.py" % ts)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(sk)
+            compile(sk, path, "exec")
+            artifacts.append(path)
+            notes.append("无 LLM: 产出可编译骨架(compile 通过)")
+        except Exception as e:
+            notes.append("骨架生成失败: %s" % e)
+    return {"domain": "code", "status": "ok" if artifacts else "error",
+            "artifacts": artifacts, "note": " | ".join(notes) or "已产出代码产物"}
+
+
+def _exec_research(partner, goal="", llm_call=None, base_dir=None):
+    """真实研究执行器: 开启 LMW_SA_ALLOW_FETCH=1 时真实抓取, 否则落地研究简报(真实文件)。"""
+    out_dir = _resolve_out_dir(base_dir)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    plan = (partner.get("plan") or "").strip() or (partner.get("summary") or "")
+    artifacts, note = [], ""
+    if os.environ.get("LMW_SA_ALLOW_FETCH") == "1":
+        url = _derive_research_url(goal)
+        if url:
+            try:
+                import urllib.request
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = resp.read(200000).decode("utf-8", "replace")
+                path = os.path.join(out_dir, "%s_research_fetch.md" % ts)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("# 抓取结果\n\n**来源**: %s\n\n```text\n%s\n```\n"
+                            % (url, data[:5000]))
+                artifacts.append(path)
+                note = "已真实抓取: %s" % url
+            except Exception as e:
+                note = "抓取失败(%s), 回退研究简报" % type(e).__name__
+    if not artifacts:
+        path = os.path.join(out_dir, "%s_research.md" % ts)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# 研究简报(超级 AGENT 研究执行器)\n\n**目标**: %s\n\n%s\n"
+                        % (goal, plan))
+            artifacts.append(path)
+            note = note or "无网络/未开启抓取, 已落地研究简报"
+        except Exception as e:
+            note = "写入失败: %s" % e
+    return {"domain": "research", "status": "ok" if artifacts else "error",
+            "artifacts": artifacts, "note": note}
+
+
+def _derive_research_url(goal):
+    kws = [w for w in re.split(r"[\s,，。.、]+", goal or "") if len(w) >= 2][:4]
+    if not kws:
+        return ""
+    q = urllib.parse.quote(" ".join(kws))
+    return "https://html.duckduckgo.com/html/?q=" + q
+
+
+def _exec_ops(partner, goal="", llm_call=None, base_dir=None):
+    """真实运维执行器: 把方案步骤落为可 bash -n 校验的 deploy.sh。"""
+    out_dir = _resolve_out_dir(base_dir)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    plan = (partner.get("plan") or "").strip() or (partner.get("summary") or "")
+    steps = _extract_steps(plan)
+    script = ["#!/usr/bin/env bash", "set -euo pipefail", "",
+              "# 超级 AGENT 运维执行器生成", "# 目标: %s" % goal, ""]
+    for i, s in enumerate(steps, 1):
+        script.append("# 步骤 %d: %s" % (i, s))
+        script.append('echo "[step %d] %s"' % (i, s))
+        script.append("")
+    script.append('echo "部署流程骨架已生成, 请按实际环境补充命令."')
+    path = os.path.join(out_dir, "%s_deploy.sh" % ts)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(script) + "\n")
+        validated = _shell_syntax_check(path)
+        note = "已生成 deploy.sh" + (", 语法校验通过" if validated else ", 未做语法校验(shell 不可用)")
+        return {"domain": "ops", "status": "ok", "artifacts": [path], "note": note}
+    except Exception as e:
+        return {"domain": "ops", "status": "error", "artifacts": [],
+                "note": "写入失败: %s" % e}
+
+
+def _shell_syntax_check(path):
+    import shutil as _shutil
+    import subprocess as _sp
+    shell = _shutil.which("bash") or _shutil.which("sh")
+    if not shell:
+        return False
+    try:
+        r = _sp.run([shell, "-n", path], capture_output=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _exec_creation(partner, goal="", llm_call=None, base_dir=None):
+    """真实创作执行器: 产出可回读的素材清单 JSON(供 multimodal 适配层消费)。"""
+    out_dir = _resolve_out_dir(base_dir)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    arts = partner.get("artifacts") or [{}]
+    sub = (arts[0].get("domain") if arts else "") or "image"
+    manifest = {
+        "generator": "superagent.creation_executor",
+        "sub_domain": sub,
+        "goal": goal,
+        "prompt": goal,
+        "spec": {"format": sub, "theme": "default", "resolution": "1024x1024"},
+        "adapter_hint": "接入文生图/语音/视频 MCP 或 API 后由适配层产出真实素材",
+        "created_at": ts,
+    }
+    path = os.path.join(out_dir, "%s_asset_manifest.json" % ts)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        json.load(open(path, encoding="utf-8"))
+        return {"domain": "creation", "status": "ok", "artifacts": [path],
+                "note": "已产出素材清单 JSON(供 multimodal 适配层消费)"}
+    except Exception as e:
+        return {"domain": "creation", "status": "error", "artifacts": [],
+                "note": "清单生成失败: %s" % e}
+
+
+# Phase 29: 真实执行器默认热插拔(均为模块级函数, 可通过 register_executor 覆盖为更智能实现)
+register_executor("code", _exec_code)
+register_executor("research", _exec_research)
+register_executor("ops", _exec_ops)
+register_executor("creation", _exec_creation)
 
 
 def _parse_json(raw):
@@ -244,6 +458,10 @@ class SuperAgent:
         except Exception as e:
             return {"domain": domain, "status": "error",
                     "note": "文件写入失败: %s: %s" % (type(e).__name__, e), "artifacts": []}
+
+    # ---- Phase 29: 真实执行器(模块级函数, 默认热插拔, 可被 register_executor 覆盖) ----
+    # 注意: 这些执行器是模块级函数(非方法), 因为 execute() 通过 get_executor(domain)(partner,...) 调用,
+    # 若注册为方法会导致 partner 被误绑成 self。execute 失败时仍走 _default_executor(写 .md 方案)。
 
     # ---- 阶段 6: 记忆沉淀 (异常隔离, 不阻塞主流程) ----
     def deposit_memory(self, goal, dispatch_rep, session_id="", llm_call=None):

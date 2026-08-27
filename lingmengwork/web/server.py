@@ -1161,6 +1161,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 自动化调度中枢 (Phase 15): 定时/周期任务自主运行 ----
         if p == "/automation":
             return self._serve_file("automation.html")
+        # ---- 实时活动总线 (Phase 16): 统一事件流页面 ----
+        if p == "/activity":
+            return self._serve_file("activity.html")
         if p == "/api/automations":
             return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
@@ -1177,9 +1180,20 @@ class Handler(SimpleHTTPRequestHandler):
         if p == "/api/engines":
             return self._send_json(self._engines_status())
         # ---- 离线自检中枢 (Phase 14): 系统健康探针(无 LLM · 确定性) ----
+        if p == "/api/events":
+            return self._events_get()
         if p == "/api/selfcheck":
             from .. import selfcheck as _sc
-            return self._send_json(_sc.run())
+            sc = _sc.run()
+            try:
+                from .. import event_bus as _eb
+                _eb.emit("selfcheck", "run",
+                         "自检 %d/%d (健康分 %d)" % (sc["passed"], sc["total"], sc["score"]),
+                         {"score": sc["score"], "passed": sc["passed"],
+                          "total": sc["total"], "all_ok": sc["all_ok"]})
+            except Exception:
+                pass
+            return self._send_json(sc)
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()
@@ -1470,6 +1484,8 @@ class Handler(SimpleHTTPRequestHandler):
                            enabled=body.get("enabled", True))
         except ValueError as e:
             return self._send_json({"error": "调度表达式非法: %s" % e}, status=400)
+        self._emit("automation", "create", "新增任务 %s (%s)" % (name, kind),
+                   {"id": task.get("id"), "kind": kind, "schedule": schedule})
         return self._send_json({"ok": True, "task": task})
 
     def _automations_run(self, tid):
@@ -1477,7 +1493,10 @@ class Handler(SimpleHTTPRequestHandler):
         hub = _ah.get_hub(os.getcwd())
         out = hub.run_now(tid, cwd=os.getcwd())
         if not out.get("ok"):
+            self._emit("automation", "run_fail", "运行任务 %s 失败: %s" % (tid, out.get("error", "")),
+                       {"id": tid})
             return self._send_json({"error": out.get("error", "运行失败")}, status=404)
+        self._emit("automation", "run", "立即运行任务 %s 完成" % tid, {"id": tid, "ok": True})
         return self._send_json(out)
 
     def _automations_delete(self, tid):
@@ -1485,6 +1504,7 @@ class Handler(SimpleHTTPRequestHandler):
         hub = _ah.get_hub(os.getcwd())
         if not hub.remove(tid):
             return self._send_json({"error": "任务不存在"}, status=404)
+        self._emit("automation", "delete", "删除任务 %s" % tid, {"id": tid})
         return self._send_json({"ok": True})
 
     def _automations_toggle(self, tid):
@@ -1498,7 +1518,34 @@ class Handler(SimpleHTTPRequestHandler):
         t = hub.set_enabled(tid, enabled)
         if t is None:
             return self._send_json({"error": "任务不存在"}, status=404)
+        self._emit("automation", "toggle", "%s任务 %s" % ("启用" if enabled else "停用", tid),
+                   {"id": tid, "enabled": bool(enabled)})
         return self._send_json({"ok": True, "task": t})
+
+    def _events_get(self):
+        """GET /api/events?since=<id>&limit=<n> -> 增量事件拉取（近实时活动流）。"""
+        from .. import event_bus as _eb
+        since, limit = 0, 50
+        try:
+            import urllib.parse as _up
+            q = _up.parse_qs(self.path.split("?", 1)[1])
+            if q.get("since"):
+                since = int(q["since"][0])
+            if q.get("limit"):
+                limit = max(1, min(int(q["limit"][0]), 200))
+        except Exception:
+            pass
+        evs = _eb.get_bus().recent(limit=limit, since_id=since)
+        return self._send_json({"ok": True, "events": evs, "total": _eb.get_bus().size(),
+                                "counts": _eb.get_bus().counts_by_source()})
+
+    def _emit(self, source, kind, msg, data=None):
+        """便捷发射活动事件（失败静默）。"""
+        try:
+            from .. import event_bus as _eb
+            return _eb.emit(source, kind, msg, data)
+        except Exception:
+            return None
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。
@@ -3570,11 +3617,15 @@ class Handler(SimpleHTTPRequestHandler):
                 })
                 if len(_ENGINE_RUNS) > _ENGINE_RUNS_MAX:
                     del _ENGINE_RUNS[:len(_ENGINE_RUNS) - _ENGINE_RUNS_MAX]
+            self._emit("engine", "run", "完成 %s: %s (%.1fs)" % (engine, goal[:60], time.time() - started),
+                       {"engine": engine, "ok": bool((result or {}).get("ok", True)),
+                        "elapsed_sec": round(time.time() - started, 1)})
             return self._send_json({"ok": True, "engine": engine, "result": result})
         except Exception as e:
             from .. import errorlog as _el
             _el.record(os.getcwd(), "engines", "总控台引擎调用失败: %s" % e,
                        source="api:/api/engines/run", detail=str(e))
+            self._emit("engine", "run_fail", "引擎调用失败 %s: %s" % (engine, e), {"engine": engine})
             return self._send_json({"error": "引擎调用失败: %s" % e}, status=500)
 
     def _multimodal_render(self):

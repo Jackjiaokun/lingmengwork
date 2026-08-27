@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>实时活动流 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0e1a; --bg2:#121833; --panel:rgba(22,28,54,.72);
+    --line:rgba(127,140,200,.18); --txt:#e6e9f5; --muted:#9aa3c4;
+    --c-engine:#a78bfa; --c-automation:#22d3ee; --c-selfcheck:#34d399; --c-system:#fbbf24;
+    --grad:linear-gradient(135deg,#7c5cff 0%,#3ad0ff 100%);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 80% -10%,rgba(124,92,255,.18),transparent 60%),
+               radial-gradient(900px 600px at 0% 110%,rgba(58,208,255,.14),transparent 55%),
+               var(--bg);
+    color:var(--txt); font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    overflow:hidden;
+  }
+  .orb{position:fixed;border-radius:50%;filter:blur(70px);opacity:.5;pointer-events:none;z-index:0}
+  .orb.a{width:420px;height:420px;background:#6d4bff;top:-140px;right:-80px}
+  .orb.b{width:360px;height:360px;background:#1fb6ff;bottom:-160px;left:-90px}
+  .wrap{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column;max-width:1080px;margin:0 auto;padding:22px 24px}
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  h1{margin:0;font-size:22px;letter-spacing:.5px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+  .stats{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:12.5px;color:var(--muted)}
+  .pill b{color:var(--txt);font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:12px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .live{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:12.5px}
+  .live .pulse{width:9px;height:9px;border-radius:50%;background:#34d399;box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:p 1.8s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}70%{box-shadow:0 0 0 8px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+  .btn{cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--txt);border-radius:10px;padding:7px 14px;font-size:13px;transition:.18s}
+  .btn:hover{border-color:rgba(127,140,200,.4);transform:translateY(-1px)}
+  #feed{margin-top:18px;flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:6px}
+  #feed::-webkit-scrollbar{width:8px}#feed::-webkit-scrollbar-thumb{background:rgba(127,140,200,.25);border-radius:8px}
+  .ev{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--c);border-radius:12px;padding:11px 14px;animation:in .25s ease}
+  @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .ev-top{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+  .badge{font-size:11px;padding:2px 9px;border-radius:999px;font-weight:600;color:#0b0e1a}
+  .ev-time{margin-left:auto;font-variant-numeric:tabular-nums}
+  .ev-msg{margin-top:5px;color:var(--txt);font-size:13.5px}
+  .ev-data{margin-top:6px;font-size:11.5px;color:var(--muted);display:none;white-space:pre-wrap;background:rgba(0,0,0,.25);border-radius:8px;padding:8px 10px;max-height:180px;overflow:auto}
+  .ev-data.open{display:block}
+  .ev-toggle{cursor:pointer;color:#7fa0ff;font-size:11.5px;user-select:none}
+  .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px}
+</style>
+</head>
+<body>
+<div class="orb a"></div><div class="orb b"></div>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>📡 实时活动流</h1>
+      <div class="sub">统一事件总线 — 四引擎总控台 / 自动化调度 / 离线自检 的运行事件近实时汇聚</div>
+    </div>
+    <div class="stats">
+      <span class="live"><span class="pulse"></span>自动刷新 4s</span>
+      <span class="pill">累计事件 <b id="total">0</b></span>
+      <button class="btn" id="clearBtn">清空视图</button>
+    </div>
+  </header>
+  <div class="stats" style="margin-top:12px" id="chips"></div>
+  <div id="feed"><div class="empty">等待事件…</div></div>
+</div>
+<script>
+const SRC = {
+  engine:     {label:'引擎', c:'#a78bfa', bg:'rgba(167,139,250,.85)'},
+  automation: {label:'调度', c:'#22d3ee', bg:'rgba(34,211,238,.85)'},
+  selfcheck:  {label:'自检', c:'#34d399', bg:'rgba(52,211,153,.85)'},
+  system:     {label:'系统', c:'#fbbf24', bg:'rgba(251,191,36,.85)'},
+};
+let lastId = 0;
+const rendered = new Set();
+const feed = document.getElementById('feed');
+
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString('zh-CN',{hour12:false}); }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function card(e){
+  const m = SRC[e.source] || {label:e.source, c:'#9aa3c4', bg:'rgba(154,163,196,.8)'};
+  const el = document.createElement('div');
+  el.className = 'ev';
+  el.style.setProperty('--c', m.c);
+  const dataStr = e.data && Object.keys(e.data).length ? JSON.stringify(e.data,null,2) : '';
+  el.innerHTML =
+    '<div class="ev-top"><span class="badge" style="background:'+m.bg+'">'+esc(m.label)+'</span>'+
+    '<span class="ev-kind">'+esc(e.kind)+'</span>'+
+    '<span class="ev-time">'+fmtTime(e.ts)+'</span></div>'+
+    '<div class="ev-msg">'+esc(e.msg)+'</div>'+
+    (dataStr ? '<div class="ev-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\')">▸ 详情</div><div class="ev-data">'+esc(dataStr)+'</div>' : '');
+  return el;
+}
+
+function ingest(evs){
+  if(!evs.length) return;
+  if(feed.querySelector('.empty')) feed.innerHTML='';
+  for(let i=evs.length-1;i>=0;i--){          // 最新先入，置顶
+    const e=evs[i];
+    if(rendered.has(e.id)) continue;
+    rendered.add(e.id);
+    feed.prepend(card(e));
+    lastId = Math.max(lastId, e.id);
+  }
+  while(feed.children.length>300) feed.removeChild(feed.lastChild);
+}
+
+function updateStats(d){
+  document.getElementById('total').textContent = d.total||0;
+  const chips = document.getElementById('chips');
+  const counts = d.counts||{};
+  chips.innerHTML = Object.keys(SRC).map(k=>{
+    const n = counts[k]||0; const m=SRC[k];
+    return '<span class="chip"><span class="dot" style="background:'+m.c+'"></span>'+esc(m.label)+' <b style="color:var(--txt)">'+n+'</b></span>';
+  }).join('');
+}
+
+async function poll(){
+  try{
+    const r = await fetch('/api/events?since='+lastId);
+    const d = await r.json();
+    if(d.ok){ ingest(d.events); updateStats(d); }
+  }catch(err){ /* 网络抖动忽略，下次轮询重试 */ }
+}
+
+document.getElementById('clearBtn').onclick = ()=>{ feed.innerHTML='<div class="empty">已清空视图</div>'; rendered.clear(); };
+poll();
+setInterval(poll, 4000);
+</script>
+</body>
+</html>

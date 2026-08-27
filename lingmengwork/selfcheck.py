@@ -22,6 +22,7 @@ _STATIC_FILES = [
     "web/static/pipeline.html",
     "web/static/multimodal.html",
     "web/static/automation.html",
+    "web/static/activity.html",
 ]
 
 
@@ -41,9 +42,9 @@ def _chk(name, fn):
 def check_imports():
     from . import (decompose_engine, creation_domains, autonomous,
                    goal_pipeline, multimodal_adapters, memory_mgr,
-                   automation_hub)
+                   automation_hub, event_bus)
     from .web import server  # noqa: F401
-    return "7 个核心模块导入成功"
+    return "8 个核心模块导入成功"
 
 
 def check_decompose():

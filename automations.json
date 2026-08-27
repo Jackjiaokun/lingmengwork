@@ -1,0 +1,92 @@
+{
+  "tasks": [
+    {
+      "id": "auto_1787790756_4be65b",
+      "name": "night-build",
+      "kind": "pipeline",
+      "goal": "跑回归",
+      "context": "",
+      "domain": "code",
+      "schedule": "daily:03:00",
+      "schedule_spec": {
+        "typ": "daily",
+        "hour": 3,
+        "minute": 0
+      },
+      "enabled": true,
+      "payload": {},
+      "created_at": "2026-08-27 08:32:36",
+      "last_run": null,
+      "last_status": null,
+      "run_count": 0,
+      "next_run": "2026-08-28 03:00:00",
+      "history": []
+    },
+    {
+      "id": "auto_1787790767_05590f",
+      "name": "night-build",
+      "kind": "pipeline",
+      "goal": "跑回归",
+      "context": "",
+      "domain": "code",
+      "schedule": "daily:03:00",
+      "schedule_spec": {
+        "typ": "daily",
+        "hour": 3,
+        "minute": 0
+      },
+      "enabled": true,
+      "payload": {},
+      "created_at": "2026-08-27 08:32:47",
+      "last_run": null,
+      "last_status": null,
+      "run_count": 0,
+      "next_run": "2026-08-28 03:00:00",
+      "history": []
+    },
+    {
+      "id": "auto_1787790926_a8a652",
+      "name": "smoke-nb",
+      "kind": "pipeline",
+      "goal": "跑回归",
+      "context": "",
+      "domain": "code",
+      "schedule": "daily:03:00",
+      "schedule_spec": {
+        "typ": "daily",
+        "hour": 3,
+        "minute": 0
+      },
+      "enabled": true,
+      "payload": {},
+      "created_at": "2026-08-27 08:35:26",
+      "last_run": null,
+      "last_status": null,
+      "run_count": 0,
+      "next_run": "2026-08-28 03:00:00",
+      "history": []
+    },
+    {
+      "id": "auto_1787791012_7d4fb2",
+      "name": "night-build",
+      "kind": "pipeline",
+      "goal": "跑回归",
+      "context": "",
+      "domain": "code",
+      "schedule": "daily:03:00",
+      "schedule_spec": {
+        "typ": "daily",
+        "hour": 3,
+        "minute": 0
+      },
+      "enabled": true,
+      "payload": {},
+      "created_at": "2026-08-27 08:36:52",
+      "last_run": null,
+      "last_status": null,
+      "run_count": 0,
+      "next_run": "2026-08-28 03:00:00",
+      "history": []
+    }
+  ]
+}

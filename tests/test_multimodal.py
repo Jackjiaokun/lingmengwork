@@ -178,3 +178,85 @@ def test_server_multimodal_api():
     finally:
         srv.shutdown()
         os.chdir(old)
+
+
+# ----------------------------------------------------------------------------
+# Phase 22 — 音频域深化 (语音合成 / 本地配乐 / 语音克隆)
+# ----------------------------------------------------------------------------
+
+def test_audio_music_real_wav(tmp_path):
+    """本地配乐合成: 零依赖 wave 产出真实可播放 WAV (不依赖 edge_tts/网络/key)。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("audio", "电商促销背景配乐 bpm=120 小节=2", mode="music", llm_call=None)
+        assert a, "music 模式应产出"
+        assert a["kind"] == "audio"
+        assert a["real"] is True, "本地合成是真实音频"
+        assert a["mime"] == "audio/wav"
+        assert os.path.exists(a["path"])
+        assert os.path.getsize(a["path"]) > 44, "WAV 应含音频帧 (>44 字节头)"
+        assert (a["meta"] or {}).get("duration"), "应含时长元数据"
+        assert (a["meta"] or {}).get("synth") == "local"
+    finally:
+        os.chdir(old)
+
+
+def test_audio_clone_fallback(tmp_path):
+    """语音克隆: 无参考音频/API 时降级为声波占位图 + 结构说明 (不崩)。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("audio", "用我的声音念这段广告词", mode="clone", llm_call=None)
+        assert a, "clone 降级应产出占位"
+        assert a["kind"] == "audio"
+        assert a["real"] is False, "克隆需 API, 此处降级"
+        assert (a["meta"] or {}).get("clone") is True
+        assert os.path.exists(a["path"])
+    finally:
+        os.chdir(old)
+
+
+def test_audio_tts_mode_passthrough(tmp_path):
+    """语音合成模式 (默认) 显式透传 mode=tts, 无论真实/降级均产出音频资产不崩。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("audio", "播报今日天气", mode="tts", voice="zh-CN-YunxiNeural", llm_call=None)
+        assert a and a["kind"] == "audio"
+        assert os.path.exists(a["path"])
+    finally:
+        os.chdir(old)
+
+
+def test_server_audio_music_mode():
+    d = tempfile.mkdtemp()
+    old = os.getcwd()
+    os.chdir(d)
+    PORT = 8976
+    srv = _srv.ThreadingHTTPServer(("127.0.0.1", PORT), _srv.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.5)
+    try:
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+            c.request("POST", path, body=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"})
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        # 音乐模式经服务端返回真实 WAV
+        st, js = post("/api/multimodal/generate",
+                      {"domain": "audio", "brief": "测试配乐 bpm=120 小节=2", "mode": "music"})
+        assert st == 200, (st, js)
+        dg = json.loads(js)
+        assert dg["ok"] and dg["asset"]["mime"] == "audio/wav"
+        assert dg["asset"]["real"] is True
+
+        # music 模式误用于 image 域应被拒
+        st2, js2 = post("/api/multimodal/generate",
+                        {"domain": "image", "brief": "x", "mode": "music"})
+        assert st2 == 400
+    finally:
+        srv.shutdown()
+        os.chdir(old)

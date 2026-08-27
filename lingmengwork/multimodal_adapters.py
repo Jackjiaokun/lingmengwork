@@ -26,6 +26,7 @@ import re
 import math
 import json
 import time
+import struct
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -278,7 +279,11 @@ def _render_image(brief, blueprint, ctx, out_dir, llm_call=None):
 # 音频域: LLM 提炼文稿 -> edge_tts 真实 MP3 (降级占位)
 # ----------------------------------------------------------------------------
 
-def _render_audio(brief, blueprint, ctx, out_dir, llm_call=None):
+def _render_audio(brief, blueprint, ctx, out_dir, llm_call=None, mode="tts", voice="", rate="", pitch=""):
+    if mode == "music":
+        return _render_music(brief, blueprint, ctx, out_dir, llm_call)
+    if mode == "clone":
+        return _render_clone(brief, blueprint, ctx, out_dir, llm_call)
     designed = _design_audio_script(brief, blueprint, ctx, llm_call) if llm_call else None
     script = designed or _extract_script(blueprint or brief)
     fn = "%s.mp3" % _slug(brief)
@@ -288,10 +293,10 @@ def _render_audio(brief, blueprint, ctx, out_dir, llm_call=None):
     try:
         import asyncio
         import edge_tts
-        voice = "zh-CN-XiaoxiaoNeural"
+        voice = voice or "zh-CN-XiaoxiaoNeural"
 
         async def _speak(txt, out):
-            comm = edge_tts.Communicate(txt, voice)
+            comm = edge_tts.Communicate(txt, voice, rate=rate or "+0%", pitch=pitch or "+0Hz")
             await comm.save(out)
 
         asyncio.run(_speak(script, path))
@@ -331,6 +336,107 @@ def _render_audio(brief, blueprint, ctx, out_dir, llm_call=None):
         "note": "edge_tts 不可用 (缺依赖/无网络), 降级为文字稿+声波占位图; 接入 TTS API 后即真实 MP3"
                 + (" [LLM 文稿]" if designed else ""),
         "meta": {"chars": len(script), "fallback": True, "llm_scripted": bool(designed)},
+    }
+
+
+# ----------------------------------------------------------------------------
+# 音频域 · 本地配乐合成 (Phase 22): 零依赖 wave 合成真实可播放 WAV
+# ----------------------------------------------------------------------------
+
+def _render_music(brief, blueprint, ctx, out_dir, llm_call=None):
+    """本地配乐合成 (零依赖): wave 合成 I-V-vi-IV 和弦进行 + 低频鼓点, 输出真实 WAV。
+
+    与 TTS 不同 —— 不依赖 edge_tts / 网络 / key, 在任何环境都能产出可播放真实音频。
+    brief/blueprint 可含 'bpm=120' / '小节=8' 调节节奏与长度, 失败用默认 (90bpm/4 小节)。
+    """
+    fn = "%s.wav" % _slug(brief)
+    path = os.path.join(_out_dir(out_dir), fn)
+    sr = 44100
+    text = "%s %s" % (brief or "", blueprint or "")
+    bpm, bars = 90, 4
+    m = re.search(r"bpm[=: ]?(\d+)", text, re.I)
+    if m:
+        try:
+            bpm = max(40, min(200, int(m.group(1))))
+        except ValueError:
+            pass
+    m = re.search(r"(?:bars|小节)[=: ]?(\d+)", text, re.I)
+    if m:
+        try:
+            bars = max(1, min(16, int(m.group(1))))
+        except ValueError:
+            pass
+    beat = 60.0 / bpm
+    chord_dur = beat * 2                      # 每个和弦持续 2 拍
+    chords = [                                # C 大调 I-V-vi-IV
+        [261.63, 329.63, 392.00],              # C  E  G
+        [392.00, 493.88, 587.33],              # G  B  D
+        [220.00, 261.63, 329.63],              # A  C  E (Am)
+        [349.23, 440.00, 523.25],              # F  A  C
+    ]
+    seq = (chords * ((bars + 3) // 4))[:bars]
+    total = int(sr * chord_dur * bars)
+    frames = []
+
+    def _s(freq, t):
+        return math.sin(2 * math.pi * freq * t)
+
+    for i in range(total):
+        t = i / float(sr)
+        bar = min(bars - 1, int(t // chord_dur))
+        ch = seq[bar]
+        env = 0.18
+        s = sum(_s(f, t) for f in ch) / len(ch)
+        bp = (t % beat) / beat
+        kick = (math.sin(2 * math.pi * 60 * t) * max(0, 1 - bp * 6) * 0.5) if bp < 0.15 else 0
+        v = max(-1.0, min(1.0, (s * env + kick) * 0.6))
+        frames.append(struct.pack("<hh", int(v * 32767), int(v * 32767)))
+    pcm = b"".join(frames)
+    dur = round(total / float(sr), 1)
+    try:
+        # 手写 WAV (PCM 16bit): 绕开标准库 wave (本环境 wave.py 损坏)
+        byte_rate = sr * 2 * 2
+        hdr = (b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVE"
+               + b"fmt " + struct.pack("<IHHIIHH", 16, 1, 2, sr, byte_rate, 4, 16)
+               + b"data" + struct.pack("<I", len(pcm)))
+        with open(path, "wb") as f:
+            f.write(hdr)
+            f.write(pcm)
+    except Exception:
+        return None
+    return {
+        "domain": "audio", "file": path, "mime": "audio/wav", "real": True,
+        "note": "本地合成配乐 (零依赖 wave 合成, I-V-vi-IV 进行 + 节拍鼓点)",
+        "meta": {"bpm": bpm, "bars": bars, "key": "C", "duration": dur,
+                 "synth": "local", "voice": "synth"},
+    }
+
+
+def _render_clone(brief, blueprint, ctx, out_dir, llm_call=None):
+    """语音克隆占位 (Phase 22): 需 reference_audio + 克隆 API (付费)。无 key 降级为声波占位图 + 结构说明。"""
+    W, H = 1280, 360
+    img = _grad_bg(W, H, (10, 30, 24), (16, 50, 40))
+    d = ImageDraw.Draw(img)
+    theme = _DOM_THEME["audio"]
+    d.rectangle([0, 0, W, 8], fill=theme)
+    f = _load_font(26)
+    d.text((60, 50), "AUDIO · 语音克隆 (降级占位)", font=f, fill=(167, 243, 208))
+    script = _extract_script(blueprint or brief)
+    lines = [script[i:i + 38] for i in range(0, min(len(script), 152), 38)]
+    yy = 120
+    f2 = _load_font(20)
+    for ln in lines:
+        d.text((60, yy), ln, font=f2, fill=(209, 250, 229))
+        yy += 26
+    f3 = _load_font(18)
+    d.text((60, H - 70), "接入真实克隆: 提供 reference_audio + 克隆服务商 (Azure Custom Voice / 国内 TTS 克隆)",
+           font=f3, fill=(148, 163, 184))
+    png = os.path.join(_out_dir(out_dir), "%s.clone.png" % _slug(brief))
+    img.save(png, "PNG")
+    return {
+        "domain": "audio", "file": png, "mime": "image/png", "real": False,
+        "note": "语音克隆需参考音频+克隆 API (降级为声波占位图+结构说明), 接入后即真实克隆语音",
+        "meta": {"clone": True, "fallback": True},
     }
 
 
@@ -396,12 +502,15 @@ def available_domains():
     return list(_ADAPTERS.keys())
 
 
-def render(domain, brief, blueprint="", ctx="", out_dir=None, llm_call=None):
+def render(domain, brief, blueprint="", ctx="", out_dir=None, llm_call=None, mode="tts", voice="", rate="", pitch=""):
     """为指定域真实产出媒体文件。返回 dict 或 None(不支持的域)。
 
     llm_call: 可选 llm_call(prompt, system=None)->str|None; 提供时三域先调 LLM 生成
               结构化设计再真实绘制; 为 None / LLM 失败时自动回退确定性模板。
     """
+    if domain == "audio":
+        return _render_audio(brief or "", blueprint or "", ctx or "", out_dir,
+                             llm_call, mode, voice, rate, pitch)
     fn = _ADAPTERS.get(domain)
     if not fn:
         return None

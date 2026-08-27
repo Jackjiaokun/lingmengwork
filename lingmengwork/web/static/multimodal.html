@@ -83,6 +83,20 @@ input.q:focus{border-color:rgba(139,92,246,.55)}
       <div class="dom" data-dom="video" style="--accent:#6366f1"><span class="ico">🎞️</span><span><span class="nm">视频</span><br><span class="ds">Pillow 真实 GIF 动图</span></span></div>
     </div>
 
+    <div class="card audio-opts hidden" id="audioOpts">
+      <p class="lbl">音频模式</p>
+      <div class="domrow" id="modeRow">
+        <div class="dom on" data-mode="tts" style="--accent:#10b981"><span class="ico">🎙️</span><span><span class="nm">语音合成</span><br><span class="ds">edge_tts 真实 MP3</span></span></div>
+        <div class="dom" data-mode="music" style="--accent:#22d3ee"><span class="ico">🎵</span><span><span class="nm">本地配乐</span><br><span class="ds">零依赖 wave 合成 WAV</span></span></div>
+        <div class="dom" data-mode="clone" style="--accent:#f472b6"><span class="ico">🧬</span><span><span class="nm">语音克隆</span><br><span class="ds">需参考音频+API·降级占位</span></span></div>
+      </div>
+      <div class="row" id="voiceRow">
+        <input id="voiceInput" class="q" placeholder="voice (tts, 如 zh-CN-YunxiNeural)" />
+        <input id="rateInput" class="q" placeholder="rate (如 +10% / -20%)" />
+        <input id="pitchInput" class="q" placeholder="pitch (如 +5Hz / -10Hz)" />
+      </div>
+    </div>
+
     <p class="lbl">创作需求 (brief)</p>
     <textarea id="brief" placeholder="例如：为科技品牌做一张深空蓝紫科技感主视觉海报，主题是「灵梦work·综合超级 AGENT」"></textarea>
 
@@ -125,6 +139,19 @@ domRow.querySelectorAll(".dom").forEach(el => {
     domRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
     el.classList.add("on");
     curDom = el.dataset.dom;
+    document.getElementById("audioOpts").classList.toggle("hidden", curDom !== "audio");
+  };
+});
+const audioOpts = document.getElementById("audioOpts");
+audioOpts.classList.toggle("hidden", curDom !== "audio");
+
+let curMode = "tts";
+const modeRow = document.getElementById("modeRow");
+modeRow.querySelectorAll(".dom").forEach(el => {
+  el.onclick = () => {
+    modeRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
+    el.classList.add("on");
+    curMode = el.dataset.mode;
   };
 });
 
@@ -147,9 +174,19 @@ genBtn.onclick = async () => {
   outCard.classList.remove("hidden"); errLine.classList.add("hidden");
   badges.innerHTML = ""; metaLine.textContent = ""; noteLine.textContent = ""; prev.innerHTML = "";
   try {
+    const body = {domain: curDom, brief, blueprint};
+    if (curDom === "audio") {
+      body.mode = curMode;
+      const v = document.getElementById("voiceInput").value.trim();
+      const rt = document.getElementById("rateInput").value.trim();
+      const pt = document.getElementById("pitchInput").value.trim();
+      if (v) body.voice = v;
+      if (rt) body.rate = rt;
+      if (pt) body.pitch = pt;
+    }
     const r = await fetch("/api/multimodal/generate", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({domain: curDom, brief, blueprint})
+      body: JSON.stringify(body)
     });
     const j = await r.json();
     if (!r.ok || !j.ok) { flashErr(j.error || ("HTTP " + r.status)); return; }
@@ -207,15 +244,23 @@ function paintGallery(items) {
   for (const a of items) {
     const it = document.createElement("div");
     it.className = "gitem";
-    const thumb = (a.kind === "audio")
+    const isAudio = a.kind === "audio";
+    const thumb = isAudio
       ? '<div class="gthumb"><span class="ph">🎙️</span></div>'
       : '<div class="gthumb"><img src="' + a.url + '" loading="lazy" alt="thumb" /></div>';
     const m = a.meta || {};
     const metaline = Object.entries(m).slice(0,3).map(([k,v]) => k+":"+v).join(" · ");
+    const audioBadge = isAudio ? '<span class="gbadge audio">' +
+      (m.duration != null ? "⏱ " + m.duration + "s" : "") +
+      (m.voice ? " · " + escapeHtml(m.voice) : "") + '</span>' : '';
+    const player = (isAudio && (a.mime||"").startsWith("audio"))
+      ? '<audio controls src="' + a.url + '" style="width:100%;margin-top:4px"></audio>' : '';
     it.innerHTML = thumb +
       '<div class="gbody">' +
       '<span class="gbadge ' + a.kind + '">' + (a.real ? "真实" : "降级") + ' · ' + a.kind + '</span>' +
+      audioBadge +
       '<div class="gnote">' + escapeHtml(a.note || a.id) + '</div>' +
+      player +
       '<div class="gmeta">' + (metaline || "—") + '</div>' +
       '<div class="gacts">' +
         '<a class="dl" href="' + a.url + '" target="_blank">查看</a>' +

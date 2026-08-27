@@ -177,7 +177,7 @@ def register_asset(art, session_id="", base_dir="."):
     return d
 
 
-def generate(domain, brief, blueprint="", ctx="", session_id="", base_dir=".", llm_call=None):
+def generate(domain, brief, blueprint="", ctx="", session_id="", base_dir=".", llm_call=None, mode="tts", voice="", rate="", pitch=""):
     """统一生成入口: 包装 multimodal_adapters.render + 登记资产库。
 
     返回 MediaAsset dict (含 url), 或 None (不支持的域/失败)。
@@ -186,7 +186,7 @@ def generate(domain, brief, blueprint="", ctx="", session_id="", base_dir=".", l
     from . import multimodal_adapters as _ma
     out_dir = os.path.join(base_dir, "outputs", MEDIA_SUBDIR)
     art = _ma.render(domain, brief or "", blueprint or "", ctx or "",
-                     out_dir=out_dir, llm_call=llm_call)
+                     out_dir=out_dir, llm_call=llm_call, mode=mode, voice=voice, rate=rate, pitch=pitch)
     if not art or not art.get("file"):
         return None
     return register_asset(art, session_id, base_dir)

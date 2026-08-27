@@ -357,11 +357,79 @@ def _exec_creation(partner, goal="", llm_call=None, base_dir=None):
                 "note": "清单生成失败: %s" % e}
 
 
+def _creation_subdomain(partner, goal):
+    """Phase 31: 解析创作子域——优先伙伴蓝图标注, 否则按目标关键词路由(视频/音频/图片)。"""
+    arts = partner.get("artifacts") or []
+    sub = (arts[0].get("domain") if arts and isinstance(arts[0], dict) else "") or ""
+    if sub not in ("image", "audio", "video"):
+        g = goal or ""
+        if any(k in g for k in ("视频", "video", "动图", "gif", "短片")):
+            sub = "video"
+        elif any(k in g for k in ("音频", "配音", "朗读", "语音", "audio", "tts")):
+            sub = "audio"
+        else:
+            sub = "image"
+    return sub
+
+
+def _exec_creation_real(partner, goal="", llm_call=None, base_dir=None):
+    """Phase 31 真实创作执行器: 经 multimodal_adapters 真实渲染媒体文件
+    (PNG 信息图 / MP3 音频 / GIF 动图; 无 LLM 自动确定性模板兜底, 全程可用),
+    并产出含渲染结果的素材清单 JSON; 适配层不可用/失败时回退纯清单(不崩)。"""
+    out_dir = _resolve_out_dir(base_dir)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sub = _creation_subdomain(partner, goal)
+    plan = (partner.get("plan") or "").strip() or (partner.get("summary") or "")
+    manifest = {
+        "generator": "superagent.creation_executor",
+        "sub_domain": sub,
+        "goal": goal,
+        "prompt": goal,
+        "spec": {"format": sub, "theme": "default", "resolution": "1024x1024"},
+        "adapter_hint": "经 multimodal_adapters 真实渲染; 无 key 降级确定性模板",
+        "created_at": ts,
+    }
+    artifacts, notes = [], []
+    try:
+        from . import multimodal_adapters as _mma
+        res = _mma.render(sub, brief=goal or (partner.get("summary") or "创作"),
+                          blueprint=plan, ctx="", out_dir=out_dir, llm_call=llm_call)
+        if isinstance(res, dict):
+            manifest["render"] = {k: res.get(k)
+                                  for k in ("domain", "file", "mime", "real", "note", "meta")}
+            f = res.get("file")
+            if f and os.path.isfile(f):
+                artifacts.append(f)
+                notes.append("%s真实渲染%s: %s" % (
+                    {"image": "图片", "audio": "音频", "video": "视频"}.get(sub, sub),
+                    "" if res.get("real") else "(降级占位)", os.path.basename(f)))
+            else:
+                notes.append("适配层未产出文件: %s" % (res.get("note") or "未知"))
+        else:
+            notes.append("适配层不支持的子域, 回退纯清单")
+    except Exception as e:
+        notes.append("适配层不可用(%s: %s), 回退纯清单" % (type(e).__name__, e))
+    path = os.path.join(out_dir, "%s_asset_manifest.json" % ts)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        json.load(open(path, encoding="utf-8"))
+        artifacts.append(path)
+        notes.append("素材清单已落盘")
+        return {"domain": "creation", "status": "ok", "artifacts": artifacts,
+                "note": " | ".join(notes)}
+    except Exception as e:
+        return {"domain": "creation", "status": "error", "artifacts": [],
+                "note": "清单生成失败: %s" % e}
+
+
 # Phase 29: 真实执行器默认热插拔(均为模块级函数, 可通过 register_executor 覆盖为更智能实现)
+# Phase 31: creation 升级为 _exec_creation_real(经 multimodal_adapters 真实渲染媒体);
+#           旧 _exec_creation(纯清单) 保留可手工回切: register_executor("creation", _exec_creation)
 register_executor("code", _exec_code)
 register_executor("research", _exec_research)
 register_executor("ops", _exec_ops)
-register_executor("creation", _exec_creation)
+register_executor("creation", _exec_creation_real)
 
 
 def _parse_json(raw):

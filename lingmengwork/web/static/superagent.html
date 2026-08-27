@@ -72,7 +72,7 @@
 <body>
 <div class="wrap">
   <h1><span class="g">超级 AGENT 内核</span> · 统一目标编排闭环</h1>
-  <p class="sub">Phase 30 · 目标理解 → 域路由 → 并行编排(多智能体联邦) → 执行落地(真实产物) → 收敛(三级护栏) → 自检质量门 → 记忆沉淀。内置 code/creation/research/ops 真实执行器：自主编码(生成→编译→冒烟运行自验证→失败有限自修复→run.log) / 素材清单 / 真实检索 / 可校验脚本，均可 register_executor 热插拔；无 LLM 全程规则兜底，单伙伴失败隔离。</p>
+  <p class="sub">Phase 31 · 目标理解 → 域路由 → 并行编排(多智能体联邦) → 执行落地(真实产物) → 收敛(三级护栏) → 自检质量门 → 记忆沉淀。内置 code/creation/research/ops 真实执行器：自主编码(生成→编译→冒烟运行自验证→失败有限自修复→run.log) / 真实媒体渲染(PNG·MP3·GIF) / 真实检索 / 可校验脚本，均可 register_executor 热插拔；无 LLM 全程规则兜底，单伙伴失败隔离。</p>
 
   <div class="kpis" id="kpis">
     <div class="kpi"><div class="v" id="kRuns">0</div><div class="l">最近编排</div></div>
@@ -200,7 +200,7 @@ function renderResult(j){
   const ex = j.executions||{};
   const exs = ex.executions||[];
   const EX_TYPE = {
-    code:["自主编码","代码可运行 · 附 .run.log 冒烟日志(失败自动喂回 LLM 自修复)"], creation:["素材清单","可喂 multimodal 适配层产出真实素材"],
+    code:["自主编码","代码可运行 · 附 .run.log 冒烟日志(失败自动喂回 LLM 自修复)"], creation:["创作产物","真实媒体渲染 PNG/MP3/GIF(无 key 降级占位) + 素材清单 manifest"],
     research:["研究简报","可阅读 / 二次检索"], ops:["运维脚本","可 bash 校验 / 执行"] };
   function artChip(a){
     const name = (a||"").split(/[\\/]/).pop();

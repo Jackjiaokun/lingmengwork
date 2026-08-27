@@ -287,6 +287,46 @@ def test_exec_code_smoke_fail_no_llm(tmp_path):
     assert "ValueError" in open(log, encoding="utf-8").read()
 
 
+# ------------------------------------------------------------------ 真实创作(Phase31)
+def test_exec_creation_real_media(tmp_path):
+    """Phase 31: creation 执行器经 multimodal_adapters 真实渲染媒体 + 落盘可回读 manifest。"""
+    partner = {"partner_id": "creation", "name": "创作伙伴", "domain": "creation", "status": "ok",
+               "summary": "s", "plan": "p", "artifacts": [{"type": "blueprint", "domain": "image"}]}
+    res = sa_mod._exec_creation_real(partner, goal="画一张海报", base_dir=str(tmp_path))
+    assert res["status"] == "ok", res
+    m = json.load(open([a for a in res["artifacts"] if a.endswith(".json")][0], encoding="utf-8"))
+    assert m["sub_domain"] == "image"
+    assert "render" in m, "manifest 应含真实渲染结果"
+    media = [a for a in res["artifacts"] if not a.endswith(".json")]
+    assert media and os.path.isfile(media[0]), "应产出真实媒体文件"
+    assert any(a.endswith((".png", ".gif", ".mp3")) for a in media), media
+
+
+def test_exec_creation_fallback_manifest(tmp_path, monkeypatch):
+    """Phase 31: 适配层不可用 → 回退纯清单(不崩, status ok)。"""
+    import lingmengwork.multimodal_adapters as mma
+
+    def boom(*a, **k):
+        raise RuntimeError("adapters down")
+
+    monkeypatch.setattr(mma, "render", boom)
+    partner = {"partner_id": "creation", "name": "创作伙伴", "domain": "creation", "status": "ok",
+               "summary": "s", "plan": "p", "artifacts": [{"type": "blueprint", "domain": "audio"}]}
+    res = sa_mod._exec_creation_real(partner, goal="配段音频", base_dir=str(tmp_path))
+    assert res["status"] == "ok"
+    m = json.load(open([a for a in res["artifacts"] if a.endswith(".json")][0], encoding="utf-8"))
+    assert m["sub_domain"] == "audio"
+
+
+def test_exec_creation_subdomain_route(tmp_path):
+    """Phase 31: 无蓝图标注时按目标关键词路由子域(视频→video)。"""
+    p = {"partner_id": "c", "name": "创作", "domain": "creation", "status": "ok",
+         "summary": "s", "plan": "p", "artifacts": []}
+    res = sa_mod._exec_creation_real(p, goal="做段产品视频", base_dir=str(tmp_path))
+    m = json.load(open([a for a in res["artifacts"] if a.endswith(".json")][0], encoding="utf-8"))
+    assert m["sub_domain"] == "video"
+
+
 # ------------------------------------------------------------------ 自检集成
 def test_selfcheck_probe_count():
     """selfcheck 探针数应为 13 (Phase25 联邦 + Phase26 记忆图谱 + Phase27 超级AGENT)。"""

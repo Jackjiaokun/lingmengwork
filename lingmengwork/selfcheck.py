@@ -23,6 +23,7 @@ _STATIC_FILES = [
     "web/static/multimodal.html",
     "web/static/automation.html",
     "web/static/activity.html",
+    "web/static/audit.html",
 ]
 
 
@@ -109,6 +110,16 @@ def check_memory():
     return "记忆捕获 %d 条 + 召回 %d 条" % (len(cap.get("captured", [])), len(hits))
 
 
+def check_event_bus():
+    from . import event_bus as eb
+    ev = eb.emit("selfcheck", "audit_probe", "自检审计探针", audit=True)
+    assert ev and ev.get("id"), "应发射审计事件并返回 id"
+    assert ev.get("audit") is True, "审计标记应为 True"
+    trail = eb.audit_trail(limit=10)
+    assert isinstance(trail, list) and any(e.get("audit") for e in trail), "审计链应可追溯"
+    return "活动总线发射+审计链回溯 %d 条" % len(trail)
+
+
 def check_static_files():
     here = os.path.dirname(os.path.abspath(__file__))  # selfcheck.py 即位于 lingmengwork 包目录
     pkg = here
@@ -127,6 +138,7 @@ def run():
         _chk("全链路流水线(无 LLM)", check_pipeline),
         _chk("多模态适配层(模板回退)", check_multimodal),
         _chk("跨会话记忆(捕获+召回)", check_memory),
+        _chk("活动总线(事件+审计链)", check_event_bus),
         _chk("关键静态资产", check_static_files),
     ]
     total = len(checks)

@@ -87,6 +87,50 @@
       "run_count": 0,
       "next_run": "2026-08-28 03:00:00",
       "history": []
+    },
+    {
+      "id": "auto_1787791842_ee43ee",
+      "name": "night-build",
+      "kind": "pipeline",
+      "goal": "跑回归",
+      "context": "",
+      "domain": "code",
+      "schedule": "daily:03:00",
+      "schedule_spec": {
+        "typ": "daily",
+        "hour": 3,
+        "minute": 0
+      },
+      "enabled": true,
+      "payload": {},
+      "created_at": "2026-08-27 08:50:42",
+      "last_run": null,
+      "last_status": null,
+      "run_count": 0,
+      "next_run": "2026-08-28 03:00:00",
+      "history": []
+    },
+    {
+      "id": "auto_1787791945_adf558",
+      "name": "audit-p",
+      "kind": "pipeline",
+      "goal": "g",
+      "context": "",
+      "domain": "code",
+      "schedule": "daily:03:00",
+      "schedule_spec": {
+        "typ": "daily",
+        "hour": 3,
+        "minute": 0
+      },
+      "enabled": true,
+      "payload": {},
+      "created_at": "2026-08-27 08:52:25",
+      "last_run": null,
+      "last_status": null,
+      "run_count": 0,
+      "next_run": "2026-08-28 03:00:00",
+      "history": []
     }
   ]
 }

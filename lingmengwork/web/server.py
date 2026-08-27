@@ -3818,6 +3818,8 @@ class Handler(SimpleHTTPRequestHandler):
         audio 域 voice/rate/pitch: edge_tts 语音参数 (tts 模式)
         image 域 mode: gen(文生图,默认) / inpaint(局部重绘) / upscale(超分放大)
         image 域 image_path: inpaint/upscale 参考图路径(可选, 留空用演示画布)
+        video 域 mode: gen(文生视频,默认) / img2video(图生视频·Ken Burns) / clips(剪辑配音合成)
+        video 域 image_path: img2video/clips 参考图路径(可选, 多图逗号分隔, 留空用演示画布)
         """
         from .. import multimodal as _mm
         try:
@@ -3837,6 +3839,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({"error": "模式 %s 仅支持 audio 域" % mode}, status=400)
             if mode in ("inpaint", "upscale") and domain != "image":
                 return self._send_json({"error": "模式 %s 仅支持 image 域" % mode}, status=400)
+            if mode in ("img2video", "clips") and domain != "video":
+                return self._send_json({"error": "模式 %s 仅支持 video 域" % mode}, status=400)
+            if domain == "video" and mode not in ("gen", "img2video", "clips"):
+                mode = "gen"   # video 域默认文生视频 (避免默认 tts 被拒)
             if not brief:
                 return self._send_json({"error": "缺少 brief"}, status=400)
             asset = _mm.generate(domain, brief, blueprint, "", session_id, os.getcwd(),

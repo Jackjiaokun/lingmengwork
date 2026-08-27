@@ -356,3 +356,143 @@ def test_server_image_mode_routing():
     finally:
         srv.shutdown()
         os.chdir(old)
+
+
+# ----------------------------------------------------------------------------
+# Phase 24 — 视频域深化 (文生视频 / 图生视频 / 剪辑配音)
+# ----------------------------------------------------------------------------
+
+def test_video_gen_local_gif(tmp_path):
+    """文生视频默认降级为本地真实 GIF 分镜动图 (无 key 环境)。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("video", "10 秒产品宣传视频", llm_call=None)
+        assert a and os.path.exists(a["path"]), "video gen 应产出 GIF"
+        assert a["kind"] == "video"
+        assert a["real"] is True
+        assert a["mime"] == "image/gif"
+        assert (a["meta"] or {}).get("gen") == "local"
+    finally:
+        os.chdir(old)
+
+
+def test_video_img2video_real_gif(tmp_path):
+    """图生视频: 有参考图做 Ken Burns 运动镜头, 真实 GIF; 无参考图用演示画布。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        from PIL import Image, ImageDraw
+        ref = os.path.join(str(tmp_path), "ref.png")
+        im = Image.new("RGB", (400, 300), (40, 30, 80))
+        ImageDraw.Draw(im).text((20, 20), "REF", fill=(240, 240, 255))
+        im.save(ref, "PNG")
+        a = mm.generate("video", "把这张图变成视频", mode="img2video",
+                        image_path=ref, llm_call=None)
+        assert a and os.path.exists(a["path"])
+        assert a["real"] is True and a["mime"] == "image/gif"
+        assert (a["meta"] or {}).get("img2video") is True
+        assert (a["meta"] or {}).get("has_ref") is True
+        # 无参考图也应产出 (演示画布)
+        a2 = mm.generate("video", "无参考图图生视频", mode="img2video", llm_call=None)
+        assert a2 and os.path.exists(a2["path"])
+        assert a2["real"] is True
+    finally:
+        os.chdir(old)
+
+
+def test_video_clips_real_gif(tmp_path):
+    """剪辑配音: 多图幻灯片合成真实 GIF; 无图用演示画布。"""
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        from PIL import Image, ImageDraw
+        refs = []
+        for i in range(2):
+            p = os.path.join(str(tmp_path), "s%d.png" % i)
+            im = Image.new("RGB", (400, 300), (30 + i * 20, 20, 60))
+            ImageDraw.Draw(im).text((20, 20), "S%d" % i, fill=(240, 240, 255))
+            im.save(p, "PNG")
+            refs.append(p)
+        a = mm.generate("video", "剪辑这两张图", mode="clips",
+                        image_path=",".join(refs), llm_call=None)
+        assert a and os.path.exists(a["path"])
+        assert a["real"] is True and a["mime"] == "image/gif"
+        assert (a["meta"] or {}).get("clips") is True
+        assert (a["meta"] or {}).get("slides") == 2
+    finally:
+        os.chdir(old)
+
+
+def test_video_gen_remote_mp4(monkeypatch, tmp_path):
+    """有 key 时调远程真实 MP4 (mock _remote_text_to_video 返回字节, 不触网)。"""
+    import lingmengwork.multimodal_adapters as _ma
+    monkeypatch.setattr(_ma, "_remote_text_to_video", lambda p: b"\x00" * 200)
+    old = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        a = mm.generate("video", "一段真实 MP4", mode="gen", llm_call=None)
+        assert a and os.path.exists(a["path"])
+        assert a["real"] is True
+        assert a["mime"] == "video/mp4"
+        assert (a["meta"] or {}).get("gen") == "remote"
+    finally:
+        os.chdir(old)
+
+
+def test_server_video_mode_routing():
+    """服务端: video 域三模式路由全绿, 误用模式 400, 默认 mode 归 gen, 页面含视频卡。"""
+    d = tempfile.mkdtemp()
+    old = os.getcwd()
+    os.chdir(d)
+    PORT = 8978
+    srv = _srv.ThreadingHTTPServer(("127.0.0.1", PORT), _srv.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.5)
+    try:
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+            c.request("POST", path, body=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"})
+            r = c.getresponse()
+            return r.status, r.read().decode("utf-8", "replace")
+
+        # gen 模式 (默认)
+        st, js = post("/api/multimodal/generate", {"domain": "video", "brief": "宣传片"})
+        assert st == 200, (st, js)
+        dg = json.loads(js)
+        assert dg["ok"] and dg["asset"]["real"] is True
+
+        # img2video 模式
+        st2, js2 = post("/api/multimodal/generate",
+                        {"domain": "video", "brief": "图生视频", "mode": "img2video"})
+        assert st2 == 200, (st2, js2)
+        assert json.loads(js2)["asset"]["real"] is True
+
+        # clips 模式
+        st3, js3 = post("/api/multimodal/generate",
+                        {"domain": "video", "brief": "剪辑", "mode": "clips"})
+        assert st3 == 200, (st3, js3)
+        assert json.loads(js3)["asset"]["real"] is True
+
+        # 误用: img2video 配 audio 域 → 400
+        st4, js4 = post("/api/multimodal/generate",
+                        {"domain": "audio", "brief": "x", "mode": "img2video"})
+        assert st4 == 400
+
+        # 默认 mode (不传 mode, domain=video) → 归 gen → 200
+        st5, js5 = post("/api/multimodal/generate",
+                        {"domain": "video", "brief": "默认模式"})
+        assert st5 == 200, (st5, js5)
+        assert json.loads(js5)["asset"]["real"] is True
+
+        # 页面含视频模式卡
+        c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
+        c.request("GET", "/multimodal")
+        r = c.getresponse()
+        html = r.read().decode("utf-8", "replace")
+        assert r.status == 200
+        assert "视频模式" in html and "img2video" in html and "clips" in html
+    finally:
+        srv.shutdown()
+        os.chdir(old)

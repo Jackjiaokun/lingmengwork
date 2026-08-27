@@ -73,14 +73,14 @@ input.q:focus{border-color:rgba(139,92,246,.55)}
 <body>
 <div class="wrap">
   <h1>🎬 多模态工坊</h1>
-  <p class="sub">综合超级 AGENT · 多模态基座 (Phase 21) — 统一抽象 + 可检索资产库 + 降级链不可破：图片(PNG)/音频(MP3·降级占位)/视频(GIF) 真实产出即入库，跨会话复用</p>
+  <p class="sub">综合超级 AGENT · 多模态基座 (Phase 24) — 统一抽象 + 可检索资产库 + 降级链不可破：图片(PNG)/音频(MP3·降级占位)/视频(文生视频·图生视频·剪辑 GIF) 真实产出即入库，跨会话复用</p>
 
   <div class="card">
     <p class="lbl">选择创作域</p>
     <div class="domrow" id="domRow">
       <div class="dom on" data-dom="image" style="--accent:#f472b6"><span class="ico">🖼️</span><span><span class="nm">图片</span><br><span class="ds">文生图/局部重绘/超分 PNG</span></span></div>
       <div class="dom" data-dom="audio" style="--accent:#10b981"><span class="ico">🎙️</span><span><span class="nm">音频</span><br><span class="ds">edge_tts 真实 MP3 / 降级占位</span></span></div>
-      <div class="dom" data-dom="video" style="--accent:#6366f1"><span class="ico">🎞️</span><span><span class="nm">视频</span><br><span class="ds">Pillow 真实 GIF 动图</span></span></div>
+      <div class="dom" data-dom="video" style="--accent:#6366f1"><span class="ico">🎞️</span><span><span class="nm">视频</span><br><span class="ds">文生视频/图生视频/剪辑 GIF</span></span></div>
     </div>
 
     <div class="card audio-opts hidden" id="audioOpts">
@@ -106,6 +106,18 @@ input.q:focus{border-color:rgba(139,92,246,.55)}
       </div>
       <div class="row" id="imgPathRow">
         <input id="imgPathInput" class="q" style="min-width:360px" placeholder="参考图路径(可选, inpaint/upscale 使用, 留空用演示画布)" />
+      </div>
+    </div>
+
+    <div class="card video-opts hidden" id="videoOpts">
+      <p class="lbl">视频模式</p>
+      <div class="domrow" id="vidModeRow">
+        <div class="dom on" data-mode="gen" style="--accent:#6366f1"><span class="ico">🎬</span><span><span class="nm">文生视频</span><br><span class="ds">分镜→GIF 动图</span></span></div>
+        <div class="dom" data-mode="img2video" style="--accent:#22d3ee"><span class="ico">🖼️➡️🎞️</span><span><span class="nm">图生视频</span><br><span class="ds">Ken Burns 运动镜头</span></span></div>
+        <div class="dom" data-mode="clips" style="--accent:#f472b6"><span class="ico">🎞️</span><span><span class="nm">剪辑配音</span><br><span class="ds">图片序列幻灯片</span></span></div>
+      </div>
+      <div class="row" id="vidPathRow">
+        <input id="vidPathInput" class="q" style="min-width:360px" placeholder="参考图路径(可选, img2video/clips 使用, 多图逗号分隔, 留空用演示画布)" />
       </div>
     </div>
 
@@ -153,6 +165,7 @@ domRow.querySelectorAll(".dom").forEach(el => {
     curDom = el.dataset.dom;
     document.getElementById("audioOpts").classList.toggle("hidden", curDom !== "audio");
     document.getElementById("imageOpts").classList.toggle("hidden", curDom !== "image");
+    document.getElementById("videoOpts").classList.toggle("hidden", curDom !== "video");
   };
 });
 const audioOpts = document.getElementById("audioOpts");
@@ -175,6 +188,16 @@ imgModeRow.querySelectorAll(".dom").forEach(el => {
     imgModeRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
     el.classList.add("on");
     curImgMode = el.dataset.mode;
+  };
+});
+
+let curVidMode = "gen";
+const vidModeRow = document.getElementById("vidModeRow");
+vidModeRow.querySelectorAll(".dom").forEach(el => {
+  el.onclick = () => {
+    vidModeRow.querySelectorAll(".dom").forEach(d => d.classList.remove("on"));
+    el.classList.add("on");
+    curVidMode = el.dataset.mode;
   };
 });
 
@@ -210,6 +233,10 @@ genBtn.onclick = async () => {
       body.mode = curImgMode;
       const ip = document.getElementById("imgPathInput").value.trim();
       if (ip) body.image_path = ip;
+    } else if (curDom === "video") {
+      body.mode = curVidMode;
+      const vp = document.getElementById("vidPathInput").value.trim();
+      if (vp) body.image_path = vp;
     }
     const r = await fetch("/api/multimodal/generate", {
       method: "POST", headers: {"Content-Type":"application/json"},

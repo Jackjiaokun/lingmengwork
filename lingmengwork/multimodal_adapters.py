@@ -257,6 +257,42 @@ def _remote_text_to_image(prompt):
         return None
 
 
+def _remote_text_to_video(prompt):
+    """密钥可用时调用 OpenAI 兼容视频生成 API 返回 MP4 字节; 无 key / 失败返回 None。
+
+    与 _remote_text_to_image 对齐 —— 密钥门控 + 全面 try/except 降级, 绝不阻塞主流程。
+    可经 LMW_VIDEO_API_KEY / LMW_VIDEO_API_URL / LMW_VIDEO_MODEL 环境变量定制端点。
+    """
+    key = os.environ.get("LMW_VIDEO_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not key:
+        return None
+    try:
+        import base64
+        import urllib.request
+        api_url = os.environ.get("LMW_VIDEO_API_URL") or "https://api.openai.com/v1/videos/generations"
+        model = os.environ.get("LMW_VIDEO_MODEL") or "gpt-video-1"
+        payload = json.dumps({
+            "model": model,
+            "prompt": (prompt or "")[:1000],
+            "duration": "5",
+            "response_format": "url",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            api_url, data=payload,
+            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        item = (data.get("data") or [{}])[0]
+        if item.get("b64_json"):
+            return base64.b64decode(item["b64_json"])
+        if item.get("url"):
+            with urllib.request.urlopen(item["url"], timeout=60) as r2:
+                return r2.read()
+    except Exception:
+        return None
+    return None
+
+
 def _make_demo_canvas(w=640, h=400, label="demo"):
     """无参考图时合成一张演示画布, 让 inpaint/upscale 始终产出真实 PNG。"""
     img = _grad_bg(w, h, (18, 12, 42), (31, 17, 71))
@@ -560,7 +596,39 @@ def _render_clone(brief, blueprint, ctx, out_dir, llm_call=None):
 # 视频域: LLM 规划分镜 -> Pillow 真实 GIF 动图
 # ----------------------------------------------------------------------------
 
-def _render_video(brief, blueprint, ctx, out_dir, llm_call=None):
+def _render_video(brief, blueprint, ctx, out_dir, llm_call=None, mode="gen", image_path=None):
+    """视频域三模式分发: gen(文生视频) / img2video(图生视频) / clips(剪辑配音合成)。
+
+    每个模式优先尝试「远程真实 MP4 (密钥门控)」, 失败/无 key 自动回退本地 Pillow 真实 GIF 动图,
+    始终 real=True 不崩, 与 image/audio 域降级链一致。
+    """
+    if mode == "img2video":
+        return _render_video_img2video(brief, blueprint, ctx, out_dir, llm_call, image_path=image_path)
+    if mode == "clips":
+        return _render_video_clips(brief, blueprint, ctx, out_dir, llm_call, image_path=image_path)
+    return _render_video_gen(brief, blueprint, ctx, out_dir, llm_call)
+
+
+def _render_video_gen(brief, blueprint, ctx, out_dir, llm_call=None):
+    """文生视频: 有视频生成 key 走远程真实 MP4; 否则本地 Pillow 真实 GIF 分镜动图。"""
+    # 远程真实生成 (密钥门控, 失败自动回退本地)
+    remote = _remote_text_to_video((brief or "")[:1000])
+    if remote:
+        fn = "%s.mp4" % _slug(brief)
+        path = os.path.join(_out_dir(out_dir), fn)
+        try:
+            with open(path, "wb") as f:
+                f.write(remote)
+            if os.path.exists(path) and os.path.getsize(path) > 100:
+                return {
+                    "domain": "video", "file": path, "mime": "video/mp4", "real": True,
+                    "note": "远程文生视频 API 真实生成 (有 key)",
+                    "meta": {"gen": "remote", "width": 1024, "height": 1024},
+                }
+        except Exception:
+            pass
+
+    # 本地真实 GIF 分镜 (LLM 设计 / 模板回退)
     design = _design_video_shots(brief, blueprint, ctx, llm_call) if llm_call else None
     W, H = 960, 540
     theme = _DOM_THEME["video"]
@@ -596,10 +664,94 @@ def _render_video(brief, blueprint, ctx, out_dir, llm_call=None):
                    duration=110, loop=0, optimize=False)
     return {
         "domain": "video", "file": path, "mime": "image/gif", "real": True,
-        "note": "ffmpeg 缺失, 以 Pillow 真实 GIF 动图交付视频资产 (接入文生视频/ffmpeg 后可升级 MP4)"
+        "note": "ffmpeg 缺失, 以 Pillow 真实 GIF 分镜动图交付视频资产 (接入文生视频/ffmpeg 后可升级 MP4)"
                 + (" [LLM 分镜]" if design else ""),
         "meta": {"width": W, "height": H, "frames": N, "shots": len(pts),
-                 "llm_designed": bool(design)},
+                 "gen": "local", "llm_designed": bool(design)},
+    }
+
+
+def _render_video_img2video(brief, blueprint, ctx, out_dir, llm_call=None, image_path=None):
+    """图生视频: 给定参考图做 Ken Burns 运动镜头 (缩放+平移) 合成真实 GIF 动图; 无参考图用演示画布。"""
+    W, H = 960, 540
+    base = None
+    if image_path and os.path.exists(image_path):
+        try:
+            base = Image.open(image_path).convert("RGB").resize((W, H))
+        except Exception:
+            base = None
+    if base is None:
+        base = _make_demo_canvas(W, H, "IMG2VIDEO · 图生视频演示")
+    frames = []
+    N = 30
+    has_ref = bool(image_path and os.path.exists(image_path))
+    for i in range(N):
+        t = i / (N - 1)
+        scale = 1.0 + 0.18 * t
+        dx = int(40 * math.sin(t * math.pi))     # 轻微左右平移
+        dy = int(18 * (1 - t))                    # 轻微上下平移
+        nw, nh = int(W * scale), int(H * scale)
+        crop = base.resize((nw, nh))
+        left = (nw - W) // 2 - dx
+        top = (nh - H) // 2 - dy
+        frame = crop.crop((max(0, left), max(0, top), max(0, left) + W, max(0, top) + H))
+        d = ImageDraw.Draw(frame)
+        d.rectangle([0, 0, W, 8], fill=_DOM_THEME["video"])
+        f = _load_font(18)
+        d.text((24, H - 36), "IMG2VIDEO · 图生视频 (Ken Burns)", font=f, fill=(199, 196, 232))
+        frames.append(frame)
+    fn = "%s.img2video.gif" % _slug(brief)
+    path = os.path.join(_out_dir(out_dir), fn)
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=90, loop=0)
+    return {
+        "domain": "video", "file": path, "mime": "image/gif", "real": True,
+        "note": ("参考图 %s 的 Ken Burns 运动镜头 (真实 GIF)" % os.path.basename(image_path)) if has_ref
+                else "无参考图, 演示画布 Ken Burns 运动镜头 (真实 GIF)",
+        "meta": {"width": W, "height": H, "frames": N, "img2video": True,
+                 "has_ref": has_ref},
+    }
+
+
+def _render_video_clips(brief, blueprint, ctx, out_dir, llm_call=None, image_path=None):
+    """剪辑配音合成: 多参考图(逗号分隔)序列幻灯片 → 真实 GIF 动图; 无图用演示画布。
+
+    注: 配音封装需 ffmpeg/视频 key, 本地降级为静帧 GIF 幻灯片 (可演示、可入库)。
+    """
+    W, H = 960, 540
+    refs = []
+    if image_path:
+        for p in image_path.split(","):
+            p = p.strip()
+            if p and os.path.exists(p):
+                try:
+                    refs.append(Image.open(p).convert("RGB").resize((W, H)))
+                except Exception:
+                    pass
+    if not refs:
+        refs = [_make_demo_canvas(W, H, "CLIPS · 剪辑幻灯片演示")]
+    design = _design_video_shots(brief, blueprint, ctx, llm_call) if llm_call else None
+    title = (design or {}).get("title") or (brief or "灵梦work 视频资产").split("\n")[0][:26]
+    per_img = 12
+    frames = []
+    for idx, img in enumerate(refs):
+        for k in range(per_img):
+            frame = img.copy()
+            d = ImageDraw.Draw(frame)
+            d.rectangle([0, 0, W, 8], fill=_DOM_THEME["video"])
+            f_t = _load_font(34)
+            f_s = _load_font(20)
+            d.text((40, 40), title, font=f_t, fill=(238, 238, 255))
+            d.text((40, 92), "CLIPS · 剪辑配音合成 #%d/%d" % (idx + 1, len(refs)),
+                   font=f_s, fill=(199, 196, 232))
+            frames.append(frame)
+    fn = "%s.clips.gif" % _slug(brief)
+    path = os.path.join(_out_dir(out_dir), fn)
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=110, loop=0)
+    return {
+        "domain": "video", "file": path, "mime": "image/gif", "real": True,
+        "note": "图片序列幻灯片合成 (clips 模式; 配音封装需 ffmpeg/视频 key, 本地降级静帧 GIF)",
+        "meta": {"width": W, "height": H, "frames": len(frames), "clips": True,
+                 "slides": len(refs)},
     }
 
 
@@ -630,6 +782,9 @@ def render(domain, brief, blueprint="", ctx="", out_dir=None, llm_call=None, mod
                              llm_call, mode, voice, rate, pitch)
     if domain == "image":
         return _render_image(brief or "", blueprint or "", ctx or "", out_dir,
+                             llm_call, mode=mode or "gen", image_path=image_path or None)
+    if domain == "video":
+        return _render_video(brief or "", blueprint or "", ctx or "", out_dir,
                              llm_call, mode=mode or "gen", image_path=image_path or None)
     fn = _ADAPTERS.get(domain)
     if not fn:

@@ -24,6 +24,7 @@ _STATIC_FILES = [
     "web/static/automation.html",
     "web/static/activity.html",
     "web/static/audit.html",
+    "web/static/heal.html",
 ]
 
 
@@ -43,9 +44,9 @@ def _chk(name, fn):
 def check_imports():
     from . import (decompose_engine, creation_domains, autonomous,
                    goal_pipeline, multimodal_adapters, memory_mgr,
-                   automation_hub, event_bus)
+                   automation_hub, event_bus, self_heal)
     from .web import server  # noqa: F401
-    return "8 个核心模块导入成功"
+    return "9 个核心模块导入成功"
 
 
 def check_decompose():
@@ -120,6 +121,21 @@ def check_event_bus():
     return "活动总线发射+审计链回溯 %d 条" % len(trail)
 
 
+def check_self_heal():
+    from . import self_heal as sh
+    # 无信号: 健康分 100 + 0 提议
+    rep = sh.propose(selfcheck_report={"checks": []}, bus=None)
+    assert rep["health_score"] == 100, "无信号时健康分应为 100"
+    assert rep["proposal_count"] == 0, "无信号时不应有提议"
+    # 注入失败信号: 应生成提议
+    bad = {"checks": [{"name": "关键静态资产", "ok": False,
+                       "detail": "缺失: web/static/missing.html"}]}
+    rep2 = sh.propose(selfcheck_report=bad, bus=None)
+    assert rep2["proposal_count"] >= 1, "失败信号应生成提议"
+    assert any(p["area"] == "web/static" for p in rep2["proposals"]), "应定位到 web/static 区域"
+    return "自愈提议器 无信号%d分 + 失败信号%d提议" % (rep["health_score"], rep2["proposal_count"])
+
+
 def check_static_files():
     here = os.path.dirname(os.path.abspath(__file__))  # selfcheck.py 即位于 lingmengwork 包目录
     pkg = here
@@ -139,6 +155,7 @@ def run():
         _chk("多模态适配层(模板回退)", check_multimodal),
         _chk("跨会话记忆(捕获+召回)", check_memory),
         _chk("活动总线(事件+审计链)", check_event_bus),
+        _chk("自主进化(自愈提议)", check_self_heal),
         _chk("关键静态资产", check_static_files),
     ]
     total = len(checks)

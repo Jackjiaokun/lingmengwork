@@ -1167,6 +1167,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 操作审计链 (Phase 17): 关键操作审计页面 ----
         if p == "/audit":
             return self._serve_file("audit.html")
+        # ---- 自主进化闭环 (Phase 18): 自愈提议页面 ----
+        if p == "/heal":
+            return self._serve_file("heal.html")
         if p == "/api/automations":
             return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
@@ -1188,6 +1191,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 操作审计链 (Phase 17): 关键操作审计回溯 ----
         if p == "/api/audit":
             return self._audit_get()
+        # ---- 自主进化闭环 (Phase 18): 自愈提议器 ----
+        if p == "/api/heal":
+            return self._heal_get()
         if p == "/api/selfcheck":
             from .. import selfcheck as _sc
             sc = _sc.run()
@@ -1443,6 +1449,8 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 自动化调度中枢 (Phase 15) ----
         if p == "/api/automations":
             return self._automations_create()
+        if p == "/api/heal/export":
+            return self._heal_export()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1570,6 +1578,28 @@ class Handler(SimpleHTTPRequestHandler):
             return _eb.emit(source, kind, msg, data, audit=audit)
         except Exception:
             return None
+
+    def _heal_get(self):
+        """GET /api/heal -> 聚合 selfcheck 失败 + 审计失败事件, 生成结构化补丁提议。"""
+        from .. import self_heal as _sh
+        rep = _sh.run()
+        return self._send_json({"ok": True, **rep})
+
+    def _heal_export(self):
+        """POST /api/heal/export -> 把当前提议落盘 .lmw_heal/proposals.jsonl (待审)。"""
+        from .. import self_heal as _sh
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        out_dir = body.get("cwd") or os.getcwd()
+        rep = _sh.run()
+        res = _sh.export_proposals(rep, out_dir)
+        if not res.get("ok"):
+            return self._send_json({"error": res.get("error", "导出失败")}, status=500)
+        return self._send_json({"ok": True, "path": res["path"], "count": res["count"]})
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

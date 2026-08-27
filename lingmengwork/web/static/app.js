@@ -2842,6 +2842,7 @@ const COMMANDS = [
   { id: "p-automation", title: "打开 · 自动化调度", run: () => gotoPage("/automation") },
   { id: "p-activity", title: "打开 · 实时活动", run: () => gotoPage("/activity") },
   { id: "p-audit", title: "打开 · 操作审计", run: () => gotoPage("/audit") },
+  { id: "p-heal", title: "打开 · 自主进化", run: () => gotoPage("/heal") },
   { id: "theme-code", title: "主题 · 编码", run: () => setTheme("code") },
   { id: "theme-audio", title: "主题 · 音频", run: () => setTheme("audio") },
   { id: "theme-image", title: "主题 · 图片", run: () => setTheme("image") },

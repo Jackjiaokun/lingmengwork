@@ -21,6 +21,7 @@ spec/
 .lmw_index/
 .lmw_memory/
 .lmw_events/
+.lmw_heal/
 .lmw_automations/
 logs/errors/*.json
 outputs/

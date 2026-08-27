@@ -23,6 +23,7 @@ spec/
 .lmw_events/
 .lmw_heal/
 .lmw_automations/
+.lmw_memory_graph.db
 logs/errors/*.json
 outputs/
 *.bak_*

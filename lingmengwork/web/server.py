@@ -1178,6 +1178,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("federation.html")
         if p == "/api/federation":
             return self._federation_get()
+        # ---- 长期记忆图谱 (Phase 26): 实体-关系图谱沉淀/召回 ----
+        if p == "/memory-graph":
+            return self._serve_file("memory_graph.html")
+        if p == "/api/memory-graph":
+            return self._memory_graph_get()
         if p == "/api/automations":
             return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
@@ -1475,6 +1480,11 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 工作伙伴多智能体联邦 (Phase 25): 目标派发到 1..N 伙伴 ----
         if p == "/api/federation/dispatch":
             return self._federation_dispatch()
+        # ---- 长期记忆图谱 (Phase 26): 沉淀 / 召回 ----
+        if p == "/api/memory-graph/absorb":
+            return self._memory_graph_absorb()
+        if p == "/api/memory-graph/recall":
+            return self._memory_graph_recall()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1739,9 +1749,76 @@ class Handler(SimpleHTTPRequestHandler):
             fed = _fed.get_federation()
             rep = fed.dispatch(goal, session_id=body.get("session_id") or "",
                               hint_domains=hint or None, llm_call=self._make_llm_call())
+            # 记忆沉淀(Phase 26): 联邦派发成功 → 汇聚结论入记忆图谱(失败不影响主流程)
+            if rep.get("ok"):
+                try:
+                    from .. import memory_graph as _mg
+                    g = _mg.get_graph(os.getcwd())
+                    merged_summary = (rep.get("merged") or {}).get("summary", "")
+                    g.absorb(goal, merged_summary, session_id=body.get("session_id") or "", llm_call=None)
+                    from .. import event_bus as _eb
+                    _eb.emit("memory", "absorb", "联邦派发沉淀记忆: %s" % goal,
+                             {"goal": goal}, audit=True)
+                except Exception:
+                    pass
             return self._send_json({"ok": True, **rep})
         except Exception as e:
             return self._send_json({"error": "联邦派发失败: %s" % e}, status=500)
+
+    # ---------------------------------------------------------------
+    # 长期记忆图谱 (Phase 26): 实体-关系图谱沉淀 / 召回
+    # ---------------------------------------------------------------
+    def _memory_graph_get(self):
+        """GET /api/memory-graph -> 统计 + 实体/关系清单(供图谱页初始化)。"""
+        from .. import memory_graph as _mg
+        g = _mg.get_graph(os.getcwd())
+        return self._send_json({
+            "ok": True,
+            "stats": g.stats(),
+            "entities": g.list_entities(limit=200),
+            "relations": g.list_relations(limit=200),
+        })
+
+    def _memory_graph_absorb(self):
+        """POST /api/memory-graph/absorb {goal, result, session_id?} -> 抽取沉淀入图。"""
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            result = body.get("result") or ""
+            if not goal and not result:
+                return self._send_json({"error": "缺少 goal 或 result"}, status=400)
+            from .. import memory_graph as _mg
+            g = _mg.get_graph(os.getcwd())
+            rep = g.absorb(goal, result, session_id=body.get("session_id") or "", llm_call=None)
+            try:
+                from .. import event_bus as _eb
+                _eb.emit("memory", "absorb", "记忆沉淀 %d 实体/%d 关系" % (
+                    rep.get("entities_added", 0), rep.get("relations_added", 0)),
+                    {"entities": rep.get("entities_added", 0)}, audit=True)
+            except Exception:
+                pass
+            return self._send_json({"ok": True, **rep})
+        except Exception as e:
+            return self._send_json({"error": "记忆沉淀失败: %s" % e}, status=500)
+
+    def _memory_graph_recall(self):
+        """POST /api/memory-graph/recall {goal, limit?} -> 召回相关实体/关系 + recap。"""
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            if not goal:
+                return self._send_json({"error": "缺少 goal"}, status=400)
+            limit = body.get("limit") or 12
+            try:
+                limit = int(limit)
+            except Exception:
+                limit = 12
+            from .. import memory_graph as _mg
+            g = _mg.get_graph(os.getcwd())
+            rep = g.recall(goal, limit=limit)
+            return self._send_json({"ok": True, **rep})
+        except Exception as e:
+            return self._send_json({"error": "记忆召回失败: %s" % e}, status=500)
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

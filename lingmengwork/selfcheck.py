@@ -11,6 +11,7 @@
 """
 import os
 import sys
+import json
 import tempfile
 
 # 关键静态资产(相对包根 lingmengwork/)
@@ -26,6 +27,7 @@ _STATIC_FILES = [
     "web/static/audit.html",
     "web/static/heal.html",
     "web/static/federation.html",
+    "web/static/memory_graph.html",
 ]
 
 
@@ -45,7 +47,7 @@ def _chk(name, fn):
 def check_imports():
     from . import (decompose_engine, creation_domains, autonomous,
                    goal_pipeline, multimodal_adapters, memory_mgr,
-                   automation_hub, event_bus, self_heal, federation)
+                   automation_hub, event_bus, self_heal, federation, memory_graph)
     from .web import server  # noqa: F401
     return "9 个核心模块导入成功"
 
@@ -163,6 +165,32 @@ def check_federation():
     return "联邦 %d 伙伴 + 跨域路由 + 派发闭环(%d 伙伴)" % (len(partners), len(rep["partners"]))
 
 
+def check_memory_graph():
+    import tempfile
+    from . import memory_graph as mg
+    with tempfile.TemporaryDirectory() as td:
+        db = ":memory:"  # 内存库, 避免临时文件锁(沙箱 safe-delete 干扰清理)
+        g = mg.MemoryGraph(db)
+        # 沉淀: 含「决策」「约定」「bug」「api」强信号 → 多类实体
+        r1 = g.absorb("决定采用 SenseNova 作为默认 LLM 后端；约定灵梦work 默认不重打包 exe；"
+                      "某接口需要 api_key=sk-123456 才能调用；曾因并发死锁导致崩溃(bug)",
+                      "已落地决策与约定")
+        assert r1["ok"] and r1["entities_added"] >= 3, "应抽取多类实体"
+        types = {e["type"] for e in r1["entities"]}
+        assert "decision" in types and "convention" in types and "bug" in types, "应覆盖决策/约定/故障"
+        # 隐私: 含 api_key=sk-123456 的事实不应保留明文值
+        facts = g.list_entities(limit=500)
+        blob = json.dumps(facts, ensure_ascii=False)
+        assert "sk-123456" not in blob, "密钥明文不得入图"
+        # 召回: 新目标应召回相关实体(决策类)
+        rc = g.recall("灵梦work 的默认 LLM 后端是什么", limit=10)
+        assert rc["ok"] and rc["count"] >= 1, "应召回相关记忆"
+        assert rc["recap"], "应产出 recap"
+        g.close()
+    return "记忆图谱 抽取%d实体+关系%d + 隐私脱敏 + 召回%d项" % (
+        r1["entities_added"], r1["relations_added"], rc["count"])
+
+
 def run():
     """执行全部健康检查, 返回结构化报告 dict。"""
     checks = [
@@ -176,6 +204,7 @@ def run():
         _chk("活动总线(事件+审计链)", check_event_bus),
         _chk("自主进化(自愈提议)", check_self_heal),
         _chk("工作伙伴联邦(路由+派发)", check_federation),
+        _chk("长期记忆图谱(抽取+召回)", check_memory_graph),
         _chk("关键静态资产", check_static_files),
     ]
     total = len(checks)

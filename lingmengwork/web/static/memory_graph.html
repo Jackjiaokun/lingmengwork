@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>记忆图谱 · 灵梦work</title>
+<style>
+  :root{
+    --bg:#0b0e17; --panel:rgba(22,27,42,.72); --panel2:rgba(30,36,56,.55);
+    --line:rgba(120,140,200,.18); --tx:#e7ebf5; --sub:#9aa6c4; --accent:#22d3ee;
+    --accent2:#a855f7; --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 80% -10%,rgba(168,85,247,.18),transparent 60%),
+       radial-gradient(900px 600px at 0% 0%,rgba(34,211,238,.14),transparent 55%),var(--bg);
+       color:var(--tx);font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:22px;margin:0 0 4px;background:linear-gradient(90deg,var(--accent),var(--accent2));
+     -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--sub);margin:0 0 18px;font-size:13px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0 22px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;backdrop-filter:blur(8px)}
+  .kpi .n{font-size:24px;font-weight:700;background:linear-gradient(90deg,var(--accent),var(--accent2));
+     -webkit-background-clip:text;background-clip:text;color:transparent}
+  .kpi .l{color:var(--sub);font-size:12px;margin-top:2px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;backdrop-filter:blur(8px)}
+  .card h3{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+  textarea,input{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+     border-radius:10px;padding:10px 12px;font:13px/1.5 inherit;outline:none}
+  textarea{resize:vertical;min-height:64px}
+  .q{margin-bottom:10px}
+  button{cursor:pointer;border:none;border-radius:10px;padding:9px 16px;font-weight:600;color:#06121a;
+     background:linear-gradient(90deg,var(--accent),var(--accent2));transition:.15s}
+  button:hover{filter:brightness(1.08)}
+  button.ghost{background:var(--panel2);color:var(--tx);border:1px solid var(--line)}
+  .list{max-height:320px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+  .item{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+  .item .nm{font-weight:600}
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;margin-right:6px;
+     background:rgba(34,211,238,.16);color:var(--accent);border:1px solid rgba(34,211,238,.3)}
+  .tag.r{background:rgba(168,85,247,.16);color:var(--accent2);border-color:rgba(168,85,247,.3)}
+  .tag.t{background:rgba(52,211,153,.16);color:var(--ok);border-color:rgba(52,211,153,.3)}
+  .rel{font-size:13px;color:var(--sub)}
+  .rel b{color:var(--tx)}
+  .muted{color:var(--sub);font-size:12px}
+  .panel-block{margin-top:16px}
+  .recap{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;white-space:pre-wrap;
+     font-size:13px;max-height:280px;overflow:auto}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel);
+     border:1px solid var(--line);padding:10px 18px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid,.split,.kpis{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧠 长期记忆图谱</h1>
+  <p class="sub">Phase 26 · 实体-关系知识图谱：任务沉淀（决策/约定/故障/接口/项目）→ 跨会话召回 → 注入历史经验。隐私优先，真密钥永不入图。</p>
+
+  <div class="kpis" id="kpis">
+    <div class="kpi"><div class="n" id="kEnt">0</div><div class="l">实体</div></div>
+    <div class="kpi"><div class="n" id="kRel">0</div><div class="l">关系</div></div>
+    <div class="kpi"><div class="n" id="kFac">0</div><div class="l">事实</div></div>
+    <div class="kpi"><div class="n" id="kTrusted">0</div><div class="l">可信(trusted)</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>📦 实体清单 <span class="muted" id="entCount"></span></h3>
+      <div class="list" id="entityList"><div class="muted">暂无实体，派发联邦或手动沉淀后在此显示。</div></div>
+    </div>
+    <div class="card">
+      <h3>🔗 关系清单 <span class="muted" id="relCount"></span></h3>
+      <div class="list" id="relationList"><div class="muted">暂无关系。</div></div>
+    </div>
+  </div>
+
+  <div class="split panel-block">
+    <div class="card">
+      <h3>➕ 沉淀记忆（absorb）</h3>
+      <div class="q"><textarea id="absorbGoal" placeholder="目标（如：决定采用 SenseNova 作为默认 LLM 后端）"></textarea></div>
+      <div class="q"><textarea id="absorbResult" placeholder="执行结果/结论（可省略；命中『约定/决策/故障/接口』等词即被抽取为实体）"></textarea></div>
+      <button id="absorbBtn">沉淀入图</button>
+    </div>
+    <div class="card">
+      <h3>🔎 召回记忆（recall）</h3>
+      <div class="q"><input id="recallGoal" placeholder="新目标（如：默认 LLM 后端是什么）" /></div>
+      <button id="recallBtn">召回相关记忆</button>
+      <div class="recap" id="recallOut" style="margin-top:12px">召回结果将在此显示（实体 + 关系 + 可注入的 recap）。</div>
+    </div>
+  </div>
+
+  <div class="muted panel-block">联邦派发（/api/federation/dispatch）成功后，汇聚结论会自动沉淀进本图谱；页面每 8s 轮询刷新。</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
+const TYPE_LABEL={project:"项目",decision:"决策",api:"接口",bug:"故障",convention:"约定",fact:"事实"};
+
+async function refresh(){
+  try{
+    const r=await fetch("/api/memory-graph");const j=await r.json();
+    const s=j.stats||{};
+    $("kEnt").textContent=s.entities||0;$("kRel").textContent=s.relations||0;
+    $("kFac").textContent=s.facts||0;$("kTrusted").textContent=s.trusted||0;
+    // 实体
+    const ents=j.entities||[];
+    $("entCount").textContent="· "+ents.length;
+    $("entityList").innerHTML = ents.length ? ents.map(e=>{
+      const tg = e.trusted?'<span class="tag t">🔒trusted</span>':'';
+      return '<div class="item"><span class="tag">'+(TYPE_LABEL[e.type]||e.type)+'</span>'+tg+
+             '<span class="nm">'+esc(e.name)+'</span> <span class="muted">置信 '+e.confidence.toFixed(2)+'</span></div>';
+    }).join("") : '<div class="muted">暂无实体。</div>';
+    // 关系
+    const rels=j.relations||[];
+    $("relCount").textContent="· "+rels.length;
+    $("relationList").innerHTML = rels.length ? rels.map(r=>{
+      return '<div class="item rel"><b>'+esc(r.src)+'</b> <span class="tag r">'+r.rel+'</span> → <b>'+esc(r.dst)+'</b> '+
+             '<span class="muted">权重 '+r.weight.toFixed(2)+'</span></div>';
+    }).join("") : '<div class="muted">暂无关系。</div>';
+  }catch(e){ /* 静默 */ }
+}
+function esc(s){return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+$("absorbBtn").onclick=async()=>{
+  const goal=$("absorbGoal").value.trim();const result=$("absorbResult").value.trim();
+  if(!goal&&!result){toast("请填写目标或结果");return;}
+  const r=await fetch("/api/memory-graph/absorb",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({goal,result})});
+  const j=await r.json();
+  if(j.ok){toast("已沉淀 "+j.entities_added+" 实体 / "+j.relations_added+" 关系");$("absorbGoal").value="";$("absorbResult").value="";refresh();}
+  else toast("沉淀失败："+(j.error||""));
+};
+$("recallBtn").onclick=async()=>{
+  const goal=$("recallGoal").value.trim();
+  if(!goal){toast("请填写召回目标");return;}
+  const r=await fetch("/api/memory-graph/recall",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({goal})});
+  const j=await r.json();
+  if(j.ok){
+    const ents=(j.entities||[]).map(e=>"• ["+(TYPE_LABEL[e.type]||e.type)+"] "+e.name).join("\n");
+    const rels=(j.relations||[]).map(r=>"• "+r.src+" —"+r.rel+"→ "+r.dst).join("\n");
+    const head="召回 "+j.count+" 项\n实体:\n"+(ents||"(无)")+"\n关系:\n"+(rels||"(无)")+
+               "\n\n—— 可注入 system prompt 的 recap ——\n"+(j.recap||"(无匹配记忆)");
+    $("recallOut").textContent=head;
+  } else toast("召回失败："+(j.error||""));
+};
+
+refresh();
+setInterval(refresh,8000);
+</script>
+</body>
+</html>

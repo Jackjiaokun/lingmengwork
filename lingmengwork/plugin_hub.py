@@ -174,11 +174,29 @@ class PluginHub:
     # ---------------------------------------------------------------- 联邦路由匹配
     def match_connectors(self, goal):
         """按目标关键词匹配可用连接器(name/category/tags/description 命中),
-        返回 [{name, category, description, tags}]。无 LLM 亦可用(规则关键词)。"""
+        返回 [{name, category, description, tags}]。无 LLM 亦可用(规则关键词)。
+        兼容中英混合目标: 中文无标点时用 bigram 兜底(如「诊断网络端点」→「诊断」「网络」等)。"""
         g = (goal or "").lower()
-        toks = [w for w in re.split(r"[\s,，。.、]+", g) if len(w) >= 2]
+        # 第一刀: ASCII 空白 + 中文标点
+        raw = re.split(r"[\s,，。.、]+", g)
+        # 第二刀: 对每个字块, 在 CJK/非CJK 边界再切(解决「系统health」粘连)
+        pieces = []
+        for r in raw:
+            if not r:
+                continue
+            sub = re.split(r'(?<=[\u4e00-\u9fff])(?=[^\u4e00-\u9fff])|(?<=[^\u4e00-\u9fff])(?=[\u4e00-\u9fff])', r)
+            pieces.extend(sub)
+        # 过滤空串, 取长度 ≥2
+        toks = list(dict.fromkeys([p for p in pieces if len(p) >= 2]))
         if not toks:
             return []
+        # 中文 bigram 兜底: 对 CJK token 展开 2 字组合, 兼容无标点中文目标
+        cn_bigrams = []
+        for w in toks:
+            if re.search(r"[\u4e00-\u9fff]", w):
+                for i in range(max(0, len(w) - 1)):
+                    cn_bigrams.append(w[i:i+2])
+        toks = list(dict.fromkeys(toks + cn_bigrams))
         matched = []
         for c in self.connectors.values():
             if not c.check()["available"]:

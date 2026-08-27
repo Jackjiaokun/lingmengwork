@@ -689,12 +689,14 @@ class SuperAgent:
             return {"experts": [], "connectors": [], "downgraded": []}
 
     # ---- 统一入口 ----
-    def run(self, goal, session_id="", llm_call=None, quality_gate=True):
+    def run(self, goal, session_id="", llm_call=None, quality_gate=True, on_stage=None):
         """超级 AGENT 统一编排入口。
 
         goal: 用户模糊目标
         llm_call: llm_call(prompt, system=None)->str|None, 无 key 全程规则兜底
         quality_gate: 是否执行第三级护栏(系统自检质量门); selfcheck 探针传 False 防递归
+        on_stage: 可选回调 on_stage({stage, ts, ok, detail}), 每阶段完成即触发
+                  (Phase 38: 供 Web SSE 流式推送实时进度; 回调异常不阻塞主流程)
         """
         started = time.time()
         trace = []
@@ -708,7 +710,13 @@ class SuperAgent:
         understand = {}
 
         def _trace(stage, detail, sub_ok=True):
-            trace.append({"stage": stage, "ts": _now(), "ok": sub_ok, "detail": detail})
+            entry = {"stage": stage, "ts": _now(), "ok": sub_ok, "detail": detail}
+            trace.append(entry)
+            if on_stage:
+                try:
+                    on_stage(entry)
+                except Exception:
+                    pass
             try:
                 from . import event_bus as _eb
                 _eb.emit("superagent", "stage", "%s: %s" % (stage, detail),

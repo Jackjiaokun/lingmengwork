@@ -138,20 +138,63 @@
 let lastRuns = [];
 function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
 
+// Phase 38: SSE 流式编排 — 每阶段完成即实时上屏, done 后渲染完整结果
 async function runSuper(){
   const goal = document.getElementById("goalInput").value.trim();
   if(!goal) return;
   const btn = document.getElementById("runBtn");
   btn.disabled = true; btn.textContent = "编排中…";
   document.getElementById("elapsed").textContent = "";
+  // 预展开结果区 + 实时 trace 占位
+  document.getElementById("result").classList.remove("hidden");
+  document.getElementById("traceBox").innerHTML = '<span class="muted">⏳ 等待阶段事件…</span>';
+  let gotDone = false;
   try{
-    const r = await fetch("/api/superagent/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal})});
-    const j = await r.json();
-    if(!j.ok){ alert("编排失败: "+(j.error||"未知")); return; }
-    renderResult(j);
-    document.getElementById("elapsed").textContent = "耗时 "+ (j.elapsed_sec||0) +"s";
-  }catch(e){ alert("请求异常: "+e); }
+    const r = await fetch("/api/superagent/run/stream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal})});
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while(true){
+      const {value, done} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream:true});
+      let idx;
+      while((idx = buf.indexOf("\n\n")) >= 0){
+        const frame = buf.slice(0, idx); buf = buf.slice(idx+2);
+        const line = frame.split("\n").find(l=>l.startsWith("data: "));
+        if(!line) continue;
+        let ev; try{ ev = JSON.parse(line.slice(6)); }catch(_){ continue; }
+        if(ev.type === "stage"){ appendStage(ev); }
+        else if(ev.type === "done"){
+          gotDone = true;
+          const j = ev.result||{};
+          if(j.ok === false && j.error){ alert("编排失败: "+j.error); }
+          else{ renderResult(j); document.getElementById("elapsed").textContent = "耗时 "+(j.elapsed_sec||0)+"s"; }
+        }
+        else if(ev.type === "error"){ alert("编排失败: "+(ev.message||"未知")); }
+      }
+    }
+    if(!gotDone){ alert("编排流中断, 请重试"); }
+  }catch(e){
+    // 流式不可用 -> 回退同步端点(Phase 27 原链路)
+    try{
+      const r = await fetch("/api/superagent/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal})});
+      const j = await r.json();
+      if(!j.ok){ alert("编排失败: "+(j.error||"未知")); return; }
+      renderResult(j);
+      document.getElementById("elapsed").textContent = "耗时 "+ (j.elapsed_sec||0) +"s";
+    }catch(_){ alert("请求异常: "+e); }
+  }
   finally{ btn.disabled=false; btn.textContent="🚀 启动超级 AGENT 编排"; loadRuns(); }
+}
+
+function appendStage(ev){
+  const box = document.getElementById("traceBox");
+  const ph = box.querySelector(".muted");
+  if(ph) ph.remove();
+  box.insertAdjacentHTML("beforeend",
+    '<div class="tl'+(ev.ok?'':' bad')+'"><div class="st">'+esc(ev.stage)+'</div>'+
+    '<div class="dt">'+esc(ev.ts)+'</div><div class="de">'+esc(ev.detail)+'</div></div>');
 }
 
 function renderResult(j){

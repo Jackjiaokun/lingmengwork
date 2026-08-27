@@ -1509,6 +1509,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 超级 AGENT 内核 (Phase 27): 目标编排闭环 ----
         if p == "/api/superagent/run":
             return self._superagent_run()
+        # ---- 超级 AGENT SSE 流式编排 (Phase 38): 每阶段实时推送进度 ----
+        if p == "/api/superagent/run/stream":
+            return self._superagent_run_stream()
         # ---- 插件中枢 (Phase 32): 动态注册 connector/expert ----
         if p == "/api/plugins/connectors/register":
             return self._plugin_connector_register()
@@ -1872,6 +1875,54 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"ok": True, **rep})
         except Exception as e:
             return self._send_json({"error": "超级AGENT编排失败: %s" % e}, status=500)
+
+    def _superagent_run_stream(self):
+        """POST /api/superagent/run/stream {goal, session_id?} -> SSE 实时编排进度 (Phase 38).
+
+        事件流: data: {"type":"stage","stage":...,"ts":...,"ok":...,"detail":...} 每阶段一条
+                -> data: {"type":"done","result":{...完整编排结果...}}
+                异常时 data: {"type":"error","message":...}。
+        与 /api/superagent/run 同链路(规则兜底/异常隔离/审计链), 区别仅在逐阶段推送。
+        """
+        from .. import superagent as _sa
+        try:
+            body = self._read_json({})
+        except Exception:
+            body = {}
+        goal = (body.get("goal") or "").strip()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        client_gone = {"flag": False}
+
+        def emit(obj):
+            if client_gone["flag"]:
+                return
+            try:
+                self.wfile.write(("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8"))
+                self.wfile.flush()
+            except Exception:
+                # 客户端断开(刷新/关闭页面) -> 停止推送, 编排继续跑完不留死循环
+                client_gone["flag"] = True
+
+        if not goal:
+            emit({"type": "error", "message": "缺少 goal"})
+            return
+
+        def on_stage(entry):
+            emit({"type": "stage", **entry})
+
+        try:
+            sa = _sa.SuperAgent(base_dir=os.getcwd())
+            rep = sa.run(goal, session_id=body.get("session_id") or "",
+                         llm_call=self._make_llm_call(), on_stage=on_stage)
+            emit({"type": "done", "result": rep})
+        except Exception as e:
+            emit({"type": "error", "message": "超级AGENT编排失败: %s" % e})
 
     # ---------------------------------------------------------------
     # 插件中枢 (Phase 32): Connector/Expert 注册/发现/接入

@@ -61,3 +61,4 @@ logs/
 # 运行/测试副产物 (pipeline 运行、outputs 落盘)
 code/
 outputs/
+outputs/superagent_runs.jsonl

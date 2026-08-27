@@ -286,11 +286,26 @@ function renderRuns(){
   const scs = lastRuns.map(x=>x.selfcheck_score??100).filter(s=>typeof s==="number");
   document.getElementById("kScore").textContent = scs.length? Math.round(scs.reduce((a,b)=>a+b,0)/scs.length):"—";
   const html = lastRuns.length? lastRuns.map(x=>
-    '<div class="run"><span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
+    '<div class="run" style="cursor:pointer" title="点击回看本次编排详情" onclick="loadRunDetail(\''+esc(x.ts||"")+'\')">'+
+    '<span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
     '<span class="muted">'+(x.routed||[]).join("/")+'</span></span>'+
     '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></div>'
   ).join("") : '<span class="muted">暂无编排记录</span>';
   document.getElementById("runList").innerHTML = html;
+}
+
+// Phase 39: 历史编排回看 — 点击记录拉取完整结果(磁盘持久化, 重启不丢)并复用渲染
+async function loadRunDetail(ts){
+  if(!ts) return;
+  try{
+    const r = await fetch("/api/superagent/detail?ts="+encodeURIComponent(ts));
+    const j = await r.json();
+    if(!j.ok){ alert("回看失败: "+(j.error||"未知")); return; }
+    renderResult(j.result||{});
+    document.getElementById("elapsed").textContent =
+      "历史编排 · 耗时 "+((j.result||{}).elapsed_sec||0)+"s";
+    document.getElementById("result").scrollIntoView({behavior:"smooth"});
+  }catch(e){ alert("请求异常: "+e); }
 }
 
 loadRuns();

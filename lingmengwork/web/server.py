@@ -1188,6 +1188,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("superagent.html")
         if p == "/api/superagent":
             return self._superagent_get()
+        if p == "/api/superagent/detail":
+            return self._superagent_detail()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1856,7 +1858,19 @@ class Handler(SimpleHTTPRequestHandler):
     def _superagent_get(self):
         """GET /api/superagent -> 最近编排概览(供页面轮询)。"""
         from .. import superagent as _sa
-        return self._send_json({"ok": True, "runs": _sa.get_recent_runs(20)})
+        return self._send_json({"ok": True, "runs": _sa.get_recent_runs(20, base_dir=os.getcwd())})
+
+    def _superagent_detail(self):
+        """GET /api/superagent/detail?ts=... -> 单次编排完整结果 (Phase 39 历史回看)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.get_run_detail(ts, base_dir=os.getcwd())
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录"}, status=404)
+        return self._send_json({"ok": True, "result": rep})
 
     def _superagent_run(self):
         """POST /api/superagent/run {goal, session_id?} -> 目标理解→域路由→并行编排→收敛→自检→记忆沉淀。

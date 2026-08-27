@@ -138,9 +138,12 @@ def test_superagent_stats_structure_from_server(tmp_path, monkeypatch):
         def __init__(self): pass
         def _get_pool(self): return _FakePool()
 
-    # 空态: 先清空 _RUNS 确保初始为空
+    # 空态: 先清空 _RUNS 确保初始为空; Phase 39 起 get_recent_runs 会合并磁盘历史,
+    # 同时把持久化路径指向不存在的 tmp 文件, 隔离 cwd 里的真实历史
     import collections
     _sa._RUNS = collections.deque(maxlen=60)
+    monkeypatch.setattr(_sa, "_persist_path",
+                        lambda base_dir=None: str(tmp_path / "no_hist.jsonl"))
     sa = _H()._superagent_stats()
     assert sa["total"] == 0
     assert sa["elapsed_p50"] is None

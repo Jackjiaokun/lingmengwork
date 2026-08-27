@@ -792,11 +792,12 @@ class SuperAgent:
 
     def _record(self, result):
         try:
+            ts = _now()
             cv = result.get("converge") or {}
             mem = result.get("memory") or {}
-            _RUNS.append({
+            summary = {
                 "goal": result.get("goal", ""),
-                "ts": _now(),
+                "ts": ts,
                 "ok": result.get("ok", False),
                 "routed": result.get("routed", []),
                 "partners_ok": cv.get("partners_ok", 0),
@@ -807,15 +808,106 @@ class SuperAgent:
                 "entities_added": mem.get("entities_added", 0),
                 "artifacts": len((result.get("executions") or {}).get("artifacts", []) or []),
                 "elapsed_sec": result.get("elapsed_sec", 0),
-            })
+            }
+            _RUNS.append(summary)
+            self._persist_result(ts, summary, result)
+        except Exception:
+            pass
+
+    # ---- Phase 39: 编排历史持久化 (JSONL 追加, 重启不丢, 供历史回看) ----
+    def _persist_result(self, ts, summary, result):
+        """把一次编排完整结果落盘 <base>/outputs/superagent_runs.jsonl。
+
+        行结构: {"ts", "summary"(与 _RUNS 摘要同构), "result"(完整编排结果)}。
+        单条体积上限 64KB: 超限先递归截断超长字符串, 仍超限丢弃重载荷(dispatch/intent)。
+        异常静默(持久化失败不阻塞编排)。
+        """
+        try:
+            base = self.base_dir if (self.base_dir and self.base_dir != ":memory:"
+                                     and os.path.isdir(self.base_dir)) else os.getcwd()
+            out_dir = os.path.join(base, "outputs")
+            os.makedirs(out_dir, exist_ok=True)
+            path = os.path.join(out_dir, "superagent_runs.jsonl")
+            rec = json.loads(json.dumps(
+                {"ts": ts, "summary": summary, "result": result},
+                ensure_ascii=False, default=str))
+            raw = json.dumps(rec, ensure_ascii=False, default=str)
+            if len(raw.encode("utf-8")) > _PERSIST_MAX_BYTES:
+                rec["result"] = _clip_strings(rec.get("result"), cap=4000)
+                raw = json.dumps(rec, ensure_ascii=False, default=str)
+            if len(raw.encode("utf-8")) > _PERSIST_MAX_BYTES:
+                for k in ("dispatch", "executions", "intent"):
+                    rec["result"].pop(k, None)
+                raw = json.dumps(rec, ensure_ascii=False, default=str)
+            if len(raw.encode("utf-8")) <= _PERSIST_MAX_BYTES:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(raw + "\n")
         except Exception:
             pass
 
 
-def get_recent_runs(limit=20):
-    """最近编排概览(供 API / 页面轮询)。"""
-    items = list(_RUNS)
-    return items[-limit:][::-1]
+def _clip_strings(o, cap=4000):
+    """递归截断超长字符串(持久化体积保护)。"""
+    if isinstance(o, str):
+        return o if len(o) <= cap else o[:cap] + "…[截断]"
+    if isinstance(o, list):
+        return [_clip_strings(x, cap) for x in o]
+    if isinstance(o, dict):
+        return {k: _clip_strings(v, cap) for k, v in o.items()}
+    return o
+
+
+_PERSIST_MAX_BYTES = 65536
+_PERSIST_FILE = "superagent_runs.jsonl"
+
+
+def _persist_path(base_dir=None):
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    return os.path.join(base, "outputs", _PERSIST_FILE)
+
+
+def _load_persisted(limit=50, base_dir=None):
+    """读磁盘编排历史尾部(倒序返回, 与 get_recent_runs 顺序一致)。"""
+    path = _persist_path(base_dir)
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = collections.deque(f, maxlen=max(limit, 5) * 3)
+        out = []
+        for line in rows:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+                if isinstance(row.get("summary"), dict):
+                    out.append(row)
+            except Exception:
+                continue
+        return out[::-1]
+    except Exception:
+        return []
+
+
+def get_recent_runs(limit=20, base_dir=None):
+    """最近编排概览(供 API / 页面轮询): 内存缓冲优先 + 磁盘持久化补缺。
+
+    语义: 内存中的编排(最新块)永远排在磁盘历史之前;
+    磁盘仅补充内存中没有的(goal+ts 去重)更早记录 —— 重启后内存清空, 历史从磁盘回看。
+    """
+    mem = [r for r in _RUNS if r.get("ts")]
+    seen = set((r.get("goal"), r.get("ts")) for r in mem)
+    disk_only = [row["summary"] for row in _load_persisted(limit, base_dir)
+                 if (row["summary"].get("goal"), row["summary"].get("ts")) not in seen]
+    disk_only.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    return (mem[::-1] + disk_only)[:limit]
+
+
+def get_run_detail(ts, base_dir=None):
+    """按 ts 取单次编排完整结果(磁盘 JSONL); 未找到返回 None。"""
+    for row in _load_persisted(200, base_dir):
+        if row.get("ts") == ts:
+            return row.get("result")
+    return None
 
 
 def run(goal, session_id="", llm_call=None, base_dir=None, quality_gate=True):

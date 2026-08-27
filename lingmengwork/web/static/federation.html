@@ -175,7 +175,7 @@ function renderResult(rep){
         <span class="pill st ${m.ok?'ok':'error'}">${m.ok?'✅ 成功':'❌ 失败'}</span>
         <b>${escapeHtml(m.name)}</b>
         ${m.error?`<span class="err">${escapeHtml(m.error)}</span>`:""}
-        ${m.result?`<div class="plan"><div class="pt">connector 结果</div>${escapeHtml(String(m.result))}</div>`:""}
+        ${m.result?`<div class="plan"><div class="pt">connector 结果</div>${escapeHtml(typeof m.result==='object'?JSON.stringify(m.result):String(m.result))}</div>`:""}
       </div>`).join("")}
     </div>`;
     $("#kConn").textContent = mcs.length;

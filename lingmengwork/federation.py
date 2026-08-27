@@ -231,9 +231,14 @@ class Federation:
                     if conn and conn.check()["available"]:
                         try:
                             cr = conn.call(goal=goal)
+                            # Phase 37: dict 结果含结构化字段(status_code/elapsed_ms 等)时
+                            # 整包透传, 纯 {"ok","name","result"} 包装仍取 result 摘要
+                            res = cr.get("result")
+                            if isinstance(cr, dict) and (set(cr.keys()) - {"ok", "name", "result", "error"}):
+                                res = dict(cr)
                             matched_connectors.append({
                                 "name": cname, "ok": bool(cr.get("ok", False)),
-                                "result": cr.get("result"), "error": cr.get("error"),
+                                "result": res, "error": cr.get("error"),
                             })
                         except Exception as e:
                             matched_connectors.append({

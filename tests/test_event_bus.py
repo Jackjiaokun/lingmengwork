@@ -134,7 +134,8 @@ def test_engines_run_emits_event(stub):
     assert any(e["source"] == "engine" and e["kind"] == "run" for e in evs)
 
 
-def test_automation_create_emits_event(stub):
+def test_automation_create_emits_event(stub, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)  # 隔离: hub 写 <tmp>/automations.json, 不污染仓库
     h = stub({"name": "night-build", "kind": "pipeline", "goal": "跑回归",
               "schedule": "daily:03:00", "domain": "code"})
     h._automations_create()

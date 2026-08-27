@@ -122,6 +122,11 @@
       <h3><span class="dot"></span>记忆沉淀（memory_graph）</h3>
       <div id="memoryBox"></div>
     </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3><span class="dot"></span>执行落地（executor · 产物）</h3>
+      <div id="execBox"></div>
+    </div>
   </div>
 </div>
 
@@ -187,6 +192,20 @@ function renderResult(j){
         '<span class="pill">关系+ <b>'+(m.relations_added||0)+'</b></span>'+
         '<span class="pill">事实+ <b>'+(m.facts_count||0)+'</b></span></div>'
     : '<span class="muted">记忆沉淀跳过/失败: '+esc(m.error||"")+'</span>';
+  // 执行落地
+  const ex = j.executions||{};
+  const exs = ex.executions||[];
+  if(!exs.length){
+    document.getElementById("execBox").innerHTML = '<span class="muted">无执行产物</span>';
+  }else{
+    document.getElementById("execBox").innerHTML = exs.map(e=>{
+      const ok = e.status==="ok"||e.status==="artifact";
+      const arts = (e.artifacts||[]).map(a=>'<a class="tag ok" href="'+esc(a)+'" target="_blank" rel="noopener">📄 '+esc(a.split(/[\\/]/).pop())+'</a>').join(" ") || '<span class="muted">无文件</span>';
+      return '<div class="partner"><div class="ph"><span class="pn">'+esc(e.domain||"?")+'</span>'+
+        '<span class="ps '+(ok?'ok':'err')+'">'+(ok?'✅ '+esc(e.status):'❌ '+esc(e.status))+'</span></div>'+
+        '<div class="pl">'+esc(e.note||"")+'</div><div style="margin-top:6px">'+arts+'</div></div>';
+    }).join("");
+  }
 }
 
 async function loadRuns(){

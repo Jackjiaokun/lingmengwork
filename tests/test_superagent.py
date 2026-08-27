@@ -171,3 +171,68 @@ def test_selfcheck_probe_count():
     assert rep["total"] == 13, "探针数应为 13, 实际 %d" % rep["total"]
     failed = {c["name"]: c["detail"] for c in rep["checks"] if not c["ok"]}
     assert not failed, failed
+
+
+# ------------------------------------------------------------------ 执行落地(Phase28)
+def test_execute_default_artifact(tmp_path):
+    """无真实执行器: 内核把每个成功伙伴的方案写成真实交付文件(.md)。"""
+    sa = sa_mod.SuperAgent(base_dir=str(tmp_path))
+    rep = sa.run("做段产品介绍视频并写发布文案、准备上线部署到服务器", quality_gate=False)
+    assert rep["ok"], rep.get("error")
+    ex = rep["executions"]
+    assert ex["count"] >= 2, "应跨 2+ 域落地执行, 实际 %s" % ex
+    arts = ex["artifacts"]
+    assert len(arts) >= 2, "应产出 >=2 个交付文件, 实际 %s" % arts
+    for a in arts:
+        assert os.path.isfile(a), "交付文件应真实存在: %s" % a
+
+
+def test_execute_real_executor_injection(tmp_path):
+    """注册的 domain 执行器应被调用, 其产物纳入 executions。"""
+    calls = []
+    def fake_code_executor(partner, goal="", llm_call=None, base_dir=None):
+        calls.append(partner.get("domain"))
+        return {"domain": "code", "status": "ok",
+                "artifacts": [os.path.join(str(tmp_path), "gen_code.txt")],
+                "note": "已调用真实 code 执行器"}
+    sa_mod.register_executor("code", fake_code_executor)
+    try:
+        sa = sa_mod.SuperAgent(base_dir=str(tmp_path))
+        fake_dispatch = {
+            "partners": [
+                {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+                 "summary": "s", "plan": "p", "artifacts": []},
+                {"partner_id": "ops", "name": "运维伙伴", "domain": "ops", "status": "ok",
+                 "summary": "s2", "plan": "", "artifacts": []},
+            ],
+            "merged": {"summary": "..", "conflicts": []},
+        }
+        ex = sa.execute(fake_dispatch, goal="写一个函数并上线部署")
+        code_ex = next((e for e in ex["executions"] if e.get("domain") == "code"), None)
+        assert code_ex is not None, "应存在 code 域执行记录"
+        assert code_ex["status"] == "ok" and any("gen_code.txt" in a for a in code_ex["artifacts"]), code_ex
+        assert "code" in calls, "真实 code 执行器应被调用"
+        # ops 无注册执行器 → 走默认执行器产出交付文件
+        ops_ex = next((e for e in ex["executions"] if e.get("domain") == "ops"), None)
+        assert ops_ex["status"] == "artifact", "ops 应走默认执行器落地"
+    finally:
+        sa_mod.EXECUTORS.pop("code", None)  # 清理, 避免污染其他测试
+
+
+def test_execute_partner_error_isolated(tmp_path):
+    """伙伴异常被跳过(不执行), 成功伙伴仍正常落地, 整体不崩。"""
+    sa = sa_mod.SuperAgent(base_dir=str(tmp_path))
+    fake_dispatch = {
+        "partners": [
+            {"partner_id": "code", "name": "编码伙伴", "domain": "code", "status": "ok",
+             "summary": "s1", "plan": "p1", "artifacts": []},
+            {"partner_id": "creation", "name": "创作伙伴", "domain": "creation", "status": "error",
+             "error": "boom", "artifacts": []},
+        ],
+        "merged": {"summary": "..", "conflicts": []},
+    }
+    ex = sa.execute(fake_dispatch)
+    recs = {e["domain"]: e for e in ex["executions"]}
+    assert recs["code"]["status"] == "artifact", "成功伙伴应落地执行"
+    assert recs["creation"]["status"] == "skipped", "异常伙伴应跳过"
+    assert any(os.path.isfile(a) for a in ex["artifacts"]), "成功伙伴应产出文件"

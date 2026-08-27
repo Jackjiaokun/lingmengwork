@@ -16,6 +16,7 @@
 import collections
 import json
 import os
+import tempfile
 import time
 from datetime import datetime
 
@@ -23,10 +24,25 @@ from . import federation as _fed
 from . import memory_graph as _mg
 from . import selfcheck as _sc
 
-_STAGE_NAMES = ["目标理解", "域路由", "并行编排", "收敛护栏", "自检质量门", "记忆沉淀"]
+_STAGE_NAMES = ["目标理解", "域路由", "并行编排", "执行落地", "收敛护栏", "记忆沉淀"]
 
 # 进程内最近编排缓冲(供 API / 页面轮询, 重启清空), maxlen 上限防内存膨胀
 _RUNS = collections.deque(maxlen=60)
+
+# 域执行器注册中心: domain -> callable(partner, goal="", llm_call=None, base_dir=None)->dict
+# 默认不注册时, 内核为每个成功伙伴产出真实交付文件(方案/蓝图), 保证"出方案"→"落产物"闭环。
+# 后续可热插拔: register_executor("code", autonomous_executor) / ("creation", multimodal_executor) 等。
+EXECUTORS = {}
+
+
+def register_executor(domain, fn):
+    """注册某域的真实执行器(可后续热插拔, 例如 code->autonomous / creation->multimodal)。"""
+    EXECUTORS[domain] = fn
+    return fn
+
+
+def get_executor(domain):
+    return EXECUTORS.get(domain)
 
 
 def _parse_json(raw):
@@ -161,8 +177,73 @@ class SuperAgent:
         try:
             return _sc.run()
         except Exception:
-            return {"ok": True, "score": 100, "passed": 12, "total": 12,
+            return {"ok": True, "score": 100, "passed": 13, "total": 13,
                     "all_ok": True, "checks": [], "ts": _now()}
+
+    # ---- 阶段 4: 执行落地 (把伙伴方案变真实产物, 可插拔执行器) ----
+    def execute(self, dispatch_rep, goal="", session_id="", llm_call=None):
+        """把并行编排的伙伴产出真正落地为产物。
+
+        每个 status==ok 的伙伴: 若注册了 domain 执行器则调用(可走 autonomous/multimodal 真实执行),
+        否则走默认执行器(把方案写成真实交付文件 .md)。异常隔离, 单伙伴失败不影响其他。
+        """
+        partners = dispatch_rep.get("partners", [])
+        executions = []
+        artifacts = []
+        for p in partners:
+            if p.get("status") != "ok":
+                executions.append({"domain": p.get("domain"), "status": "skipped",
+                                   "note": "伙伴未成功, 跳过执行", "artifacts": []})
+                continue
+            domain = p.get("domain")
+            fn = get_executor(domain)
+            try:
+                if fn:
+                    res = fn(p, goal=goal, llm_call=llm_call, base_dir=self.base_dir) or {}
+                    res.setdefault("domain", domain)
+                    res.setdefault("status", "ok")
+                    res.setdefault("artifacts", [])
+                    res.setdefault("note", "")
+                else:
+                    res = self._default_executor(p, goal=goal)
+                executions.append(res)
+                for a in (res.get("artifacts") or []):
+                    if isinstance(a, str) and os.path.isfile(a):
+                        artifacts.append(a)
+            except Exception as e:
+                executions.append({"domain": domain, "status": "error",
+                                   "note": "%s: %s" % (type(e).__name__, e), "artifacts": []})
+        return {"ok": any(e.get("status") in ("ok", "artifact") for e in executions),
+                "executions": executions, "artifacts": artifacts,
+                "count": len(executions)}
+
+    def _default_executor(self, partner, goal="", base_dir=None):
+        """无真实执行器时的兜底: 把伙伴方案/蓝图写成真实交付文件(.md, 可下载/回看)。"""
+        domain = partner.get("domain", "unknown")
+        summary = (partner.get("summary") or "").strip() or "(无结构化输出)"
+        plan = partner.get("plan") or ""
+        # base_dir=:memory: 或非法路径 → 落到临时目录, 避免落盘到内存库名
+        out_root = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else tempfile.mkdtemp()
+        out_dir = os.path.join(out_root, "outputs", "superagent")
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except Exception:
+            out_dir = tempfile.mkdtemp()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(out_dir, "%s_%s.md" % (ts, domain))
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# 超级 AGENT 交付物 · %s\n\n" % domain)
+                f.write("**目标**: %s\n\n" % goal)
+                f.write("**伙伴**: %s\n\n" % partner.get("name", domain))
+                f.write("## 方案 / 结论\n\n%s\n\n" % summary)
+                if plan:
+                    f.write("## 执行计划\n\n%s\n" % plan)
+            return {"domain": domain, "status": "artifact", "artifacts": [path],
+                    "note": "已产出交付文件(方案)"}
+        except Exception as e:
+            return {"domain": domain, "status": "error",
+                    "note": "文件写入失败: %s: %s" % (type(e).__name__, e), "artifacts": []}
 
     # ---- 阶段 6: 记忆沉淀 (异常隔离, 不阻塞主流程) ----
     def deposit_memory(self, goal, dispatch_rep, session_id="", llm_call=None):
@@ -186,6 +267,7 @@ class SuperAgent:
         ok = True
         routed = []
         dispatch_rep = {}
+        exec_rep = {}
         converge_rep = {}
         mem = {}
         understand = {}
@@ -213,7 +295,11 @@ class SuperAgent:
             _trace("并行编排", "派发 %d 伙伴, %d 成功"
                    % (len(dispatch_rep.get("partners", [])),
                       len([p for p in dispatch_rep.get("partners", []) if p.get("status") == "ok"])))
-            # 4 收敛护栏(三级)
+            # 4 执行落地(方案 → 真实产物, 可插拔执行器)
+            exec_rep = self.execute(dispatch_rep, goal=goal, session_id=session_id, llm_call=llm_call)
+            _trace("执行落地", "落地 %d 个域, 产出 %d 文件"
+                   % (exec_rep.get("count", 0), len(exec_rep.get("artifacts", []))))
+            # 5 收敛护栏(三级)
             converge_rep = self.converge(dispatch_rep, quality_gate=quality_gate)
             ok = converge_rep["ok"]
             _trace("收敛护栏", "通过=%s | 伙伴成功 %d/%d | 冲突 %d | 自检 %d"
@@ -240,6 +326,8 @@ class SuperAgent:
             "intent": understand,
             "routed": routed,
             "dispatch": dispatch_rep,
+            "executions": exec_rep,
+            "artifacts": exec_rep.get("artifacts", []),
             "converge": converge_rep,
             "selfcheck": converge_rep.get("selfcheck_score"),
             "memory": mem,
@@ -264,6 +352,7 @@ class SuperAgent:
                 "selfcheck_score": cv.get("selfcheck_score", 100),
                 "guards_passed": cv.get("passed", True),
                 "entities_added": mem.get("entities_added", 0),
+                "artifacts": len((result.get("executions") or {}).get("artifacts", []) or []),
                 "elapsed_sec": result.get("elapsed_sec", 0),
             })
         except Exception:

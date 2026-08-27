@@ -183,6 +183,22 @@
   </section>
 
   <section>
+    <h2 class="sec-title">🤖 超级 AGENT 编排 (Phase 35 · 全链路可观测)</h2>
+    <div id="agentstats" class="grid g-health"></div>
+    <div class="chart-box" style="margin-top:14px">
+      <h4>最近编排（含状态 / 路由域 / 伙伴 / 冲突 / 产物 / 耗时 / 自检）</h4>
+      <table id="tbl-agent">
+        <thead><tr>
+          <th>时间</th><th>目标</th><th>状态</th><th>路由</th>
+          <th class="num">伙伴</th><th class="num">冲突</th>
+          <th class="num">产物</th><th class="num">耗时</th><th class="num">自检</th>
+        </tr></thead>
+        <tbody id="tbl-agent-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <h2 class="sec-title">最近事件流 (最近 50)</h2>
     <div id="feed" class="feed"></div>
   </section>
@@ -205,6 +221,7 @@ async function loadAll(){
     ]);
     renderHealth(health);
     renderStats(stats);
+    renderSuperagent(stats && stats.superagent);
     $("#updated").textContent = new Date().toLocaleTimeString();
   }catch(e){
     $("#health").innerHTML = '<div class="card err">加载失败: '+esc(e.message)+'</div>';
@@ -357,6 +374,45 @@ function renderTimeline(s){
     </div>`;
   }).join("");
   $("#timeline").innerHTML = rows + `<div class="tl-axis"><span>${fmtTime(t0)}</span><span>${fmtTime(t1)}</span></div>`;
+}
+
+// ---- Phase 35: 超级 AGENT 编排可观测 ----
+function renderSuperagent(s){
+  if(!s){ $("#agentstats").innerHTML='<div class="empty">无超级 AGENT 数据</div>';
+    $("#tbl-agent-body").innerHTML='<tr><td colspan="9" class="empty">无数据</td></tr>'; return; }
+  const total = s.total||0, ok = s.ok||0, fail = s.fail||0;
+  const p50 = s.elapsed_p50!=null?s.elapsed_p50:"—";
+  const p95 = s.elapsed_p95!=null?s.elapsed_p95:"—";
+  const mx  = s.elapsed_max!=null?s.elapsed_max:"—";
+  const avg = s.avg_score!=null?s.avg_score:"—";
+  const rate = total>0 ? (ok/total*100).toFixed(1)+"%" : "—";
+  $("#agentstats").innerHTML = `
+    <div class="card stat-lg"><span class="num">${total}</span><span class="lab">累计编排</span></div>
+    <div class="card stat-lg"><span class="num" style="color:var(--ok)">${ok}</span><span class="lab">成功</span></div>
+    <div class="card stat-lg"><span class="num" style="color:var(--fail)">${fail}</span><span class="lab">失败</span></div>
+    <div class="card stat-lg"><span class="num">${rate}</span><span class="lab">成功率</span></div>
+    <div class="card stat-lg"><span class="num">${p50}<small style="font-size:13px;color:var(--mut)"> s</small></span><span class="lab">中位耗时</span></div>
+    <div class="card stat-lg"><span class="num" style="color:var(--warn)">${p95}<small style="font-size:13px;color:var(--mut)"> s</small></span><span class="lab">p95</span></div>
+    <div class="card stat-lg"><span class="num" style="color:var(--fail)">${mx}<small style="font-size:13px;color:var(--mut)"> s</small></span><span class="lab">最长</span></div>
+    <div class="card stat-lg"><span class="num">${avg}</span><span class="lab">自检均分</span></div>`;
+
+  const rec = (s.recent||[]);
+  const rows = rec.map(r=>{
+    const st = r.ok?"ok":"fail";
+    const routed = (r.routed||[]).join("/");
+    return `<tr>
+      <td>${esc(r.ts)}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.goal||"")}</td>
+      <td class="num rate ${st}">${r.ok?"✓":"✗"}</td>
+      <td><span class="tag">${esc(routed||"code")}</span></td>
+      <td class="num">${r.partners_ok||0}/${r.partners_total||0}</td>
+      <td class="num" style="color:${r.conflicts?"var(--warn)":"var(--mut)"}">${r.conflicts||0}</td>
+      <td class="num">${r.artifacts||0}</td>
+      <td class="num">${(r.elapsed_sec||0).toFixed(1)} s</td>
+      <td class="num">${r.selfcheck_score!=null?r.selfcheck_score:"—"}</td>
+    </tr>`;
+  }).join("");
+  $("#tbl-agent-body").innerHTML = rows || '<tr><td colspan="9" class="empty">暂无编排记录</td></tr>';
 }
 
 let timer=null;

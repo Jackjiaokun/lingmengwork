@@ -3007,6 +3007,55 @@ class Handler(SimpleHTTPRequestHandler):
             "results_total": done_count,
             "total_tokens": total_tokens,
             "total_cost_cny": round(total_cost, 6),
+            "superagent": self._superagent_stats(),
+        }
+
+    # ---- Phase 35: 超级 AGENT 全链路可观测合规 ----
+    def _superagent_stats(self):
+        """从 superagent._RUNS 环形缓冲读取最近编排, 输出聚合统计 + 最近编排明细。"""
+        try:
+            from .. import superagent as _sa
+            runs = _sa.get_recent_runs(30)
+        except Exception:
+            return {"total": 0, "ok": 0, "fail": 0,
+                    "recent": [], "elapsed_p50": None, "elapsed_p95": None,
+                    "elapsed_max": None, "avg_score": None}
+        if not runs:
+            return {"total": 0, "ok": 0, "fail": 0,
+                    "recent": [], "elapsed_p50": None, "elapsed_p95": None,
+                    "elapsed_max": None, "avg_score": None}
+        n = len(runs)
+        ok_n = sum(1 for r in runs if r.get("ok"))
+        elapsed_sorted = sorted(r.get("elapsed_sec") or 0 for r in runs)
+        def _pct(p):
+            i = max(0, min(n - 1, int(round(p * (n - 1)))))
+            return round(elapsed_sorted[i], 2)
+        scores = [r.get("selfcheck_score") for r in runs if r.get("selfcheck_score") is not None]
+        avg_score = round(sum(scores) / len(scores), 1) if scores else None
+        recent = []
+        for r in runs[-10:][::-1]:
+            recent.append({
+                "goal": r.get("goal", "")[:60],
+                "ts": r.get("ts", ""),
+                "ok": bool(r.get("ok")),
+                "routed": r.get("routed", []) or [],
+                "partners_ok": r.get("partners_ok", 0),
+                "partners_total": r.get("partners_total", 0),
+                "conflicts": r.get("conflicts", 0),
+                "artifacts": r.get("artifacts", 0),
+                "elapsed_sec": r.get("elapsed_sec", 0),
+                "selfcheck_score": r.get("selfcheck_score"),
+                "guards_passed": r.get("guards_passed", True),
+            })
+        return {
+            "total": n,
+            "ok": ok_n,
+            "fail": n - ok_n,
+            "recent": recent,
+            "elapsed_p50": _pct(0.50),
+            "elapsed_p95": _pct(0.95),
+            "elapsed_max": round(elapsed_sorted[-1], 2) if elapsed_sorted else 0,
+            "avg_score": avg_score,
         }
 
     # ---- 主题 E 成本看板 (批次13): 会话级 token/成本追踪 ----

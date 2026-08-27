@@ -19,10 +19,10 @@ def test_run_returns_report():
     rep = sc.run()
     assert rep["ok"] is True
     assert isinstance(rep["score"], int) and 0 <= rep["score"] <= 100
-    assert rep["total"] == 12
+    assert rep["total"] == 13
     assert rep["passed"] == rep["total"]  # 本地环境应全部通过
     assert rep["all_ok"] is True
-    assert isinstance(rep["checks"], list) and len(rep["checks"]) == 12
+    assert isinstance(rep["checks"], list) and len(rep["checks"]) == 13
     # 每项结构
     for c in rep["checks"]:
         assert set(c.keys()) >= {"name", "ok", "detail"}

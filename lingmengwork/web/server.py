@@ -1183,6 +1183,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_file("memory_graph.html")
         if p == "/api/memory-graph":
             return self._memory_graph_get()
+        # ---- 超级 AGENT 内核 (Phase 27): 统一目标入口 编排闭环 ----
+        if p == "/superagent":
+            return self._serve_file("superagent.html")
+        if p == "/api/superagent":
+            return self._superagent_get()
         if p == "/api/automations":
             return self._send_json(self._automations_get())
         if p.startswith("/outputs/"):
@@ -1485,6 +1490,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._memory_graph_absorb()
         if p == "/api/memory-graph/recall":
             return self._memory_graph_recall()
+        # ---- 超级 AGENT 内核 (Phase 27): 目标编排闭环 ----
+        if p == "/api/superagent/run":
+            return self._superagent_run()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -1819,6 +1827,30 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"ok": True, **rep})
         except Exception as e:
             return self._send_json({"error": "记忆召回失败: %s" % e}, status=500)
+
+    # ---- 超级 AGENT 内核 (Phase 27): 统一目标入口 ----
+    def _superagent_get(self):
+        """GET /api/superagent -> 最近编排概览(供页面轮询)。"""
+        from .. import superagent as _sa
+        return self._send_json({"ok": True, "runs": _sa.get_recent_runs(20)})
+
+    def _superagent_run(self):
+        """POST /api/superagent/run {goal, session_id?} -> 目标理解→域路由→并行编排→收敛→自检→记忆沉淀。
+
+        单目标跨 2+ 域编排; 无 LLM 全程规则兜底; 单伙伴失败隔离; 每阶段 trace 进审计链。
+        """
+        from .. import superagent as _sa
+        try:
+            body = self._read_json({})
+            goal = (body.get("goal") or "").strip()
+            if not goal:
+                return self._send_json({"error": "缺少 goal"}, status=400)
+            sa = _sa.SuperAgent(base_dir=os.getcwd())
+            rep = sa.run(goal, session_id=body.get("session_id") or "",
+                         llm_call=self._make_llm_call())
+            return self._send_json({"ok": True, **rep})
+        except Exception as e:
+            return self._send_json({"error": "超级AGENT编排失败: %s" % e}, status=500)
 
     def _mcp_call(self):
         """POST /api/mcp/call {server, tool, arguments} -> 直接调用某 MCP 服务器的某工具。

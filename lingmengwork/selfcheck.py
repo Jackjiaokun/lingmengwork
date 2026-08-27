@@ -28,6 +28,7 @@ _STATIC_FILES = [
     "web/static/heal.html",
     "web/static/federation.html",
     "web/static/memory_graph.html",
+    "web/static/superagent.html",
 ]
 
 
@@ -47,7 +48,8 @@ def _chk(name, fn):
 def check_imports():
     from . import (decompose_engine, creation_domains, autonomous,
                    goal_pipeline, multimodal_adapters, memory_mgr,
-                   automation_hub, event_bus, self_heal, federation, memory_graph)
+                   automation_hub, event_bus, self_heal, federation,
+                   memory_graph, superagent)
     from .web import server  # noqa: F401
     return "9 个核心模块导入成功"
 
@@ -191,6 +193,31 @@ def check_memory_graph():
         r1["entities_added"], r1["relations_added"], rc["count"])
 
 
+def check_superagent():
+    """Phase 27: 超级 AGENT 内核闭环(目标理解→域路由→并行编排→收敛→自检→记忆沉淀)。
+
+    验收门槛: 单目标跨 2+ 域编排成功(多伙伴并行派发 + 汇聚)。
+    quality_gate=False: 避免 superagent 质量门递归调用 selfcheck.run(本探针)。
+    base_dir=":memory:" : 纯内存库隔离, 规避临时目录 SQLite 文件锁(沙箱 safe-delete 干扰)。
+    """
+    from . import superagent as sa
+    goal = "做段产品介绍视频并写发布文案、准备上线部署到服务器"
+    rep = sa.SuperAgent(base_dir=":memory:").run(goal, quality_gate=False)
+    assert rep["ok"], "编排应成功"
+    routed = rep.get("routed") or []
+    assert len(routed) >= 2, "单目标应跨 2+ 域路由, 实际: %s" % routed
+    partners = (rep.get("dispatch") or {}).get("partners") or []
+    ok_n = sum(1 for p in partners if p.get("status") == "ok")
+    assert ok_n >= 2, "至少 2 个伙伴应派发成功, 实际 %d/%d" % (ok_n, len(partners))
+    cv = rep.get("converge") or {}
+    assert cv.get("partners_ok", 0) >= 2, "收敛应确认伙伴成功 >=2"
+    # 记忆沉淀(异常隔离, 空图也会计数)
+    assert isinstance(rep.get("memory"), dict), "应产出记忆沉淀结果"
+    # 结构化 trace 进审计链(6 阶段)
+    assert len(rep.get("trace") or []) >= 5, "应产出分阶段 trace"
+    return "超级AGENT 跨域编排(路由 %s · %d 伙伴成功 · 记忆沉淀)" % ("/".join(routed), ok_n)
+
+
 def run():
     """执行全部健康检查, 返回结构化报告 dict。"""
     checks = [
@@ -205,6 +232,7 @@ def run():
         _chk("自主进化(自愈提议)", check_self_heal),
         _chk("工作伙伴联邦(路由+派发)", check_federation),
         _chk("长期记忆图谱(抽取+召回)", check_memory_graph),
+        _chk("超级AGENT内核(跨域编排闭环)", check_superagent),
         _chk("关键静态资产", check_static_files),
     ]
     total = len(checks)

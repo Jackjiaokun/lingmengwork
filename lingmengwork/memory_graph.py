@@ -489,7 +489,12 @@ _GRAPHS = {}
 
 
 def get_graph(base_dir=None):
-    """记忆图谱单例(按 base_dir 缓存, db 落 <base_dir>/.lmw_memory_graph.db)。"""
+    """记忆图谱单例(按 base_dir 缓存, db 落 <base_dir>/.lmw_memory_graph.db)。
+
+    base_dir=":memory:" → 返回独立的纯内存库(不落盘, 规避临时目录锁, 用于测试/自检探针)。
+    """
+    if base_dir == ":memory:":
+        return MemoryGraph(":memory:")
     key = base_dir or os.getcwd()
     if key not in _GRAPHS:
         db = os.path.join(key, ".lmw_memory_graph.db")

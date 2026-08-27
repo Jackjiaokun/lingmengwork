@@ -155,9 +155,9 @@ def test_server_api():
 
 # ------------------------------------------------------------------ 自检集成
 def test_selfcheck_probe_count():
-    """selfcheck 探针数应为 12 (Phase25 联邦 + Phase26 记忆图谱)。"""
+    """selfcheck 探针数应为 13 (Phase25 联邦 + Phase26 记忆图谱 + Phase27 超级AGENT)。"""
     from lingmengwork import selfcheck as sc
     rep = sc.run()
-    assert rep["total"] == 12, "探针数应为 12, 实际 %d" % rep["total"]
+    assert rep["total"] == 13, "探针数应为 13, 实际 %d" % rep["total"]
     failed = {c["name"]: c["detail"] for c in rep["checks"] if not c["ok"]}
     assert not failed, failed

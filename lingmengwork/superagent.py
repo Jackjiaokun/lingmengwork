@@ -29,7 +29,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request as _urllib_req
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import federation as _fed
 from . import memory_graph as _mg
@@ -760,7 +760,7 @@ def _run_inflight_guard(sid, base_dir=None, llm_call=None):
 
 
 def _scheduler_tick(base_dir=None, llm_call=None):
-    """扫描到期计划并逐个派发后台执行(同计划在飞不重复派发)。"""
+    """扫描到期计划并逐个派发后台执行(同计划在飞不重复派发) + 每日摘要推送。"""
     _load_scheds(base_dir)
     for s in list_schedules(base_dir):
         if not _sched_due(s):
@@ -773,6 +773,124 @@ def _scheduler_tick(base_dir=None, llm_call=None):
                              args=(s["id"],), kwargs={"base_dir": base_dir, "llm_call": llm_call},
                              daemon=True)
         t.start()
+    _maybe_push_daily_digest(base_dir)
+
+
+# ------------------------------------------------------------------ Phase 50: 编排日报/周报(统计聚合 + Webhook 推送)
+_DIGEST_STATE = {"time": "", "last_date": ""}
+
+
+def set_digest_time(t):
+    """设置每日摘要自动推送时刻(HH:MM); 空串=不自动。供 Web 启动时调用。"""
+    t = (t or "").strip()
+    if t and not re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", t):
+        t = ""
+    _DIGEST_STATE["time"] = t
+    return t
+
+
+def get_digest_state():
+    return dict(_DIGEST_STATE)
+
+
+def _maybe_push_daily_digest(base_dir=None):
+    """到达 digest_time 且今天未发 → 后台推送一次日报。"""
+    t = _DIGEST_STATE.get("time") or ""
+    if not t:
+        return
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    if _DIGEST_STATE.get("last_date") == today:
+        return
+    if now.strftime("%H:%M") < t:
+        return
+    _DIGEST_STATE["last_date"] = today
+    threading.Thread(target=_push_digest_safe, args=("daily",),
+                     kwargs={"base_dir": base_dir}, daemon=True).start()
+
+
+def _push_digest_safe(period, base_dir=None):
+    try:
+        push_digest(period, base_dir=base_dir)
+    except Exception:
+        pass
+
+
+def _digest_stats(period="daily", base_dir=None):
+    """聚合最近 24h(daily)/7d(weekly) 编排统计。
+
+    单源取磁盘 JSONL(_record 同步落盘, 数据完整)——天然按 base_dir 隔离,
+    避免混入其它目录的运行(内存 _RUNS 不区分 base_dir)。
+    """
+    now = datetime.now()
+    since = now - timedelta(days=1 if period == "daily" else 7)
+    runs = []
+    for row in _load_persisted(500, base_dir):
+        r = row.get("summary") or {}
+        try:
+            if datetime.strptime(r.get("ts") or "", "%Y-%m-%d %H:%M:%S") >= since:
+                runs.append(r)
+        except Exception:
+            continue
+    ok_runs = [r for r in runs if r.get("ok")]
+    scores = [r.get("selfcheck_score") for r in runs
+              if isinstance(r.get("selfcheck_score"), (int, float))]
+    elapsed = [r.get("elapsed_sec") or 0 for r in runs]
+    return {
+        "period": period,
+        "since": since.strftime("%Y-%m-%d %H:%M"),
+        "until": now.strftime("%Y-%m-%d %H:%M"),
+        "total": len(runs),
+        "ok_count": len(ok_runs),
+        "fail": len(runs) - len(ok_runs),
+        "success_rate": round(len(ok_runs) * 100.0 / len(runs), 1) if runs else None,
+        "avg_elapsed": round(sum(elapsed) / len(elapsed), 1) if elapsed else None,
+        "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
+        "llm_calls": sum(r.get("llm_calls", 0) or 0 for r in runs),
+        "tokens": sum(r.get("est_total_tokens", 0) or 0 for r in runs),
+        "cost": round(sum(r.get("est_cost_cny", 0.0) or 0.0 for r in runs), 4),
+        "recent": [{"goal": r.get("goal", ""), "ok": bool(r.get("ok")), "ts": r.get("ts", "")}
+                   for r in runs[:10]],
+    }
+
+
+def _digest_md(stats):
+    """摘要统计的 markdown 表示(飞书卡片/钉钉 markdown 共用)。"""
+    period_label = "日报" if stats.get("period") == "daily" else "周报"
+    rate = ("%" .join([str(stats["success_rate"]), ""])) if stats.get("success_rate") is not None else "—"
+    lines = ["**周期**: %s ~ %s" % (stats.get("since"), stats.get("until")),
+             "**编排**: %d 次 (✅%d / ❌%d) · 成功率 %s" % (stats.get("total", 0), stats.get("ok_count", 0),
+                                                          stats.get("fail", 0),
+                                                          (str(stats["success_rate"]) + "%") if stats.get("success_rate") is not None else "—"),
+             "**平均耗时**: %ss · **平均自检分**: %s" % (stats.get("avg_elapsed", "—"),
+                                                        stats.get("avg_score", "—") if stats.get("avg_score") is not None else "—"),
+             "**LLM**: %d 次 / %d tokens / ¥%s" % (stats.get("llm_calls", 0),
+                                                   stats.get("tokens", 0), stats.get("cost", 0))]
+    recent = stats.get("recent") or []
+    if recent:
+        lines.append("**最近目标**:")
+        lines += ["- %s %s" % ("✅" if r.get("ok") else "❌", (r.get("goal") or "")[:36])
+                  for r in recent[:8]]
+    return "\n".join(lines)
+
+
+def push_digest(period="daily", base_dir=None):
+    """聚合统计并向所有启用接收端(events: all)推送摘要。返回 {stats, sent}。"""
+    stats = _digest_stats(period, base_dir=base_dir)
+    payload = {"event": "digest", "period": period, "ts": _now(), **stats}
+    targets = [h for h in list_webhooks(base_dir)
+               if h.get("enabled") and h.get("events") in ("all", "digest")]
+    sent, errs = 0, []
+    for h in targets:
+        try:
+            status, err = _webhook_post(h, payload)
+            if status == 200:
+                sent += 1
+            else:
+                errs.append("%s: %s" % (h["url"][:50], err or status))
+        except Exception as e:
+            errs.append(str(e)[:100])
+    return {"ok": True, "period": period, "stats": stats, "sent": sent, "errors": errs}
 
 
 def start_scheduler(base_dir=None, llm_call=None, tick_sec=20):
@@ -1006,7 +1124,17 @@ def _webhook_text(payload):
 def _webhook_wrap(entry, payload):
     """按接收端格式包装 payload: raw(原 JSON) / feishu(markdown 卡片) / dingtalk(markdown 消息)。"""
     fmt = entry.get("fmt") or "raw"
+    is_digest = payload.get("event") == "digest"
     if fmt == "feishu":
+        if is_digest:
+            title = "📊 灵梦work 编排%s" % ("日报" if payload.get("period") == "daily" else "周报")
+            card = {
+                "config": {"wide_screen_mode": True},
+                "header": {"title": {"tag": "plain_text", "content": title},
+                           "template": "blue"},
+                "elements": [{"tag": "markdown", "content": _digest_md(payload)}],
+            }
+            return {"msg_type": "interactive", "card": card}
         title = "灵梦work 编排完成 ✅" if payload.get("ok") else "灵梦work 编排失败 ⛔"
         tpl = "green" if payload.get("ok") else "red"
         md = _webhook_md(payload)
@@ -1025,6 +1153,10 @@ def _webhook_wrap(entry, payload):
                              "url": link, "type": "primary"}]})
         return {"msg_type": "interactive", "card": card}
     if fmt == "dingtalk":
+        if is_digest:
+            title = "📊 灵梦work 编排%s" % ("日报" if payload.get("period") == "daily" else "周报")
+            text = "### %s\n\n%s" % (title, _digest_md(payload))
+            return {"msgtype": "markdown", "markdown": {"title": title, "text": text}}
         title = "灵梦work 编排完成" if payload.get("ok") else "灵梦work 编排失败"
         text = "### %s %s\n\n%s" % (title, mark_md(payload), _webhook_md(payload))
         md = {"msgtype": "markdown", "markdown": {"title": title, "text": text}}

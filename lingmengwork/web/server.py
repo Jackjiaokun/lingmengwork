@@ -1341,6 +1341,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._sa_tpl_get()
         if p == "/api/superagent/webhooks":
             return self._webhooks_get()
+        if p == "/api/superagent/digest":
+            return self._digest_get()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1692,6 +1694,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._webhooks_delete()
         if p == "/api/superagent/webhooks/test":
             return self._webhooks_test()
+        # ---- 编排日报/周报 (Phase 50): 推送(POST) ----
+        if p == "/api/superagent/digest/push":
+            return self._digest_push()
         # ---- 插件中枢 (Phase 32): 动态注册 connector/expert ----
         if p == "/api/plugins/connectors/register":
             return self._plugin_connector_register()
@@ -2431,6 +2436,26 @@ class Handler(SimpleHTTPRequestHandler):
         status, err = _sa._webhook_post(entry, payload)
         return self._send_json({"ok": status == 200, "status": status,
                                 "error": err})
+
+    # ---------------------------------------------------------------
+    # 编排日报/周报 (Phase 50): 统计预览 + 推送
+    # ---------------------------------------------------------------
+    def _digest_get(self):
+        """GET /api/superagent/digest?period=daily|weekly -> 统计预览(不推送)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        period = (q.get("period") or ["daily"])[0]
+        if period not in ("daily", "weekly"):
+            return self._send_json({"error": "period 需 daily|weekly"}, status=400)
+        return self._send_json({"ok": True, **_sa._digest_stats(period, base_dir=os.getcwd())})
+
+    def _digest_push(self):
+        """POST /api/superagent/digest/push {period?} -> 聚合并推送到全部启用接收端。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        period = body.get("period") if body.get("period") in ("daily", "weekly") else "daily"
+        rep = _sa.push_digest(period, base_dir=os.getcwd())
+        return self._send_json({**rep, "period": period})
 
     # ---------------------------------------------------------------
     # 插件中枢 (Phase 32): Connector/Expert 注册/发现/接入
@@ -5032,6 +5057,11 @@ def run_web(host="127.0.0.1", port=PORT, cfg=None):
         except Exception:
             _pub = "http://127.0.0.1:%d" % port
         _sa.set_public_base_url(_pub)
+        # 每日摘要自动推送时刻 (Phase 50): config agent.digest_time (HH:MM, 空则不自动)
+        try:
+            _sa.set_digest_time(_cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.digest_time") or "")
+        except Exception:
+            _sa.set_digest_time("")
         # llm_call 工厂: 每次调度执行时现取(后端/key 配置可能运行期变化)
         _sa.start_scheduler(base_dir=os.getcwd(),
                             llm_call=lambda p, system=None:

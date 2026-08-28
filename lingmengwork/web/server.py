@@ -1533,6 +1533,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_diff()
         if p == "/api/superagent/diff/report":
             return self._superagent_diff_report()
+        if p == "/api/superagent/annotations":
+            return self._annotations_get()
         if p == "/api/superagent/queue":
             return self._superagent_queue()
         if p == "/api/superagent/artifacts":
@@ -1903,6 +1905,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self._webhooks_delete()
         if p == "/api/superagent/webhooks/test":
             return self._webhooks_test()
+        # ---- 人工批注 (Phase 57): 评论/评分/标签 + 沉淀记忆 ----
+        if p == "/api/superagent/annotations/create":
+            return self._annotations_create()
+        if p == "/api/superagent/annotations/delete":
+            return self._annotations_delete()
         # ---- 编排日报/周报 (Phase 50): 推送(POST) ----
         if p == "/api/superagent/digest/push":
             return self._digest_push()
@@ -2379,6 +2386,43 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _annotations_get(self):
+        """GET /api/superagent/annotations?ts= -> 批注列表 + 统计 (Phase 57)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        return self._send_json({
+            "ok": True,
+            "annotations": _sa.list_annotations(ts or None, base_dir=os.getcwd()),
+            "stats": _sa.get_annotation_stats(ts or None, base_dir=os.getcwd()),
+        })
+
+    def _annotations_create(self):
+        """POST /api/superagent/annotations/create {ts, text, author?, rating?, tags?, sediment?}。"""
+        from .. import superagent as _sa
+        body = self._read_json() or {}
+        rep = _sa.add_annotation(
+            body.get("ts") or "",
+            body.get("text") or "",
+            author=body.get("author") or "",
+            rating=body.get("rating"),
+            tags=body.get("tags") or [],
+            sediment=body.get("sediment", True) is not False,
+            base_dir=os.getcwd(),
+        )
+        if not rep.get("ok"):
+            return self._send_json(rep, status=400)
+        return self._send_json({"ok": True, **rep})
+
+    def _annotations_delete(self):
+        """POST /api/superagent/annotations/delete {id}。"""
+        from .. import superagent as _sa
+        body = self._read_json() or {}
+        rep = _sa.remove_annotation(body.get("id"), base_dir=os.getcwd())
+        if not rep.get("ok"):
+            return self._send_json(rep, status=404)
+        return self._send_json({"ok": True, **rep})
 
     def _superagent_queue(self):
         """GET /api/superagent/queue -> 编排并发/排队状态 (Phase 41)。

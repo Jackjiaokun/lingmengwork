@@ -2,7 +2,7 @@
 
 > 一款次世代 AI 全能工具，强大的编程 · 音频 · 图片 · 视频 全面 AI Agent 能力。
 
-![License](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%2B-blue) ![Tests](https://img.shields.io/badge/Tests-704%20passed-brightgreen) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%2B-blue) ![Tests](https://img.shields.io/badge/Tests-723%20passed-brightgreen) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 [GitHub](https://github.com/Jackjiaokun/lingmengwork) · [Gitee](https://gitee.com/jackjiaokun/lingmengwork) （双端同步镜像）
 

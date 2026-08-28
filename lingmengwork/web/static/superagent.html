@@ -228,6 +228,42 @@
       <h3><span class="dot"></span>结构化导出</h3>
       <div id="exportBar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
     </div>
+
+    <!-- Phase 57: 人工批注 -->
+    <div class="card" style="margin-bottom:14px">
+      <h3><span class="dot"></span>✍️ 人工批注 <span class="muted" style="font-size:11px;font-weight:400">评论/评分/标签 · 自动沉淀进记忆图谱</span>
+        <span id="annoStats" class="muted" style="font-size:11px;font-weight:400;margin-left:8px"></span></h3>
+      <div id="annoForm">
+        <textarea id="annoText" rows="2" placeholder="这次编排哪里好 / 哪里不行 / 下次怎么改…"
+          style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:8px 10px;font:inherit;resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+          <div style="min-width:130px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">评分(可选)</div>
+            <select id="annoRating" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:8px 10px;font:inherit">
+              <option value="">— 不评分 —</option>
+              <option value="5">★★★★★ 5</option>
+              <option value="4">★★★★ 4</option>
+              <option value="3">★★★ 3</option>
+              <option value="2">★★ 2</option>
+              <option value="1">★ 1</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:150px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">标签(逗号分隔, 可选)</div>
+            <input id="annoTags" placeholder="如: 提示词待改, 结果可用">
+          </div>
+          <div style="min-width:120px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">署名(可选)</div>
+            <input id="annoAuthor" placeholder="匿名">
+          </div>
+          <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="annoSediment" checked> 沉淀进记忆
+          </label>
+          <button onclick="addAnnotation()">💬 提交批注</button>
+        </div>
+      </div>
+      <div id="annoList" style="margin-top:12px"><span class="muted">加载中…</span></div>
+    </div>
     <div class="grid">
       <div class="card">
         <h3><span class="dot"></span>目标理解</h3>
@@ -355,9 +391,84 @@ async function copyOrchMd(){
   }catch(e){ alert("复制失败: "+e); }
 }
 
+// ---------- Phase 57: 人工批注 ----------
+async function loadAnnotations(ts){
+  const list = document.getElementById("annoList"), stats = document.getElementById("annoStats");
+  if(!list) return;
+  if(!ts){ list.innerHTML = '<span class="muted">当前结果尚未落盘(无 ts)，无法批注</span>'; if(stats) stats.textContent=""; return; }
+  try{
+    const j = await (await fetch("/api/superagent/annotations?ts="+encodeURIComponent(ts))).json();
+    if(!j.ok){ list.innerHTML = '<span style="color:var(--bad)">加载失败</span>'; return; }
+    const annos = j.annotations||[], st = j.stats||{};
+    if(stats){
+      stats.textContent = annos.length
+        ? (annos.length + " 条" + (st.avg_rating!=null? " · 均分 "+st.avg_rating : "") +
+           " · 已沉淀 "+st.sedimented)
+        : "";
+    }
+    if(!annos.length){ list.innerHTML = '<span class="muted">暂无批注，写下第一条</span>'; return; }
+    list.innerHTML = annos.map(a=>{
+      const stars = a.rating? " " + "★".repeat(a.rating) + "☆".repeat(5-a.rating) : "";
+      const tags = (a.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join(" ");
+      const sed = a.sedimented
+        ? '<span class="muted" style="font-size:11px">· 已沉淀 +'+
+          ((a.sediment&&a.sediment.entities_added)||0)+'实体/'+((a.sediment&&a.sediment.relations_added)||0)+'关系</span>'
+        : '<span class="muted" style="font-size:11px">· 未沉淀'+
+          (a.sediment&&a.sediment.error? " ("+esc(a.sediment.error)+")" : "")+'</span>';
+      return '<div style="border-top:1px solid var(--bd);padding:8px 0">'+
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">'+
+        '<b>'+esc(a.author||"匿名")+'</b>'+
+        '<span style="color:var(--warn)">'+stars+'</span>'+
+        '<span class="muted">'+esc(a.created_at||"")+'</span>'+sed+
+        '<button class="btn2" style="padding:1px 8px;font-size:11px;margin-left:auto" onclick="delAnnotation(\''+esc(a.id)+'\')">删除</button>'+
+        '</div>'+
+        '<div style="font-size:13px;margin-top:4px;white-space:pre-wrap">'+esc(a.text)+'</div>'+
+        (tags? '<div style="margin-top:4px">'+tags+'</div>' : '')+
+        '</div>';
+    }).join("");
+  }catch(e){ list.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
+}
+
+async function addAnnotation(){
+  const ts = currentTs;
+  if(!ts){ alert("当前结果尚未落盘，无法批注"); return; }
+  const text = (document.getElementById("annoText").value||"").trim();
+  if(!text){ alert("请填写批注内容"); return; }
+  const rating = document.getElementById("annoRating").value;
+  const tags = (document.getElementById("annoTags").value||"")
+    .split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+  const body = {
+    ts: ts, text: text,
+    author: document.getElementById("annoAuthor").value||"",
+    tags: tags,
+    sediment: document.getElementById("annoSediment").checked
+  };
+  if(rating) body.rating = parseInt(rating,10);
+  try{
+    const r = await fetch("/api/superagent/annotations/create",
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const j = await r.json();
+    if(!j.ok){ alert("提交失败: "+(j.error||"未知")); return; }
+    document.getElementById("annoText").value = "";
+    document.getElementById("annoTags").value = "";
+    loadAnnotations(ts);
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function delAnnotation(id){
+  if(!confirm("删除这条批注? (已沉淀进记忆的内容不会撤回)")) return;
+  try{
+    const j = await (await fetch("/api/superagent/annotations/delete",
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})})).json();
+    if(!j.ok){ alert("删除失败: "+(j.error||"未知")); return; }
+    loadAnnotations(currentTs);
+  }catch(e){ alert("请求异常: "+e); }
+}
+
 function renderResult(j){
   document.getElementById("result").classList.remove("hidden");
   renderExportBar(j.ts||"");
+  loadAnnotations(j.ts||"");
   // 目标理解
   const it = j.intent||{};
   const dom = (it.domains||[]).map(d=>'<span class="tag ok">'+esc(d)+'</span>').join("");

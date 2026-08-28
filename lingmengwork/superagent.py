@@ -1163,6 +1163,170 @@ def use_template(tid, variables=None, base_dir=None):
     return {"id": tid, "name": t["name"], "goal": goal, "missing": missing}
 
 
+# ------------------------------------------------------------------ Phase 57: 编排结果人工批注(沉淀进记忆)
+_ANNOS_LOCK = threading.Lock()
+_ANNOS = {}            # id -> 批注 dict
+_ANNOS_LOADED = set()
+_ANNOS_SEQ_KEY = "__seq__"
+_ANNO_RATINGS = (1, 2, 3, 4, 5)
+
+
+def _annos_path(base_dir=None):
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    return os.path.join(base, "outputs", "superagent_annos.json")
+
+
+def _load_annos(base_dir=None):
+    path = _annos_path(base_dir)
+    with _ANNOS_LOCK:
+        if path in _ANNOS_LOADED:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for a in (data.get("annotations") or []):
+                if isinstance(a, dict) and a.get("id"):
+                    _ANNOS[a["id"]] = a
+        except Exception:
+            pass
+        _ANNOS_LOADED.add(path)
+
+
+def _save_annos(base_dir=None):
+    try:
+        path = _annos_path(base_dir)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with _ANNOS_LOCK:
+            data = {"annotations": sorted(
+                (a for a in _ANNOS.values() if a.get("id") != _ANNOS_SEQ_KEY),
+                key=lambda a: a.get("created_at", ""))}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def _next_anno_id():
+    """单调递增批注 id(基于现有最大号 +1, 删除后不复用, 避免历史引用错位)。"""
+    mx = 0
+    for k in _ANNOS:
+        if k == _ANNOS_SEQ_KEY:
+            continue
+        try:
+            mx = max(mx, int(k))
+        except (TypeError, ValueError):
+            continue
+    return str(mx + 1)
+
+
+def add_annotation(ts, text, author="", rating=None, tags=None,
+                   sediment=True, base_dir=None):
+    """给一次编排加人工批注 (Phase 57)。
+
+    ts:       被批注编排的 ts(与 get_run_detail 同一主键)
+    text:     批注正文
+    rating:   1-5 满意度评分, 越界/非数字一律归 None
+    tags:     标签列表(去重去空, 上限 8)
+    sediment: 是否把批注沉淀进记忆图谱(默认 True)
+
+    返回 {"ok":True, "annotation": {...}} 或 {"ok":False, "error": ...}。
+    沉淀失败不阻断批注落库(批注本体优先)。
+    """
+    text = (text or "").strip()
+    if not text:
+        return {"ok": False, "error": "批注内容不能为空"}
+    if not ts:
+        return {"ok": False, "error": "缺少 ts"}
+    try:
+        r = int(rating)
+        if r not in _ANNO_RATINGS:
+            r = None
+    except (TypeError, ValueError):
+        r = None
+    tags = [str(t).strip() for t in (tags or []) if str(t).strip()][:8]
+    # 去重保序
+    tags = list(dict.fromkeys(tags))
+
+    _load_annos(base_dir)
+    with _ANNOS_LOCK:
+        aid = _next_anno_id()
+        anno = {
+            "id": aid,
+            "ts": ts,
+            "text": text[:4000],
+            "author": (author or "").strip()[:64],
+            "rating": r,
+            "tags": tags,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "sedimented": False,
+            "sediment": None,
+        }
+        _ANNOS[aid] = anno
+    _save_annos(base_dir)
+
+    if sediment:
+        try:
+            goal = ""
+            row = get_run_detail(ts, base_dir=base_dir)
+            if isinstance(row, dict):
+                goal = row.get("goal") or ""
+            sed = _mg.get_graph(base_dir).absorb(
+                "【人工批注】%s" % (goal or ts),
+                "%s\n批注: %s" % (("评分 %d/5" % r) if r else "", text),
+                session_id="annotation")
+            # 🔴 absorb 返回的 entities_added / relations_added 已经是「计数 int」,
+            #    实体/关系列表在 entities / relations 键 —— 不要再 len()
+            anno["sedimented"] = bool(sed.get("ok"))
+            anno["sediment"] = {
+                "entities_added": int(sed.get("entities_added") or 0),
+                "relations_added": int(sed.get("relations_added") or 0),
+                "facts_count": int(sed.get("facts_count") or 0),
+                "error": sed.get("error") if not sed.get("ok") else None,
+            }
+            _save_annos(base_dir)
+        except Exception as e:
+            anno["sediment"] = {"entities_added": 0, "relations_added": 0,
+                                "facts_count": 0,
+                                "error": "%s: %s" % (type(e).__name__, e)}
+    return {"ok": True, "annotation": dict(anno)}
+
+
+def list_annotations(ts=None, base_dir=None):
+    """列出批注 (Phase 57)。ts 为空则全部; 按 created_at 升序。"""
+    _load_annos(base_dir)
+    out = [a for a in _ANNOS.values()
+           if a.get("id") != _ANNOS_SEQ_KEY and (not ts or a.get("ts") == ts)]
+    return sorted(out, key=lambda a: a.get("created_at", ""))
+
+
+def remove_annotation(anno_id, base_dir=None):
+    """删除批注 (Phase 57)。返回 {"ok":True} / {"ok":False,"error":"未找到"}。"""
+    _load_annos(base_dir)
+    with _ANNOS_LOCK:
+        if str(anno_id) not in _ANNOS:
+            return {"ok": False, "error": "未找到该批注"}
+        del _ANNOS[str(anno_id)]
+    _save_annos(base_dir)
+    return {"ok": True}
+
+
+def get_annotation_stats(ts=None, base_dir=None):
+    """批注统计 (Phase 57): 条数 / 平均分 / 标签分布 / 已沉淀条数。"""
+    annos = list_annotations(ts, base_dir=base_dir)
+    rated = [a["rating"] for a in annos if isinstance(a.get("rating"), int)]
+    tags = {}
+    for a in annos:
+        for t in (a.get("tags") or []):
+            tags[t] = tags.get(t, 0) + 1
+    return {
+        "count": len(annos),
+        "rated": len(rated),
+        "avg_rating": round(sum(rated) / len(rated), 2) if rated else None,
+        "tags": dict(sorted(tags.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "sedimented": sum(1 for a in annos if a.get("sedimented")),
+    }
+
+
 # ------------------------------------------------------------------ Phase 46: 编排结果 Webhook 通知
 _HOOKS_LOCK = threading.Lock()
 _HOOKS = {}

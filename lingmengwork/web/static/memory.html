@@ -114,6 +114,7 @@ $("#capBtn").onclick=async()=>{ const t=$("#capText").value.trim(); if(!t){toast
 $("#retrieBtn").onclick=async()=>{ const q=$("#retrieQ").value.trim(); if(!q){toast("请输入查询",false);return;} try{ const d=await api("/api/memory/retrieve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q,k:6})}); const rr=d.results||[]; const box=$("#retrieRes"); if(!rr.length){ box.innerHTML='<p class="hint" style="margin:6px 0">未召回相关记忆。</p>'; return; } box.innerHTML='<div style="margin:8px 0 4px;color:var(--mut);font-size:12px">召回 '+rr.length+' 条 (按相关度排序):</div>'+ rr.map(r=>'<div style="background:#0a0f1d;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0"><div style="font-size:11px;color:var(--acc);margin-bottom:4px">📎 '+(r.source||"")+' · 相关度 '+(r.score||0)+'</div><div style="font-size:12.5px;white-space:pre-wrap;word-break:break-word">'+((r.snippet||"").replace(/</g,"&lt;"))+'</div></div>').join(""); }catch(e){ toast(e.message,false); } };
 loadMemory();
 </script>
+  <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
 </body>
 </html>

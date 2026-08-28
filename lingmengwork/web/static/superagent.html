@@ -636,7 +636,10 @@ function renderRuns(){
     '<div class="run" style="cursor:pointer" title="点击回看本次编排详情" onclick="loadRunDetail(\''+esc(x.ts||"")+'\')">'+
     '<span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
     '<span class="muted">'+(x.routed||[]).join("/")+'</span></span>'+
-    '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></div>'
+    '<span><a href="/api/superagent/report?ts='+encodeURIComponent(x.ts||"")+'" target="_blank" '+
+      'title="生成可分享 HTML 报告" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 10px" '+
+      'onclick="event.stopPropagation()">📄 报告</a> '+
+    '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></span></div>'
   ).join("") : '<span class="muted">暂无编排记录</span>';
   document.getElementById("runList").innerHTML = html;
 }

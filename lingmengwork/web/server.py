@@ -229,6 +229,143 @@ def _render_delivery_report(result, note=""):
     return html_doc
 
 
+def _render_orch_report(result):
+    """把一次超级 AGENT 编排结果渲染为自包含 HTML 报告 (内联 CSS, 可离线查看/分享, Phase 47)。"""
+    import html as _html
+    e = _html.escape
+    it = result.get("intent") or {}
+    cv = result.get("converge") or {}
+    mem = result.get("memory") or {}
+    usage = result.get("usage") or {}
+    ex = result.get("executions") or {}
+    ok = bool(result.get("ok"))
+    goal = e(str(result.get("goal") or ""))
+    err = e(str(result.get("error") or "")) if result.get("error") else ""
+    ver = _read_version()
+    when = e(str(result.get("ts") or time.strftime("%Y-%m-%d %H:%M:%S")))
+
+    badge = ('<span class="badge ready">编排成功 ✅</span>' if ok
+             else '<span class="badge notready">编排失败 ⛔</span>')
+    err_html = ('<div class="card"><h2>错误</h2><div class="note err">%s</div></div>' % err) if err else ""
+
+    # 目标理解
+    domains = " · ".join(e(str(d)) for d in (it.get("domains") or [])) or "—"
+    cons = (it.get("constraints") or [])
+    cons_html = " · ".join(e(str(c)) for c in cons) or "无"
+    recap = it.get("memory_recap") or ""
+    recap_html = ('<p class="muted">🧠 已召回跨会话经验 %d 字</p>' % len(recap)) if recap else ""
+
+    # trace 表
+    tr_rows = ""
+    for t in (result.get("trace") or []):
+        st_cls = "sev-ok" if t.get("ok") else "sev-high"
+        mark = "✅" if t.get("ok") else "❌"
+        tr_rows += ('<tr><td>%s %s</td><td>%s</td><td>%s</td></tr>\n'
+                    % (mark, e(str(t.get("stage") or "")),
+                       e(str(t.get("ts") or "")), e(str(t.get("detail") or ""))))
+    if not tr_rows:
+        tr_rows = '<tr><td colspan="3">—</td></tr>'
+
+    # 伙伴
+    p_rows = ""
+    for p in ((result.get("dispatch") or {}).get("partners") or []):
+        pok = p.get("status") == "ok"
+        p_rows += ('<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td></tr>\n'
+                   % (e(str(p.get("name") or "")), e(str(p.get("domain") or "")),
+                      "sev-ok" if pok else "sev-high",
+                      "✅ 成功" if pok else ("❌ " + e(str(p.get("status") or ""))),
+                      e(str(p.get("summary") or "(无输出)"))[:600]))
+    if not p_rows:
+        p_rows = '<tr><td colspan="4">—</td></tr>'
+
+    # 连接器
+    mcs = (result.get("dispatch") or {}).get("matched_connectors") or []
+    mc_rows = ""
+    for m in mcs:
+        mc_rows += ('<tr><td>%s</td><td class="%s">%s</td><td>%s</td></tr>\n'
+                    % (e(str(m.get("name") or "")),
+                       "sev-ok" if m.get("ok") else "sev-high",
+                       "✅" if m.get("ok") else "❌",
+                       e(str(m.get("result") or m.get("error") or ""))[:400]))
+    mc_html = ('<div class="card"><h2>🔌 连接器调用</h2><table><tr><th>连接器</th><th>状态</th><th>结果</th></tr>'
+               + mc_rows + '</table></div>') if mc_rows else ""
+
+    # 收敛护栏
+    guards = cv.get("guards") or []
+    g_rows = ""
+    for g in guards:
+        g_rows += ('<li><span class="sev sev-%s">L%s</span> [%s] %s</li>\n'
+                   % (e(str(g.get("severity") or "")), e(str(g.get("level") or "?")),
+                      e(str(g.get("kind") or "")), e(str(g.get("msg") or ""))))
+    if not g_rows:
+        g_rows = '<li class="ok">三级护栏全通过, 无告警</li>\n'
+
+    # 执行产物
+    arts = ex.get("artifacts") or []
+    art_html = (" · ".join(e(str(os.path.basename(a))) for a in arts) if arts else "无")
+
+    # 用量
+    usage_rows = (
+        '<tr><td>LLM 调用</td><td class="num">%s</td></tr>\n'
+        '<tr><td>估算 Token</td><td class="num">%s</td></tr>\n'
+        '<tr><td>估算成本</td><td class="num">¥%s</td></tr>\n'
+        % (usage.get("llm_calls", 0), usage.get("est_total_tokens", 0),
+           usage.get("est_cost_cny", 0.0)))
+
+    html_doc = (
+        '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '<title>灵梦work · 编排报告</title><style>\n'
+        ':root{--bg:#0d1017;--panel:#141926;--line:#242b3d;--tx:#e6e9f2;--muted:#8b93a8;--good:#34d399;--bad:#f87171;}\n'
+        'body{background:var(--bg);color:var(--tx);font-family:"Microsoft YaHei",system-ui,sans-serif;margin:0;padding:24px;}\n'
+        '.wrap{max-width:960px;margin:0 auto;}\n'
+        'h1{font-size:22px;margin:0 0 4px;} .sub{color:var(--muted);font-size:13px;margin-bottom:16px;}\n'
+        '.badge{display:inline-block;padding:4px 14px;border-radius:999px;font-weight:600;font-size:13px;margin:8px 0;}\n'
+        '.badge.ready{background:rgba(52,211,153,.12);color:var(--good);}\n'
+        '.badge.notready{background:rgba(248,113,113,.12);color:var(--bad);}\n'
+        '.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-bottom:14px;}\n'
+        '.card h2{font-size:15px;margin:0 0 10px;} .note{font-size:13px;line-height:1.7;white-space:pre-wrap;}\n'
+        '.note.err{color:var(--bad);}\n'
+        'table{width:100%;border-collapse:collapse;font-size:12.5px;}\n'
+        'th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top;}\n'
+        'th{color:var(--muted);font-weight:600;} td.num{text-align:right;font-family:monospace;}\n'
+        '.sev{display:inline-block;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;}\n'
+        '.sev-ok{background:rgba(52,211,153,.12);color:var(--good);}\n'
+        '.sev-high{background:rgba(248,113,113,.12);color:var(--bad);}\n'
+        '.sev-warning{background:rgba(245,158,11,.12);color:#fbbf24;}\n'
+        'li{font-size:13px;line-height:1.8;} li.ok{color:var(--good);}\n'
+        '.muted{color:var(--muted);} .pill{display:inline-block;background:rgba(139,92,246,.12);color:#b7a6f7;border-radius:999px;padding:2px 12px;font-size:12px;margin-right:6px;}\n'
+        'footer{color:var(--muted);font-size:12px;text-align:center;margin-top:20px;}\n'
+        '</style></head>\n'
+        '<body><div class="wrap">\n'
+        '  <h1>灵梦work · 超级 AGENT 编排报告</h1>\n'
+        '  <div class="sub">全 7 阶段闭环 (目标理解→插件接入→域路由→并行编排→执行落地→收敛护栏→记忆沉淀) · v' + e(ver) + ' · ' + when + '</div>\n'
+        '  ' + badge + '\n'
+        '  <div class="card"><h2>🎯 目标</h2><div class="note">' + goal + '</div>\n'
+        '    <p style="margin:8px 0 0"><span class="pill">路由: ' + domains + '</span>'
+        '<span class="pill">伙伴成功: ' + str(cv.get("partners_ok", 0)) + '/' + str(cv.get("partners_total", 0)) + '</span>'
+        '<span class="pill">自检分: ' + str(cv.get("selfcheck_score", 100)) + '</span>'
+        '<span class="pill">耗时: ' + str(result.get("elapsed_sec", 0)) + 's</span></p></div>\n'
+        '  ' + err_html +
+        '  <div class="card"><h2>🧭 目标理解</h2><div class="note">意图: ' + e(str(it.get("intent") or goal)) +
+        '<br>约束: ' + cons_html + '</div>' + recap_html + '</div>\n'
+        '  <div class="card"><h2>📜 阶段 Trace</h2><table><tr><th>阶段</th><th>时间</th><th>明细</th></tr>' + tr_rows + '</table></div>\n'
+        '  <div class="card"><h2>🤝 并行编排</h2><table><tr><th>伙伴</th><th>域</th><th>状态</th><th>产出</th></tr>' + p_rows + '</table></div>\n'
+        '  ' + mc_html +
+        '  <div class="card"><h2>🛡️ 收敛护栏</h2><ul>' + g_rows + '</ul></div>\n'
+        '  <div class="card"><h2>📦 执行产物</h2><div class="note">' + art_html + '</div></div>\n'
+        '  <div class="card"><h2>🧠 记忆沉淀</h2><table class="num">\n'
+        '    <tr><td>新增实体</td><td class="num">' + str(mem.get("entities_added", 0)) + '</td></tr>\n'
+        '    <tr><td>新增关系</td><td class="num">' + str(mem.get("relations_added", 0)) + '</td></tr>\n'
+        '    <tr><td>事实数</td><td class="num">' + str(mem.get("facts_count", 0)) + '</td></tr>\n'
+        '  </table></div>\n'
+        '  <div class="card"><h2>💰 LLM 用量</h2><table>' + usage_rows + '</table></div>\n'
+        '  <footer>本报告由灵梦work 超级 AGENT 自动生成 · 可离线查看/归档分享</footer>\n'
+        '</div></body></html>'
+    )
+    return html_doc
+
+
 def _record_review(target, output):
     """把一次 review_code 的 tool_result 归入 _REVIEWS (ring buffer)。返回记录 dict 或 None。"""
     parsed = _parse_code_review(output)
@@ -1190,6 +1327,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_get()
         if p == "/api/superagent/detail":
             return self._superagent_detail()
+        if p == "/api/superagent/report":
+            return self._superagent_report()
         if p == "/api/superagent/queue":
             return self._superagent_queue()
         if p == "/api/superagent/artifacts":
@@ -1910,6 +2049,24 @@ class Handler(SimpleHTTPRequestHandler):
         if rep is None:
             return self._send_json({"error": "未找到该编排记录"}, status=404)
         return self._send_json({"ok": True, "result": rep})
+
+    def _superagent_report(self):
+        """GET /api/superagent/report?ts=... -> 可分享的自包含 HTML 编排报告 (Phase 47)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.get_run_detail(ts, base_dir=os.getcwd())
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录"}, status=404)
+        html_doc = _render_orch_report(rep)
+        payload = html_doc.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _superagent_queue(self):
         """GET /api/superagent/queue -> 编排并发/排队状态 (Phase 41)。

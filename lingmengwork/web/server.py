@@ -2369,13 +2369,14 @@ class Handler(SimpleHTTPRequestHandler):
         return self._send_json({"ok": True, "webhooks": _sa.list_webhooks(base_dir=os.getcwd())})
 
     def _webhooks_create(self):
-        """POST /api/superagent/webhooks/create {url, events?, secret?, enabled?}。"""
+        """POST /api/superagent/webhooks/create {url, events?, secret?, enabled?, fmt?}。"""
         from .. import superagent as _sa
         body = self._read_json({})
         try:
             entry = _sa.add_webhook(body.get("url") or "",
                                     events=body.get("events") or "all",
                                     secret=body.get("secret") or "",
+                                    fmt=body.get("fmt") or "raw",
                                     enabled=body.get("enabled", True),
                                     base_dir=os.getcwd())
         except ValueError as e:

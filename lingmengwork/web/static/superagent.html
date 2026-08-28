@@ -170,6 +170,14 @@
           <div class="muted" style="font-size:11px;margin-bottom:4px">签名密钥(可选)</div>
           <input id="whSecret" placeholder="留空不签名">
         </div>
+        <div style="flex:1;min-width:110px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">消息格式</div>
+          <select id="whFmt" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
+            <option value="raw">原始 JSON</option>
+            <option value="feishu">飞书机器人</option>
+            <option value="dingtalk">钉钉机器人</option>
+          </select>
+        </div>
         <button onclick="createWebhook()">➕ 添加</button>
       </div>
       <div id="whList" style="margin-top:10px"><span class="muted">加载中…</span></div>
@@ -575,6 +583,7 @@ async function loadWebhooks(){
       '<div class="run" style="align-items:flex-start">'+
         '<span><b>'+esc(h.url.slice(0,60))+'</b> '+
           '<span class="muted">'+(h.events==='all'?'全部':(h.events==='done'?'仅完成':'仅失败'))+
+          ' · 格式 '+esc(h.fmt||'raw')+
           (h.secret?' · 🔐已签名':'')+
           ' · 上次 '+(h.last_status===null||h.last_status===undefined?'未发送':(h.last_status===200?'✅ 200':('❌ '+(h.last_status||'失败'))))+
           (h.last_ts?(' '+esc(h.last_ts)):'')+'</span></span>'+
@@ -593,7 +602,8 @@ async function createWebhook(){
   try{
     const r = await fetch("/api/superagent/webhooks/create",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({url, events: document.getElementById("whEvents").value,
-                           secret: document.getElementById("whSecret").value.trim()})});
+                           secret: document.getElementById("whSecret").value.trim(),
+                           fmt: document.getElementById("whFmt").value})});
     const j = await r.json();
     if(!j.ok){ alert("添加失败: "+(j.error||"未知")); return; }
     document.getElementById("whUrl").value = "";

@@ -2,6 +2,12 @@
 
 > 一款次世代 AI 全能工具，强大的编程 · 音频 · 图片 · 视频 全面 AI Agent 能力。
 
+![License](https://img.shields.io/badge/License-MIT-green) ![Python](https://img.shields.io/badge/Python-3.11%2B-blue) ![Tests](https://img.shields.io/badge/Tests-660%20passed-brightgreen) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+
+[GitHub](https://github.com/Jackjiaokun/lingmengwork) · [Gitee](https://gitee.com/jackjiaokun/lingmengwork) （双端同步镜像）
+
+**开源版本**：MIT License · 灵梦AI团队 —— 欢迎使用、Fork 与 PR。
+
 灵梦work 是本地优先、全链路可观测的 AI Agent 工作台。从「AI 编码代理」出发，
 现已扩展为覆盖 **编程 / 音频 / 图片 / 视频** 四大创作域的统一智能体平台 ——
 既能读文件、写文件、跑命令、多轮自主完成编码任务，也内置多主题工作空间

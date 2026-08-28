@@ -968,15 +968,42 @@ def list_webhooks(base_dir=None):
         return sorted(_HOOKS.values(), key=lambda h: h.get("created_at", ""))
 
 
-def add_webhook(url, events="all", secret="", enabled=True, base_dir=None):
-    """新建通知 Webhook。url 需 http(s):// 开头; events: all|done|fail。"""
+_WEBHOOK_FORMATS = ("raw", "feishu", "dingtalk")
+
+
+def _webhook_text(payload):
+    """把编排结果压成一句话摘要(供飞书/钉钉等文本消息格式)。"""
+    mark = "✅ 成功" if payload.get("ok") else "❌ 失败"
+    parts = ["【灵梦work 编排%s】" % ("完成" if payload.get("ok") else "失败"),
+             "目标: %s" % payload.get("goal", ""),
+             "状态: %s" % mark,
+             "路由: %s" % "/".join(payload.get("routed") or []) or "路由: -",
+             "耗时: %ss" % payload.get("elapsed_sec", 0)]
+    if payload.get("error"):
+        parts.append("错误: %s" % payload["error"])
+    return "\n".join(parts)
+
+
+def _webhook_wrap(entry, payload):
+    """按接收端格式包装 payload: raw(原 JSON) / feishu / dingtalk 文本消息。"""
+    fmt = entry.get("fmt") or "raw"
+    if fmt == "feishu":
+        return {"msg_type": "text", "content": {"text": _webhook_text(payload)}}
+    if fmt == "dingtalk":
+        return {"msgtype": "text", "text": {"content": _webhook_text(payload)}}
+    return payload
+
+
+def add_webhook(url, events="all", secret="", enabled=True, base_dir=None, fmt="raw"):
+    """新建通知 Webhook。url 需 http(s):// 开头; events: all|done|fail; fmt: raw|feishu|dingtalk。"""
     url = (url or "").strip()
     if not re.match(r"^https?://", url):
         raise ValueError("url 需以 http:// 或 https:// 开头")
     events = events if events in ("all", "done", "fail") else "all"
+    fmt = fmt if fmt in _WEBHOOK_FORMATS else "raw"
     wid = "w_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
     entry = {"id": wid, "url": url, "events": events, "secret": secret or "",
-             "enabled": bool(enabled), "created_at": _now(),
+             "enabled": bool(enabled), "created_at": _now(), "fmt": fmt,
              "last_status": None, "last_ts": "", "last_error": ""}
     with _HOOKS_LOCK:
         _HOOKS[wid] = entry
@@ -985,12 +1012,12 @@ def add_webhook(url, events="all", secret="", enabled=True, base_dir=None):
 
 
 def update_webhook(wid, patch, base_dir=None):
-    """更新 Webhook(白名单键: url/events/secret/enabled)。不存在返回 None。"""
+    """更新 Webhook(白名单键: url/events/secret/enabled/fmt)。不存在返回 None。"""
     with _HOOKS_LOCK:
         h = _HOOKS.get(wid)
         if not h:
             return None
-        for k in ("url", "events", "secret", "enabled"):
+        for k in ("url", "events", "secret", "enabled", "fmt"):
             if k in patch and patch[k] is not None:
                 h[k] = patch[k] if k != "enabled" else bool(patch[k])
         snap = dict(h)
@@ -1009,8 +1036,8 @@ def remove_webhook(wid, base_dir=None):
 
 
 def _webhook_post(entry, payload):
-    """同步 POST 一个 Webhook(带可选 HMAC-SHA256 签名), 回写 last_status。"""
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    """同步 POST 一个 Webhook(按 fmt 包装, 带可选 HMAC-SHA256 签名), 回写 last_status。"""
+    body = json.dumps(_webhook_wrap(entry, payload), ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json",
                "X-LMW-Event": str(payload.get("event", ""))}
     err = ""

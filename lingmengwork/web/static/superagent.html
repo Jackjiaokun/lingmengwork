@@ -98,6 +98,12 @@
       <div id="runList"><span class="muted">暂无编排记录</span></div>
     </div>
 
+    <!-- Phase 54: 编排趋势图 -->
+    <div class="card">
+      <h3><span class="dot"></span>📈 编排趋势 <span class="muted" style="font-size:11px;font-weight:400">按日成功/失败堆叠柱 · 悬停看详情</span></h3>
+      <div id="trendBox"><span class="muted">加载中…</span></div>
+    </div>
+
     <!-- Phase 42: 编排产物中心 -->
     <div class="card">
       <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span><button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="archiveArtifacts()">🗜️ 归档30天前产物</button></h3>
@@ -382,6 +388,34 @@ async function loadRuns(){
   }catch(e){}
   // Phase 42: 产物中心
   loadArtifacts();
+  // Phase 54: 趋势图
+  loadTrend();
+}
+
+async function loadTrend(){
+  try{
+    const j = await (await fetch("/api/superagent/trend?days=14")).json();
+    const days = j.days||[];
+    const box = document.getElementById("trendBox");
+    if(!days.length){ box.innerHTML = '<span class="muted">暂无编排数据</span>'; return; }
+    const W=760, H=150, PAD=22, BW=Math.max(10, Math.min(38, (W-PAD*2)/days.length-6));
+    const maxT = Math.max.apply(null, days.map(d=>d.total)) || 1;
+    let svg = '<svg viewBox="0 0 '+W+' '+(H+26)+'" style="width:100%;height:auto">';
+    days.forEach(function(d, i){
+      const x = PAD + i * ((W - PAD*2) / days.length);
+      const hOk = d.total ? (d.ok / maxT) * (H-30) : 0;
+      const hFail = d.total ? (d.fail / maxT) * (H-30) : 0;
+      const yBase = H - 4;
+      svg += '<rect x="'+x+'" y="'+(yBase-hOk)+'" width="'+BW+'" height="'+hOk+'" fill="#34d399" rx="2"><title>'+d.date+' 成功 '+d.ok+'</title></rect>';
+      if(hFail>0) svg += '<rect x="'+x+'" y="'+(yBase-hOk-hFail)+'" width="'+BW+'" height="'+hFail+'" fill="#f87171" rx="2"><title>'+d.date+' 失败 '+d.fail+'</title></rect>';
+      svg += '<text x="'+(x+BW/2)+'" y="'+(H+14)+'" font-size="9" fill="var(--mut,#889)" text-anchor="middle">'+d.date.slice(5)+'</text>';
+      svg += '<text x="'+(x+BW/2)+'" y="'+(yBase-hOk-hFail-4)+'" font-size="9" fill="var(--sub,#aab)" text-anchor="middle">'+(d.success_rate!=null? d.success_rate+'%' : '')+'</text>';
+    });
+    svg += '</svg>';
+    const sum = days.reduce(function(a,d){a.t+=d.total;a.ok+=d.ok;a.cost+=d.cost;return a;},{t:0,ok:0,cost:0});
+    svg += '<div class="muted" style="font-size:11px;margin-top:4px">近 '+days.length+' 天: '+sum.t+' 次编排 · 成功 '+sum.ok+' · 估算成本 ¥'+sum.cost.toFixed(4)+' · <span style="color:#34d399">■</span> 成功 <span style="color:#f87171">■</span> 失败</div>';
+    box.innerHTML = svg;
+  }catch(e){}
 }
 
 async function loadArtifacts(){

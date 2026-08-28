@@ -960,6 +960,43 @@ def _digest_md(stats):
     return "\n".join(lines)
 
 
+def get_daily_trend(days=14, base_dir=None):
+    """按日聚合编排趋势(单源磁盘): [{date, total, ok, fail, success_rate, avg_elapsed, cost}]。
+
+    返回按日期升序的最近 N 天列表(有编排的天)。
+    """
+    try:
+        days = min(90, max(1, int(days)))
+    except (TypeError, ValueError):
+        days = 14
+    buckets = {}
+    for row in _load_persisted(days * 40, base_dir):
+        r = row.get("summary") or {}
+        d = (r.get("ts") or "")[:10]
+        if not d:
+            continue
+        b = buckets.setdefault(d, {"date": d, "total": 0, "ok": 0, "fail": 0,
+                                   "_elapsed": 0.0, "_n": 0, "cost": 0.0})
+        b["total"] += 1
+        if r.get("ok"):
+            b["ok"] += 1
+        else:
+            b["fail"] += 1
+        b["_elapsed"] += r.get("elapsed_sec", 0) or 0
+        b["cost"] += r.get("est_cost_cny", 0) or 0
+        b["_n"] += 1
+    out = []
+    for d in sorted(buckets):
+        b = buckets[d]
+        b["success_rate"] = round(b["ok"] * 100.0 / b["total"], 1) if b["total"] else None
+        b["avg_elapsed"] = round(b["_elapsed"] / b["_n"], 1) if b["_n"] else None
+        b["cost"] = round(b["cost"], 4)
+        b.pop("_elapsed")
+        b.pop("_n")
+        out.append(b)
+    return out[-days:]
+
+
 def push_digest(period="daily", base_dir=None):
     """聚合统计并向所有启用接收端(events: all)推送摘要。返回 {stats, sent}。"""
     stats = _digest_stats(period, base_dir=base_dir)

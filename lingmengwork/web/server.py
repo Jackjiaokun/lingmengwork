@@ -1343,6 +1343,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._webhooks_get()
         if p == "/api/superagent/digest":
             return self._digest_get()
+        if p == "/api/superagent/trend":
+            return self._trend_get()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -2460,6 +2462,16 @@ class Handler(SimpleHTTPRequestHandler):
         if period not in ("daily", "weekly"):
             return self._send_json({"error": "period 需 daily|weekly"}, status=400)
         return self._send_json({"ok": True, **_sa._digest_stats(period, base_dir=os.getcwd())})
+
+    def _trend_get(self):
+        """GET /api/superagent/trend?days=14 -> 按日编排趋势 (Phase 54)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        try:
+            days = int((q.get("days") or ["14"])[0])
+        except (TypeError, ValueError):
+            days = 14
+        return self._send_json({"ok": True, "days": _sa.get_daily_trend(days, base_dir=os.getcwd())})
 
     def _digest_push(self):
         """POST /api/superagent/digest/push {period?} -> 聚合并推送到全部启用接收端。"""

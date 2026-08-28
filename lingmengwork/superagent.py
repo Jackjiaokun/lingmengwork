@@ -947,7 +947,7 @@ def _digest_stats(period="daily", base_dir=None):
     scores = [r.get("selfcheck_score") for r in runs
               if isinstance(r.get("selfcheck_score"), (int, float))]
     elapsed = [r.get("elapsed_sec") or 0 for r in runs]
-    return {
+    st = {
         "period": period,
         "since": since.strftime("%Y-%m-%d %H:%M"),
         "until": now.strftime("%Y-%m-%d %H:%M"),
@@ -963,6 +963,30 @@ def _digest_stats(period="daily", base_dir=None):
         "recent": [{"goal": r.get("goal", ""), "ok": bool(r.get("ok")), "ts": r.get("ts", "")}
                    for r in runs[:10]],
     }
+    # Phase 73: 并入质量告警 / 质量基线 / 预算状态 (失败不阻断摘要)
+    try:
+        days = 1 if period == "daily" else 7
+        st["quality_alerts"] = len(list_quality_alerts(
+            base_dir=base_dir, days=days, limit=10))
+    except Exception:
+        st["quality_alerts"] = None
+    try:
+        gb = get_quality_baseline(base_dir=base_dir, days=90)
+        sc = gb.get("global", {}).get("score") or {}
+        st["baseline_score"] = (sc.get("mean"), sc.get("std")) \
+            if sc.get("count") else None
+        st["baseline_runs"] = gb.get("total_runs", 0)
+    except Exception:
+        st["baseline_score"] = None
+        st["baseline_runs"] = None
+    try:
+        b = get_budget_state(base_dir)
+        st["budget"] = {"daily_limit": b.get("daily_limit"),
+                        "today_cost": b.get("today_cost"),
+                        "paused": bool(b.get("paused"))}
+    except Exception:
+        st["budget"] = None
+    return st
 
 
 def _digest_md(stats):
@@ -977,6 +1001,23 @@ def _digest_md(stats):
                                                         stats.get("avg_score", "—") if stats.get("avg_score") is not None else "—"),
              "**LLM**: %d 次 / %d tokens / ¥%s" % (stats.get("llm_calls", 0),
                                                    stats.get("tokens", 0), stats.get("cost", 0))]
+    # Phase 73: 质量/预算行
+    if stats.get("quality_alerts") is not None:
+        n = stats["quality_alerts"]
+        lines.append("**质量告警**: %s (近%s)" % (
+            ("**%d 条** ⚠" % n) if n else "0 条 ✓",
+            "24h" if stats.get("period") == "daily" else "7d"))
+    if stats.get("baseline_score"):
+        mean, std = stats["baseline_score"]
+        lines.append("**质量基线**: 自检分 %s±%s (近90天 %s 次编排)"
+                     % (mean, std, stats.get("baseline_runs", 0)))
+    b = stats.get("budget")
+    if isinstance(b, dict):
+        bl = b.get("daily_limit") or 0
+        lines.append("**预算**: 今日 ¥%s / %s%s"
+                     % (b.get("today_cost", 0),
+                        ("¥%s" % bl) if bl else "不限",
+                        " · ⏸ 定时编排已暂停" if b.get("paused") else ""))
     recent = stats.get("recent") or []
     if recent:
         lines.append("**最近目标**:")

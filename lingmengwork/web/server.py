@@ -1535,6 +1535,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_diff_report()
         if p == "/api/superagent/annotations":
             return self._annotations_get()
+        if p == "/api/superagent/replays":
+            return self._replays_get()
+        if p == "/api/superagent/lineage":
+            return self._lineage_get()
         if p == "/api/superagent/queue":
             return self._superagent_queue()
         if p == "/api/superagent/artifacts":
@@ -1905,6 +1909,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._webhooks_delete()
         if p == "/api/superagent/webhooks/test":
             return self._webhooks_test()
+        # ---- 编排回放 (Phase 58): 同目标重跑 + 血缘 ----
+        if p == "/api/superagent/replay":
+            return self._superagent_replay()
         # ---- 人工批注 (Phase 57): 评论/评分/标签 + 沉淀记忆 ----
         if p == "/api/superagent/annotations/create":
             return self._annotations_create()
@@ -2386,6 +2393,60 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _superagent_replay(self):
+        """POST /api/superagent/replay {ts, model?, quality_gate?} -> 重跑历史编排 (Phase 58)。
+
+        结果带 replay_of 血缘标记, 返回的 source_ts/replay_ts 可直接喂给
+        /api/superagent/diff 做 A/B 对比。
+        """
+        from .. import superagent as _sa
+        try:
+            body = self._read_json({})
+            ts = (body.get("ts") or "").strip()
+            if not ts:
+                return self._send_json({"error": "缺少 ts"}, status=400)
+            try:
+                qws = min(60.0, max(1.0, float(body.get("queue_wait_sec") or 30.0)))
+            except (TypeError, ValueError):
+                qws = 30.0
+            rep = _sa.replay_run(
+                ts, base_dir=os.getcwd(),
+                llm_call=self._make_llm_call(),
+                model=body.get("model") if body.get("model") is not None
+                else self._cfg_llm_model(),
+                quality_gate=body.get("quality_gate", True) is not False,
+                queue_wait_sec=qws)
+            if rep is None:
+                return self._send_json({"error": "未找到该编排记录"}, status=404)
+            if rep.get("busy"):
+                return self._send_json(rep, status=429)
+            if not rep.get("ok"):
+                return self._send_json(rep, status=400)
+            return self._send_json({"ok": True, **rep})
+        except Exception as e:
+            return self._send_json({"error": "回放失败: %s" % e}, status=500)
+
+    def _replays_get(self):
+        """GET /api/superagent/replays?ts= -> 回放记录列表 (Phase 58)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        return self._send_json({
+            "ok": True,
+            "replays": _sa.list_replays(ts or None, base_dir=os.getcwd())})
+
+    def _lineage_get(self):
+        """GET /api/superagent/lineage?ts= -> 血缘链(源编排 + 它的回放) (Phase 58)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.get_replay_lineage(ts, base_dir=os.getcwd())
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录"}, status=404)
+        return self._send_json({"ok": True, **rep})
 
     def _annotations_get(self):
         """GET /api/superagent/annotations?ts= -> 批注列表 + 统计 (Phase 57)。"""

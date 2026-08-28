@@ -1588,6 +1588,8 @@ class SuperAgent:
     def __init__(self, base_dir=None):
         # base_dir=None → memory_graph 用 cwd 单例; 测试/探针注入临时目录隔离
         self.base_dir = base_dir
+        # Phase 58: 回放血缘 — 非空则本次编排被标记为 source_ts 的回放, 落进 result/summary
+        self.replay_of = ""
 
     # ---- 阶段 1: 目标理解 (LLM 抽取 intent/域标签/约束, 失败回退规则) ----
     def understand(self, goal, llm_call=None):
@@ -1913,6 +1915,7 @@ class SuperAgent:
                 "ok": False, "goal": goal, "error": "%s: %s" % (type(e).__name__, e),
                 "trace": trace, "elapsed_sec": round(time.time() - started, 1),
                 "usage": meter.stats(),
+                "replay_of": self.replay_of or "",   # Phase 58: 回放血缘(失败也留痕)
             }
             self._record(result)
             notify_webhooks(result, base_dir=self.base_dir)
@@ -1921,6 +1924,7 @@ class SuperAgent:
         result = {
             "ok": ok,
             "goal": goal,
+            "replay_of": self.replay_of or "",   # Phase 58: 回放血缘(空=原始编排)
             "intent": understand,
             "routed": routed,
             "dispatch": dispatch_rep,
@@ -1963,6 +1967,8 @@ class SuperAgent:
                 "est_output_tokens": usage.get("est_output_tokens", 0),
                 "est_total_tokens": usage.get("est_total_tokens", 0),
                 "est_cost_cny": usage.get("est_cost_cny", 0.0),
+                # Phase 58: 回放血缘(空串=原始编排), 供列表/统计区分回放与原始
+                "replay_of": result.get("replay_of") or "",
             }
             result["ts"] = ts  # Phase 49: 供通知消息内嵌报告链接
             _RUNS.append(summary)
@@ -2137,6 +2143,86 @@ def _diff_verdict(metrics):
     if better and better == worse:
         return "有得有失"
     return "持平"
+
+
+# ------------------------------------------------------------------ Phase 58: 编排回放(同目标重跑 + 血缘追踪)
+def replay_run(ts, base_dir=None, llm_call=None, session_id=None, model=None,
+               quality_gate=True, queue_wait_sec=None):
+    """按历史编排重跑一次 (Phase 58)。
+
+    取原编排的 goal(与 model, 未显式指定时) 重跑一遍, 并在结果上打
+    `replay_of = ts` 血缘标记 —— 之后可直接用 Phase 56 的 diff_runs 做 A/B 对比。
+
+    返回 {"ok":True, "source_ts", "replay_ts", "goal", "result"}
+    或   {"ok":False, "error"/"busy", ...}; 原记录不存在返回 None。
+    """
+    src = get_run_detail(ts, base_dir=base_dir)
+    if src is None:
+        return None
+    goal = (src.get("goal") or "").strip()
+    if not goal:
+        return {"ok": False, "error": "原编排没有可回放的目标(goal 为空)",
+                "source_ts": ts}
+
+    sa = SuperAgent(base_dir=base_dir)
+    sa.replay_of = ts
+    kwargs = {
+        "session_id": session_id or ("replay:%s" % ts),
+        "llm_call": llm_call,
+        "quality_gate": quality_gate,
+        "model": model if model is not None else (src.get("model") or ""),
+    }
+    if queue_wait_sec is not None:
+        kwargs["queue_wait_sec"] = queue_wait_sec
+    result = sa.run(goal, **kwargs)
+    if result.get("busy"):
+        return {"ok": False, "busy": True, "source_ts": ts,
+                "error": result.get("error") or "编排排队超时", "result": result}
+    return {"ok": True, "source_ts": ts, "replay_ts": result.get("ts") or "",
+            "goal": goal, "result": result}
+
+
+def list_replays(source_ts=None, base_dir=None, limit=200):
+    """列出回放记录 (Phase 58)。
+
+    source_ts 为空 -> 全部回放; 否则只列该编排的回放。按 ts 升序(回放先后)。
+    """
+    out = []
+    for row in _load_persisted(limit, base_dir):
+        res = row.get("result") or {}
+        src = res.get("replay_of") or ""
+        if not src:
+            continue
+        if source_ts and src != source_ts:
+            continue
+        s = dict(row.get("summary") or {})
+        s["replay_of"] = src
+        s["ts"] = row.get("ts") or s.get("ts") or ""
+        out.append(s)
+    return sorted(out, key=lambda r: r.get("ts") or "")
+
+
+def get_replay_lineage(ts, base_dir=None):
+    """取某次编排的血缘链 (Phase 58)。
+
+    返回 {"source": 源编排摘要或 None, "replays": [该编排的回放...], "is_replay": bool}
+    """
+    row = get_run_detail(ts, base_dir=base_dir)
+    if row is None:
+        return None
+    src_ts = row.get("replay_of") or ""
+    if src_ts:
+        src_row = get_run_detail(src_ts, base_dir=base_dir)
+        source = {"ts": src_ts, "goal": (src_row or {}).get("goal") or "",
+                  "ok": bool((src_row or {}).get("ok"))}
+    else:
+        source = None
+    return {
+        "ts": ts,
+        "is_replay": bool(src_ts),
+        "source": source,
+        "replays": list_replays(ts, base_dir=base_dir) if not src_ts else [],
+    }
 
 
 def diff_runs(ts_a, ts_b, base_dir=None):

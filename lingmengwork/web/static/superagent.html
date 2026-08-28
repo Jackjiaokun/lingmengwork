@@ -227,6 +227,8 @@
     <div class="card" style="margin-bottom:14px">
       <h3><span class="dot"></span>结构化导出</h3>
       <div id="exportBar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+      <!-- Phase 58: 回放血缘 -->
+      <div id="lineageBox" style="margin-top:10px"></div>
     </div>
 
     <!-- Phase 57: 人工批注 -->
@@ -469,6 +471,7 @@ function renderResult(j){
   document.getElementById("result").classList.remove("hidden");
   renderExportBar(j.ts||"");
   loadAnnotations(j.ts||"");
+  loadLineage(j.ts||"");
   // 目标理解
   const it = j.intent||{};
   const dom = (it.domains||[]).map(d=>'<span class="tag ok">'+esc(d)+'</span>').join("");
@@ -578,6 +581,57 @@ function fillDiffSelects(){
     A.value = lastRuns[1].ts || "";
     B.value = lastRuns[0].ts || "";
   }
+}
+
+// ---------- Phase 58: 编排回放(重跑后自动对比) ----------
+async function replayRun(ts){
+  if(!ts){ alert("该记录无 ts，无法回放"); return; }
+  if(!confirm("用同一目标重跑一次编排?\n\n这会真实执行一次编排(消耗 LLM 配额/可能产生产物)，完成后自动与原编排对比。")) return;
+  const btn = event && event.currentTarget;
+  const oldText = btn ? btn.textContent : "";
+  if(btn){ btn.textContent = "⏳ 回放中"; btn.style.pointerEvents = "none"; }
+  try{
+    const j = await (await fetch("/api/superagent/replay",
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({ts})})).json();
+    if(!j.ok){
+      alert("回放失败: " + (j.error || (j.busy ? "编排排队超时，请稍后再试" : "未知")));
+      return;
+    }
+    const a = j.source_ts, b = j.replay_ts;
+    if(!b){ alert("回放完成但未取得新 ts"); return; }
+    // 闭环: 回放完成 → 自动加载 A/B 对比
+    const A = document.getElementById("diffA"), B = document.getElementById("diffB");
+    await loadRuns();                       // 刷新历史让新记录进下拉
+    if(A && B){ A.value = a; B.value = b; }
+    runDiff();
+    const card = document.getElementById("diffBox");
+    if(card) card.scrollIntoView({behavior:"smooth"});
+    alert("✅ 回放完成\n原: " + a + "\n新: " + b + "\n已自动载入 A/B 对比");
+  }catch(e){ alert("请求异常: " + e); }
+  finally{
+    if(btn){ btn.textContent = oldText || "🔁 回放"; btn.style.pointerEvents = ""; }
+  }
+}
+
+async function loadLineage(ts){
+  const box = document.getElementById("lineageBox");
+  if(!box) return;
+  if(!ts){ box.innerHTML = '<span class="muted">—</span>'; return; }
+  try{
+    const j = await (await fetch("/api/superagent/lineage?ts="+encodeURIComponent(ts))).json();
+    if(!j.ok){ box.innerHTML = '<span class="muted">血缘加载失败</span>'; return; }
+    if(j.is_replay){
+      box.innerHTML = '<span style="font-size:12px">🔁 这是 <b>'+esc(j.source? j.source.ts : "?")+
+        '</b> 的回放'+(j.source? ' · 原目标: '+esc((j.source.goal||"").slice(0,40)) : '')+'</span>';
+    }else if((j.replays||[]).length){
+      box.innerHTML = '<span style="font-size:12px">🔁 有 '+j.replays.length+' 次回放: '+
+        j.replays.map(r=>'<a href="javascript:void(0)" onclick="loadRunDetail(\''+esc(r.ts)+'\')">'+
+          esc((r.ts||"").slice(5,19))+'</a> '+(r.ok?'✅':'❌')).join(" · ")+'</span>';
+    }else{
+      box.innerHTML = '<span class="muted" style="font-size:12px">原始编排，尚无回放</span>';
+    }
+  }catch(e){ box.innerHTML = '<span class="muted">血缘加载异常</span>'; }
 }
 
 async function runDiff(){
@@ -1021,6 +1075,9 @@ function renderRuns(){
     '<a href="/api/superagent/export/bundle?ts='+encodeURIComponent(x.ts||"")+'" '+
       'title="导出 md+json 打包 zip" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 8px" '+
       'onclick="event.stopPropagation()">📦 ZIP</a> '+
+    '<a href="javascript:void(0)" '+
+      'title="用同一目标重跑一次, 完成后自动与原编排对比" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 8px" '+
+      'onclick="event.stopPropagation();replayRun(\''+esc(x.ts||"")+'\')">🔁 回放</a> '+
     '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></span></div>'
   ).join("") : '<span class="muted">暂无编排记录</span>';
   document.getElementById("runList").innerHTML = html;

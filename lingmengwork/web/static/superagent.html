@@ -255,6 +255,19 @@
       <div id="feedbackBox"><span class="muted">加载中…</span></div>
     </div>
   </div>
+
+  <!-- Phase 70: 批注总览 -->
+  <div class="card" style="margin-top:14px">
+    <h3><span class="dot"></span>📚 批注总览 <span class="muted" style="font-size:11px;font-weight:400">跨编排全部批注 · 点击时间回看编排</span>
+      <select id="annoAllFilter" onchange="loadAllAnnos()" style="background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:3px 8px;font:inherit;font-size:11px;margin-left:8px">
+        <option value="all">全部</option>
+        <option value="rated">有评分</option>
+        <option value="low">低分(≤2)</option>
+        <option value="unrated">未评分</option>
+      </select>
+      <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="loadAllAnnos()">🔄 刷新</button></h3>
+    <div id="annoAllBox"><span class="muted">加载中…</span></div>
+  </div>
   </section>
 
   <section id="tab-auto" class="tabpane hidden">
@@ -830,6 +843,51 @@ async function loadFeedback(){
 
     box.innerHTML = head + sug + tags + goals || '<span class="muted">暂无反馈数据</span>';
   }catch(e){ box.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
+}
+
+// ---- Phase 70: 批注总览 ----
+async function loadAllAnnos(){
+  const box = document.getElementById("annoAllBox");
+  if(!box) return;
+  const f = (document.getElementById("annoAllFilter")||{}).value || "all";
+  try{
+    const j = await (await fetch("/api/superagent/annotations")).json();
+    if(!j.ok){ box.innerHTML = '<span style="color:var(--bad)">加载失败</span>'; return; }
+    let annos = j.annotations||[];
+    if(f==="rated") annos = annos.filter(a=>typeof a.rating==="number");
+    else if(f==="low") annos = annos.filter(a=>typeof a.rating==="number" && a.rating<=2);
+    else if(f==="unrated") annos = annos.filter(a=>typeof a.rating!=="number");
+    annos = annos.slice(-50).reverse();  // 最近 50, 新的在前
+    if(!annos.length){ box.innerHTML = '<span class="muted">该过滤条件下暂无批注</span>'; return; }
+    box.innerHTML = annos.map(a=>{
+      const stars = typeof a.rating==="number"
+        ? '<span style="color:var(--warn)">'+"★".repeat(a.rating)+"☆".repeat(5-a.rating)+'</span>'
+        : '<span class="muted">未评分</span>';
+      const tags = (a.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join(" ");
+      const txt = esc((a.text||"").length>120 ? (a.text||"").slice(0,120)+"…" : (a.text||""));
+      return '<div style="border-top:1px solid var(--bd);padding:7px 0;font-size:12px">'+
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+        '<a href="javascript:void(0)" onclick="loadRunDetail(\''+esc(a.ts)+'\')" '+
+          'title="回看这条编排" style="color:var(--accent2)">'+esc((a.created_at||"").slice(5,19))+'</a>'+
+        stars+
+        '<b>'+esc(a.author||"匿名")+'</b>'+
+        (a.updated_at? '<span class="muted" title="有编辑">✏️'+esc(a.updated_at.slice(5,19))+'</span>' : '')+
+        '<span style="margin-left:auto;display:inline-flex;gap:6px">'+
+        '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="delAllAnno(\''+esc(a.id)+'\')">删除</button></span></div>'+
+        '<div style="margin-top:3px;white-space:pre-wrap">'+txt+'</div>'+
+        (tags? '<div style="margin-top:3px">'+tags+'</div>' : '')+
+        '</div>';
+    }).join("");
+  }catch(e){ box.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
+}
+async function delAllAnno(id){
+  if(!confirm("删除这条批注? (已沉淀进记忆的内容不会撤回)")) return;
+  try{
+    const j = await (await fetch("/api/superagent/annotations/delete",
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})})).json();
+    if(!j.ok){ alert("删除失败: "+(j.error||"未知")); return; }
+    loadAllAnnos();
+  }catch(e){ alert("请求异常: "+e); }
 }
 
 // ---- Phase 69: 洞察页低分目标快速批注 ----
@@ -1408,6 +1466,7 @@ loadTemplates();
 loadWebhooks();
 loadFeedback();
 loadQuality();
+loadAllAnnos();
 loadQualityAuto();
 loadBudget();
 setInterval(loadRuns, 5000);

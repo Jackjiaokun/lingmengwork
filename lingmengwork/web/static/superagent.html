@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>灵梦work · 超级 AGENT 内核</title>
+<title>灵梦work · 超级 AGENT 工作台</title>
 <style>
   :root{
     --bg:#0b0e1a; --bg2:#11152a; --panel:rgba(28,33,58,.72); --panel2:rgba(40,46,80,.55);
@@ -67,20 +67,57 @@
   pre{white-space:pre-wrap;word-break:break-word;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px;font-size:12px;color:var(--sub);max-height:220px;overflow:auto}
   .run{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px dashed var(--bd);font-size:12.5px}
   .run:last-child{border-bottom:none}
+
+  /* ---- v2: 更简洁的信息架构 ---- */
+  body{padding:14px 20px 48px}
+  .wrap{max-width:1200px}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+  .top h1{font-size:19px;margin:0}
+  .top .sub{margin:0}
+  .top .kpis{display:flex;gap:8px;margin:0}
+  .top .kpi{display:flex;flex-direction:column;padding:6px 16px;border-radius:999px;backdrop-filter:none}
+  .top .kpi .v{font-size:16px}
+  .top .kpi .l{font-size:10.5px;margin:0}
+  .nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--bd);margin-bottom:16px}
+  .navbtn{background:transparent;border:none;box-shadow:none;color:var(--sub);padding:8px 18px;
+          border-radius:10px 10px 0 0;font-size:13px;border:1px solid transparent;border-bottom:none}
+  .navbtn:hover{color:var(--tx)}
+  .navbtn.on{color:var(--tx);background:var(--panel2);border-color:var(--bd)}
+  .nav .ext{margin-left:auto;display:flex;gap:2px}
+  .nav .ext a{color:var(--sub);font-size:12px;text-decoration:none;padding:7px 10px;border-radius:8px}
+  .nav .ext a:hover{color:var(--tx);background:var(--panel2)}
+  .run .acts{display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+  .sub.short{font-size:12px}
+
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1><span class="g">超级 AGENT 内核</span> · 统一目标编排闭环</h1>
-  <p class="sub">Phase 31 · 目标理解 → 域路由 → 并行编排(多智能体联邦) → 执行落地(真实产物) → 收敛(三级护栏) → 自检质量门 → 记忆沉淀。内置 code/creation/research/ops 真实执行器：自主编码(生成→编译→冒烟运行自验证→失败有限自修复→run.log) / 真实媒体渲染(PNG·MP3·GIF) / 真实检索 / 可校验脚本，均可 register_executor 热插拔；无 LLM 全程规则兜底，单伙伴失败隔离。</p>
 
+  <div class="top">
+    <div class="brand">
+      <h1><span class="g">超级 AGENT 工作台</span></h1>
+      <p class="sub short">一句话目标 → 多智能体并行编排 → 产物交付 · 编排/对比/回放/基线/告警一体化</p>
+    </div>
   <div class="kpis" id="kpis">
     <div class="kpi"><div class="v" id="kRuns">0</div><div class="l">最近编排</div></div>
     <div class="kpi"><div class="v" id="kCross">0</div><div class="l">跨域编排(≥2 伙伴)</div></div>
     <div class="kpi"><div class="v" id="kConflict">0</div><div class="l">产出冲突</div></div>
     <div class="kpi"><div class="v" id="kScore">—</div><div class="l">自检均分</div></div>
   </div>
+  </div>
 
+  <nav class="nav">
+    <button class="navbtn on" data-t="orch" onclick="showTab('orch')">🚀 编排</button>
+    <button class="navbtn" data-t="insight" onclick="showTab('insight')">📊 洞察</button>
+    <button class="navbtn" data-t="auto" onclick="showTab('auto')">⚙️ 自动化</button>
+    <button class="navbtn" data-t="art" onclick="showTab('art')">📦 产物</button>
+    <span class="ext">
+      <a href="/">对话</a><a href="/cost">成本</a><a href="/observability">可观测</a><a href="/planboard">计划</a><a href="/settings">设置</a>
+    </span>
+  </nav>
+
+  <section id="tab-orch" class="tabpane">
   <div class="grid">
     <div class="card">
       <h3><span class="dot"></span>目标入口</h3>
@@ -96,147 +133,6 @@
     <div class="card">
       <h3><span class="dot"></span>最近编排 <span class="muted" id="queueChip" style="font-size:11px;font-weight:400"></span></h3>
       <div id="runList"><span class="muted">暂无编排记录</span></div>
-    </div>
-
-    <!-- Phase 54: 编排趋势图 -->
-    <div class="card">
-      <h3><span class="dot"></span>📈 编排趋势 <span class="muted" style="font-size:11px;font-weight:400">按日成功/失败堆叠柱 · 悬停看详情</span></h3>
-      <div id="trendBox"><span class="muted">加载中…</span></div>
-    </div>
-
-    <!-- Phase 60: 质量基线 -->
-    <div class="card">
-      <h3><span class="dot"></span>📏 质量基线 <span class="muted" style="font-size:11px;font-weight:400">同目标多次运行的统计分布 · 偏离自动告警</span>
-        <button class="btn2" id="qualityAutoBtn" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="toggleQualityAuto()">⏰ 自动推送: …</button>
-        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="loadQuality()">🔄 刷新</button>
-        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="pushQuality()">📢 推送告警</button></h3>
-      <div id="qualityBox"><span class="muted">加载中…</span></div>
-    </div>
-
-    <!-- Phase 59: 反馈自优化 -->
-    <div class="card">
-      <h3><span class="dot"></span>🧪 反馈自优化 <span class="muted" style="font-size:11px;font-weight:400">低分批注 → 改写目标 → 优化回放</span>
-        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="loadFeedback()">🔄 刷新分析</button></h3>
-      <div id="feedbackBox"><span class="muted">加载中…</span></div>
-    </div>
-
-    <!-- Phase 56: 编排 A/B 对比 -->
-    <div class="card">
-      <h3><span class="dot"></span>🔀 编排对比 <span class="muted" style="font-size:11px;font-weight:400">选两次编排看改动带来了什么变化</span></h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:1;min-width:180px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">A · 基线(旧)</div>
-          <select id="diffA" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:9px 12px;font:inherit"></select>
-        </div>
-        <div style="flex:1;min-width:180px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">B · 对照(新)</div>
-          <select id="diffB" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:9px 12px;font:inherit"></select>
-        </div>
-        <button onclick="runDiff()">🔀 对比</button>
-        <a id="diffReportLink" class="hidden" href="#" target="_blank"
-           style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:9px 12px">📄 对比报告</a>
-      </div>
-      <div id="diffBox" style="margin-top:12px"><span class="muted">选择两次编排后点击「对比」</span></div>
-    </div>
-
-    <!-- Phase 42: 编排产物中心 -->
-    <div class="card">
-      <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span><button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="archiveArtifacts()">🗜️ 归档30天前产物</button></h3>
-      <div id="artList"><span class="muted">加载中…</span></div>
-      <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
-    </div>
-
-    <!-- Phase 43/45: 定时编排 -->
-    <div class="card">
-      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">手动目标或引用模板, 间隔分钟或每日 HH:MM 到期自动触发</span>
-        <span id="budgetChip" class="muted" style="font-size:11px;font-weight:400;margin-left:8px"></span></h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:1;min-width:160px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">引用模板(可选)</div>
-          <select id="schedTpl" onchange="renderSchedTplVars()" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
-            <option value="">— 手动填写目标 —</option>
-          </select>
-        </div>
-        <div id="schedGoalWrap" style="flex:2;min-width:220px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">目标</div>
-          <textarea id="schedGoal" style="min-height:44px" placeholder="要自动执行的目标, 如: 每天巡检服务并汇总健康报告"></textarea>
-        </div>
-        <div id="schedTplVarsWrap" class="hidden" style="flex:2;min-width:220px"></div>
-        <div style="flex:1;min-width:150px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">间隔(分钟, ≥1)</div>
-          <input id="schedEvery" type="number" min="1" placeholder="如 60">
-        </div>
-        <div style="flex:1;min-width:120px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">或每日时间 HH:MM</div>
-          <input id="schedDaily" placeholder="如 08:30">
-        </div>
-        <div style="flex:1;min-width:100px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">失败重试(0-5)</div>
-          <input id="schedRetry" type="number" min="0" max="5" value="0">
-        </div>
-        <button onclick="createSchedule()">➕ 添加计划</button>
-      </div>
-      <div id="schedList" style="margin-top:10px"><span class="muted">加载中…</span></div>
-      <!-- Phase 50: 编排日报/周报 -->
-      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <b style="font-size:13px">📊 编排摘要</b>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest('daily')">预览日报(24h)</button>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest('weekly')">预览周报(7d)</button>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest('daily')">📤 推送日报</button>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest('weekly')">📤 推送周报</button>
-      </div>
-      <pre id="digestBox" class="hidden" style="margin-top:8px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:260px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
-    </div>
-
-    <!-- Phase 44: 模板库 -->
-    <div class="card">
-      <h3><span class="dot"></span>🧩 模板库 <span class="muted" style="font-size:11px;font-weight:400">目标模板支持 {{变量}} 占位符, 一键发起自动填参</span></h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:1;min-width:140px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">模板名称</div>
-          <input id="tplName" placeholder="如: 服务健康巡检">
-        </div>
-        <div style="flex:3;min-width:260px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">目标模板 (用 {{变量}} 标记参数)</div>
-          <textarea id="tplGoal" style="min-height:44px" placeholder="如: 巡检 {{host}} 的 {{service}} 服务并生成健康报告"></textarea>
-        </div>
-        <button onclick="createTemplate()">➕ 保存模板</button>
-      </div>
-      <div id="tplList" style="margin-top:10px"><span class="muted">加载中…</span></div>
-    </div>
-
-    <!-- Phase 46: 通知 Webhook -->
-    <div class="card">
-      <h3><span class="dot"></span>🔔 通知 Webhook <span class="muted" style="font-size:11px;font-weight:400">编排完成/失败时 POST JSON 到接收端(带可选 HMAC 签名)</span></h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:3;min-width:240px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">接收 URL</div>
-          <input id="whUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx 或自定义">
-        </div>
-        <div style="flex:1;min-width:120px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">事件</div>
-          <select id="whEvents" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
-            <option value="all">全部(done+fail+quality)</option>
-            <option value="done">仅完成</option>
-            <option value="fail">仅失败</option>
-            <option value="quality">仅质量告警</option>
-          </select>
-        </div>
-        <div style="flex:1;min-width:120px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">签名密钥(可选)</div>
-          <input id="whSecret" placeholder="留空不签名">
-        </div>
-        <div style="flex:1;min-width:110px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">消息格式</div>
-          <select id="whFmt" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
-            <option value="raw">原始 JSON</option>
-            <option value="feishu">飞书机器人</option>
-            <option value="dingtalk">钉钉机器人</option>
-          </select>
-        </div>
-        <button onclick="createWebhook()">➕ 添加</button>
-      </div>
-      <div id="whList" style="margin-top:10px"><span class="muted">加载中…</span></div>
     </div>
   </div>
 
@@ -316,6 +212,156 @@
       <div id="execBox"></div>
     </div>
   </div>
+  </section>
+
+  <section id="tab-insight" class="tabpane hidden">
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot"></span>📈 编排趋势 <span class="muted" style="font-size:11px;font-weight:400">按日成功/失败堆叠柱 · 悬停看详情</span></h3>
+      <div id="trendBox"><span class="muted">加载中…</span></div>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot"></span>🔀 编排对比 <span class="muted" style="font-size:11px;font-weight:400">选两次编排看改动带来了什么变化</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:180px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">A · 基线(旧)</div>
+          <select id="diffA" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:9px 12px;font:inherit"></select>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">B · 对照(新)</div>
+          <select id="diffB" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:9px 12px;font:inherit"></select>
+        </div>
+        <button onclick="runDiff()">🔀 对比</button>
+        <a id="diffReportLink" class="hidden" href="#" target="_blank"
+           style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:9px 12px">📄 对比报告</a>
+      </div>
+      <div id="diffBox" style="margin-top:12px"><span class="muted">选择两次编排后点击「对比」</span></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot"></span>📏 质量基线 <span class="muted" style="font-size:11px;font-weight:400">同目标多次运行的统计分布 · 偏离自动告警</span>
+        <button class="btn2" id="qualityAutoBtn" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="toggleQualityAuto()">⏰ 自动推送: …</button>
+        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="loadQuality()">🔄 刷新</button>
+        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="pushQuality()">📢 推送告警</button></h3>
+      <div id="qualityBox"><span class="muted">加载中…</span></div>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot"></span>🧪 反馈自优化 <span class="muted" style="font-size:11px;font-weight:400">低分批注 → 改写目标 → 优化回放</span>
+        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="loadFeedback()">🔄 刷新分析</button></h3>
+      <div id="feedbackBox"><span class="muted">加载中…</span></div>
+    </div>
+  </div>
+  </section>
+
+  <section id="tab-auto" class="tabpane hidden">
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">手动目标或引用模板, 间隔分钟或每日 HH:MM 到期自动触发</span>
+        <span id="budgetChip" class="muted" style="font-size:11px;font-weight:400;margin-left:8px"></span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:160px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">引用模板(可选)</div>
+          <select id="schedTpl" onchange="renderSchedTplVars()" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
+            <option value="">— 手动填写目标 —</option>
+          </select>
+        </div>
+        <div id="schedGoalWrap" style="flex:2;min-width:220px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">目标</div>
+          <textarea id="schedGoal" style="min-height:44px" placeholder="要自动执行的目标, 如: 每天巡检服务并汇总健康报告"></textarea>
+        </div>
+        <div id="schedTplVarsWrap" class="hidden" style="flex:2;min-width:220px"></div>
+        <div style="flex:1;min-width:150px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">间隔(分钟, ≥1)</div>
+          <input id="schedEvery" type="number" min="1" placeholder="如 60">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">或每日时间 HH:MM</div>
+          <input id="schedDaily" placeholder="如 08:30">
+        </div>
+        <div style="flex:1;min-width:100px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">失败重试(0-5)</div>
+          <input id="schedRetry" type="number" min="0" max="5" value="0">
+        </div>
+        <button onclick="createSchedule()">➕ 添加计划</button>
+      </div>
+      <div id="schedList" style="margin-top:10px"><span class="muted">加载中…</span></div>
+      <!-- Phase 50: 编排日报/周报 -->
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:13px">📊 编排摘要</b>
+        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest('daily')">预览日报(24h)</button>
+        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest('weekly')">预览周报(7d)</button>
+        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest('daily')">📤 推送日报</button>
+        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest('weekly')">📤 推送周报</button>
+      </div>
+      <pre id="digestBox" class="hidden" style="margin-top:8px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:260px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot"></span>🧩 模板库 <span class="muted" style="font-size:11px;font-weight:400">目标模板支持 {{变量}} 占位符, 一键发起自动填参</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:140px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">模板名称</div>
+          <input id="tplName" placeholder="如: 服务健康巡检">
+        </div>
+        <div style="flex:3;min-width:260px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">目标模板 (用 {{变量}} 标记参数)</div>
+          <textarea id="tplGoal" style="min-height:44px" placeholder="如: 巡检 {{host}} 的 {{service}} 服务并生成健康报告"></textarea>
+        </div>
+        <button onclick="createTemplate()">➕ 保存模板</button>
+      </div>
+      <div id="tplList" style="margin-top:10px"><span class="muted">加载中…</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+      <h3><span class="dot"></span>🔔 通知 Webhook <span class="muted" style="font-size:11px;font-weight:400">编排完成/失败时 POST JSON 到接收端(带可选 HMAC 签名)</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:3;min-width:240px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">接收 URL</div>
+          <input id="whUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx 或自定义">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">事件</div>
+          <select id="whEvents" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
+            <option value="all">全部(done+fail+quality)</option>
+            <option value="done">仅完成</option>
+            <option value="fail">仅失败</option>
+            <option value="quality">仅质量告警</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">签名密钥(可选)</div>
+          <input id="whSecret" placeholder="留空不签名">
+        </div>
+        <div style="flex:1;min-width:110px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">消息格式</div>
+          <select id="whFmt" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
+            <option value="raw">原始 JSON</option>
+            <option value="feishu">飞书机器人</option>
+            <option value="dingtalk">钉钉机器人</option>
+          </select>
+        </div>
+        <button onclick="createWebhook()">➕ 添加</button>
+      </div>
+      <div id="whList" style="margin-top:10px"><span class="muted">加载中…</span></div>
+    </div>
+  </div>
+  </section>
+
+  <section id="tab-art" class="tabpane hidden">
+  <div class="grid" style="grid-template-columns:1fr">
+    <div class="card">
+      <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span><button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="archiveArtifacts()">🗜️ 归档30天前产物</button></h3>
+      <div id="artList"><span class="muted">加载中…</span></div>
+      <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+  </section>
+
 </div>
 
 <script>
@@ -1256,7 +1302,7 @@ function renderRuns(){
     '<div class="run" style="cursor:pointer" title="点击回看本次编排详情" onclick="loadRunDetail(\''+esc(x.ts||"")+'\')">'+
     '<span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
     '<span class="muted">'+(x.routed||[]).join("/")+'</span></span>'+
-    '<span><a href="/api/superagent/report?ts='+encodeURIComponent(x.ts||"")+'" target="_blank" '+
+    '<span class="acts"><a href="/api/superagent/report?ts='+encodeURIComponent(x.ts||"")+'" target="_blank" '+
       'title="生成可分享 HTML 报告" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 10px" '+
       'onclick="event.stopPropagation()">📄 报告</a> '+
     '<a href="/api/superagent/export?ts='+encodeURIComponent(x.ts||"")+'&fmt=md" '+
@@ -1300,6 +1346,25 @@ loadQualityAuto();
 loadBudget();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
+</script>
+  
+
+// ---- UI v2: 功能分组页签 ----
+function showTab(t){
+  document.querySelectorAll('.tabpane').forEach(function(p){
+    p.classList.toggle('hidden', p.id !== 'tab-'+t);
+  });
+  document.querySelectorAll('.navbtn').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-t') === t);
+  });
+  try{ localStorage.setItem('lmw_sa_tab', t); }catch(e){}
+}
+(function(){
+  var t = 'orch';
+  try{ t = localStorage.getItem('lmw_sa_tab') || 'orch'; }catch(e){}
+  showTab(t);
+})();
+
 </script>
   <script src="/static/theme.js"></script>
 </body>

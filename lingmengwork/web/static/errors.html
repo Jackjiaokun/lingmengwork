@@ -101,5 +101,6 @@ $("#copyMd").onclick=async()=>{ try{await navigator.clipboard.writeText($("#sumM
 $("#recErr").onclick=async()=>{ const body={type:$("#rType").value.trim(),source:$("#rSrc").value.trim(),message:$("#rMsg").value.trim(),severity:$("#rSev").value}; if(!body.type||!body.message){toast("类型与描述必填",false);return;} try{await api("/api/errors/record",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});toast("已记录");$("#rType").value="";$("#rSrc").value="";$("#rMsg").value="";loadSummary();loadList();}catch(e){toast(e.message,false);} };
 loadSummary(); loadList();
 </script>
+  <script src="/static/theme.js"></script>
 </body>
 </html>

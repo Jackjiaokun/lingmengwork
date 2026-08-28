@@ -110,5 +110,6 @@ async function rmTask(tid){ if(!cur)return; try{await api("/api/plans/task",{met
 $("#newPlan").onclick=()=>{ cur={id:"",title:"",content:"",tasks:[],status:"todo"}; render(cur); };
 loadList();
 </script>
+  <script src="/static/theme.js"></script>
 </body>
 </html>

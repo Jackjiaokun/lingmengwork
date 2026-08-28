@@ -131,7 +131,9 @@
     </div>
 
     <div class="card">
-      <h3><span class="dot"></span>最近编排 <span class="muted" id="queueChip" style="font-size:11px;font-weight:400"></span></h3>
+      <h3><span class="dot"></span>最近编排 <span class="muted" id="queueChip" style="font-size:11px;font-weight:400"></span>
+        <input id="runSearch" placeholder="🔍 搜目标关键词…" oninput="renderRuns()"
+          style="margin-left:8px;width:150px;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:3px 10px;font:inherit;font-size:11px"><span class="muted" id="runCount" style="font-size:11px;font-weight:400"></span></h3>
       <div id="runList"><span class="muted">暂无编排记录</span></div>
     </div>
   </div>
@@ -1422,7 +1424,15 @@ function renderRuns(){
   document.getElementById("kConflict").textContent = cf;
   const scs = lastRuns.map(x=>x.selfcheck_score??100).filter(s=>typeof s==="number");
   document.getElementById("kScore").textContent = scs.length? Math.round(scs.reduce((a,b)=>a+b,0)/scs.length):"—";
-  const html = lastRuns.length? lastRuns.map(x=>
+  // Phase 71: 关键词过滤(KPI 保持全量统计)
+  const kw = ((document.getElementById("runSearch")||{}).value||"").trim().toLowerCase();
+  const runs = kw ? lastRuns.filter(x =>
+      (x.goal||"").toLowerCase().includes(kw) ||
+      (x.ts||"").includes(kw) ||
+      (x.routed||[]).join("/").toLowerCase().includes(kw)) : lastRuns;
+  const cnt = document.getElementById("runCount");
+  if(cnt) cnt.textContent = kw ? (runs.length+"/"+lastRuns.length+" 条命中") : "";
+  const html = runs.length? runs.map(x=>
     '<div class="run" style="cursor:pointer" title="点击回看本次编排详情" onclick="loadRunDetail(\''+esc(x.ts||"")+'\')">'+
     '<span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
     '<span class="muted">'+(x.routed||[]).join("/")+'</span></span>'+
@@ -1442,7 +1452,7 @@ function renderRuns(){
       'title="用同一目标重跑一次, 完成后自动与原编排对比" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 8px" '+
       'onclick="event.stopPropagation();replayRun(\''+esc(x.ts||"")+'\')">🔁 回放</a> '+
     '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></span></div>'
-  ).join("") : '<span class="muted">暂无编排记录</span>';
+  ).join("") : '<span class="muted">'+(kw? "无匹配编排":"暂无编排记录")+'</span>';
   document.getElementById("runList").innerHTML = html;
 }
 

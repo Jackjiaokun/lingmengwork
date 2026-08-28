@@ -143,6 +143,21 @@
     </div>
   </section>
 
+  <!-- Phase 71: 编排质量基线 -->
+  <section>
+    <h2 class="sec-title">🧠 编排质量基线</h2>
+    <div class="card">
+      <div class="grid top-cards" id="q-cards">
+        <div class="card stat-lg"><span class="num" id="q-runs">0</span><span class="lab">近30天编排</span></div>
+        <div class="card stat-lg"><span class="num" id="q-score">—</span><span class="lab">自检分 mean±std</span></div>
+        <div class="card stat-lg"><span class="num" id="q-elapsed">—</span><span class="lab">耗时 mean±std (s)</span></div>
+        <div class="card stat-lg"><span class="num" id="q-alerts">0</span><span class="lab">偏离告警 (7天)</span></div>
+      </div>
+      <div id="q-goals" style="margin-top:10px"></div>
+      <div class="hint">基线 = 同目标多次运行的统计分布；偏离告警详情见 <a href="/superagent" style="color:var(--acc)">超级 AGENT 工作台 · 洞察</a>。</div>
+    </div>
+  </section>
+
   <section>
     <h2 class="sec-title">价目参考 (元 / 千 token)</h2>
     <div class="card" style="padding:6px 6px">
@@ -236,7 +251,35 @@ async function saveBudget(){
     loadBudget();
   }catch(e){alert("请求异常: "+e)}
 }
-function start(){stop();load();loadBudget();if($("#auto").checked)timer=setInterval(function(){load();loadBudget();},5000)}
+// Phase 71: 编排质量基线
+async function loadQualityBase(){
+  try{
+    const b = await (await fetch("/api/superagent/quality/baseline?days=30")).json();
+    if(b.ok){
+      $("#q-runs").textContent = fmtInt(b.total_runs||0);
+      const g = b.global||{};
+      $("#q-score").textContent = g.score&&g.score.count!=null&&g.score.count>0
+        ? (g.score.mean+"±"+g.score.std) : "—";
+      $("#q-elapsed").textContent = g.elapsed&&g.elapsed.count? (g.elapsed.mean+"±"+g.elapsed.std) : "—";
+      const goals=(b.goals||[]).slice(0,5);
+      $("#q-goals").innerHTML = goals.length
+        ? ('<table><thead><tr><th>目标组</th><th class="num">次数</th><th class="num">自检分</th><th class="num">耗时(s)</th></tr></thead><tbody>'+
+           goals.map(t=>'<tr><td title="'+esc(t.goal)+'">'+esc((t.goal||"(无目标)").slice(0,32))+'</td>'+
+             '<td class="num">'+t.runs+'</td>'+
+             '<td class="num">'+(t.score&&t.score.count? t.score.mean+"±"+t.score.std : "—")+'</td>'+
+             '<td class="num">'+(t.elapsed&&t.elapsed.count? t.elapsed.mean+"±"+t.elapsed.std : "—")+'</td></tr>').join("")+
+           '</tbody></table>')
+        : '<div class="empty">同目标运行不足 '+b.min_runs+' 次, 暂无分组基线</div>';
+    }
+    const a = await (await fetch("/api/superagent/quality/alerts?days=7")).json();
+    if(a.ok){
+      const el = $("#q-alerts");
+      el.textContent = fmtInt(a.count||0);
+      el.style.color = (a.count||0)>0 ? "var(--fail)" : "";
+    }
+  }catch(e){}
+}
+function start(){stop();load();loadBudget();loadQualityBase();if($("#auto").checked)timer=setInterval(function(){load();loadBudget();loadQualityBase();},5000)}
 function stop(){if(timer)clearInterval(timer)}
 $("#auto").addEventListener("change",start);
 start();

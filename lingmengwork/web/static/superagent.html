@@ -97,6 +97,13 @@
       <h3><span class="dot"></span>最近编排 <span class="muted" id="queueChip" style="font-size:11px;font-weight:400"></span></h3>
       <div id="runList"><span class="muted">暂无编排记录</span></div>
     </div>
+
+    <!-- Phase 42: 编排产物中心 -->
+    <div class="card">
+      <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span></h3>
+      <div id="artList"><span class="muted">加载中…</span></div>
+      <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
+    </div>
   </div>
 
   <div id="result" class="hidden" style="margin-top:14px">
@@ -282,6 +289,38 @@ async function loadRuns(){
     const chip = document.getElementById("queueChip");
     if(chip) chip.textContent = "并发 "+(q.running||0)+"/"+(q.max||2)+(q.waiting?" · 排队 "+q.waiting:"");
   }catch(e){}
+  // Phase 42: 产物中心
+  loadArtifacts();
+}
+
+async function loadArtifacts(){
+  try{
+    const j = await (await fetch("/api/superagent/artifacts")).json();
+    const arts = j.artifacts||[];
+    const box = document.getElementById("artList");
+    if(!arts.length){
+      box.innerHTML = '<span class="muted">暂无编排产物(每次编排的执行落地文件会出现在这里)</span>';
+      return;
+    }
+    box.innerHTML = arts.map(a=>
+      '<div class="run" style="align-items:center">'+
+        '<span><b>'+esc(a.name)+'</b> <span class="muted">'+esc(a.ext)+' · '+(a.size||0)+' B · '+esc(a.mtime)+'</span></span>'+
+        '<span>'+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="previewArtifact(\''+esc(a.path)+'\')">预览</button> '+
+          '<a href="/api/superagent/artifacts/file?mode=download&path='+encodeURIComponent(a.path)+'" '+
+             'style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:3px 10px">下载</a>'+
+        '</span></div>').join("");
+  }catch(e){}
+}
+
+async function previewArtifact(path){
+  const box = document.getElementById("artPreview");
+  try{
+    const j = await (await fetch("/api/superagent/artifacts/file?mode=preview&path="+encodeURIComponent(path))).json();
+    if(!j.ok){ alert("预览失败: "+(j.error||"未知")); return; }
+    box.classList.remove("hidden");
+    box.textContent = "["+j.name+(j.truncated?" · 已截断 64KB":"")+"]\n\n"+(j.content||"(空文件)");
+  }catch(e){ alert("请求异常: "+e); }
 }
 function renderRuns(){
   document.getElementById("kRuns").textContent = lastRuns.length;

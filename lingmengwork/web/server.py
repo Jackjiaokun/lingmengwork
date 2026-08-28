@@ -20,7 +20,7 @@ import re
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote as _urlquote
 
 from .. import __version__
 from ..config import load_config, DEFAULT_CONFIG_PATHS
@@ -1192,6 +1192,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_detail()
         if p == "/api/superagent/queue":
             return self._superagent_queue()
+        if p == "/api/superagent/artifacts":
+            return self._superagent_artifacts()
+        if p == "/api/superagent/artifacts/file":
+            return self._superagent_artifact_file()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1889,6 +1893,80 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         return self._send_json({"ok": True, **_sa.get_queue_state()})
+
+    def _superagent_artifacts(self):
+        """GET /api/superagent/artifacts -> 编排产物清单 (Phase 42 产物中心)。
+
+        扫描 outputs/superagent/, 按 mtime 倒序; 字段 name/ext/size/mtime。
+        """
+        from datetime import datetime as _dt
+        root = os.path.join(os.getcwd(), "outputs", "superagent")
+        items = []
+        try:
+            if os.path.isdir(root):
+                for fn in os.listdir(root):
+                    p = os.path.join(root, fn)
+                    if not os.path.isfile(p):
+                        continue
+                    st = os.stat(p)
+                    items.append({
+                        "name": fn,
+                        "path": fn,
+                        "ext": (fn.rsplit(".", 1)[-1] or "").lower(),
+                        "size": st.st_size,
+                        "mtime": _dt.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        "_ts": st.st_mtime,
+                    })
+        except Exception as e:
+            return self._send_json({"error": str(e)}, status=500)
+        items.sort(key=lambda x: x.pop("_ts"), reverse=True)
+        return self._send_json({"ok": True, "artifacts": items, "dir": "outputs/superagent"})
+
+    def _artifact_safe_path(self):
+        """校验 query path 严格落在 outputs/superagent 内(防目录穿越), 返回绝对路径或 None。"""
+        q = parse_qs(urlparse(self.path).query)
+        rel = (q.get("path") or [""])[0]
+        if not rel:
+            return None
+        norm = rel.replace("\\", "/")
+        if norm.startswith("/") or ".." in norm.split("/"):
+            return None
+        root = os.path.realpath(os.path.join(os.getcwd(), "outputs", "superagent"))
+        full = os.path.realpath(os.path.join(root, rel))
+        if full != root and not full.startswith(root + os.sep):
+            return None
+        if not os.path.isfile(full):
+            return None
+        return full
+
+    def _superagent_artifact_file(self):
+        """GET /api/superagent/artifacts/file?path=<rel>&mode=preview|download。
+
+        preview: JSON 返回文本内容(截 64KB); download: octet-stream 附件下载。
+        """
+        full = self._artifact_safe_path()
+        if full is None:
+            return self._send_json({"error": "非法路径或文件不存在"}, status=400)
+        name = os.path.basename(full)
+        size = os.path.getsize(full)
+        mode = (parse_qs(urlparse(self.path).query).get("mode") or ["preview"])[0]
+        if mode == "download":
+            with open(full, "rb") as f:
+                payload = f.read()
+            quoted = _urlquote(name)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition",
+                             "attachment; filename*=UTF-8''%s" % quoted)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        with open(full, "rb") as f:
+            data = f.read(65536)
+        return self._send_json({"ok": True, "name": name, "size": size,
+                                "truncated": size > 65536,
+                                "content": data.decode("utf-8", "replace")})
 
     def _superagent_run(self):
         """POST /api/superagent/run {goal, session_id?} -> 目标理解→域路由→并行编排→收敛→自检→记忆沉淀。

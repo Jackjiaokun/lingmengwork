@@ -795,6 +795,11 @@ def _scheduler_tick(base_dir=None, llm_call=None):
                              daemon=True)
         t.start()
     _maybe_push_daily_digest(base_dir)
+    # 质量告警自动推送 (Phase 62): 到达间隔才真正发, tick 里只是轻量时间检查
+    try:
+        _maybe_auto_quality(base_dir)
+    except Exception:
+        pass
     # 自动归档 (Phase 53): 每 tick 轻量扫描, 有超龄产物才写 zip
     try:
         archive_old_artifacts(base_dir=base_dir)
@@ -1510,14 +1515,38 @@ def _quality_md(payload):
 
 
 def push_quality_alerts(base_dir=None, days=7, z=None,
-                        min_runs=None, limit=10):
-    """扫描质量告警并向启用接收端(events: all|quality)推送 (Phase 61)。
+                        min_runs=None, limit=10, silence_hours=0):
+    """扫描质量告警并向启用接收端(events: all|quality)推送 (Phase 61; 62 加静默期)。
 
     无告警时不发(empty push 静默返回 sent=0, skipped=True), 避免定时任务刷屏。
-    返回 {"ok":True, "alerts", "sent", "errors", "skipped"}。
+    silence_hours>0: 同一 goal 在该窗口内已推送过 → 本次跳过(按 goal 去重,
+    只在 sent>0 时记账, 没送出去不吞告警)。返回含 silenced 计数。
     """
     alerts = list_quality_alerts(base_dir=base_dir, days=days, z=z,
                                  min_runs=min_runs, limit=max(1, int(limit or 10)))
+    _load_quality_state(base_dir)
+    silenced = 0
+    try:
+        sh = float(silence_hours or 0)
+    except (TypeError, ValueError):
+        sh = 0.0
+    if sh > 0 and alerts:
+        now = time.time()
+        win = sh * 3600
+        with _QUALITY_STATE_LOCK:
+            sil = dict(_QUALITY_AUTO.get("silence") or {})
+        kept = []
+        for a in alerts:
+            last = _bl_f(sil.get(a.get("goal") or ""))
+            if last and now - last < win:
+                silenced += 1
+            else:
+                kept.append(a)
+        alerts = kept
+    if not alerts:
+        # 全部被静默(或本就无告警): 直接跳过发送, 不发 count=0 的空 payload
+        return {"ok": True, "event": "quality", "alerts": 0, "silenced": silenced,
+                "sent": 0, "errors": [], "skipped": True}
     payload = {"event": "quality", "ts": _now(), "days": days,
                "count": len(alerts), "alerts": alerts,
                "panel_url": _panel_url_for("/superagent")}
@@ -1533,8 +1562,109 @@ def push_quality_alerts(base_dir=None, days=7, z=None,
                 errs.append("%s: %s" % (h["url"][:50], err or status))
         except Exception as e:
             errs.append(str(e)[:100])
+    # Phase 62: 静默期记账 —— 只有真送出去(sent>0)才记, 否则会把告警"吞"掉
+    if sent > 0 and alerts:
+        now = time.time()
+        with _QUALITY_STATE_LOCK:
+            sil = dict(_QUALITY_AUTO.get("silence") or {})
+            for a in alerts:
+                sil[a.get("goal") or ""] = now
+            _QUALITY_AUTO["silence"] = sil
+            _QUALITY_AUTO["last_push_epoch"] = now
+        _save_quality_state(base_dir)
     return {"ok": True, "event": "quality", "alerts": len(alerts),
-            "sent": sent, "errors": errs, "skipped": len(alerts) == 0}
+            "silenced": silenced, "sent": sent, "errors": errs,
+            "skipped": len(alerts) == 0}
+
+
+# ------------------------------------------------------------------ Phase 62: 告警静默期持久化 + 调度器自动推送
+_QUALITY_STATE_LOCK = threading.Lock()
+_QUALITY_AUTO = {"enabled": False, "interval_h": 24.0, "silence_h": 24.0,
+                 "last_push_epoch": 0.0, "silence": {}}
+
+
+def _quality_state_path(base_dir=None):
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    return os.path.join(base, "outputs", "superagent_quality_state.json")
+
+
+def _load_quality_state(base_dir=None):
+    path = _quality_state_path(base_dir)
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            with _QUALITY_STATE_LOCK:
+                _QUALITY_AUTO["last_push_epoch"] = _bl_f(data.get("last_push_epoch"))
+                sil = data.get("silence")
+                _QUALITY_AUTO["silence"] = dict(sil) if isinstance(sil, dict) else {}
+    except Exception:
+        pass
+
+
+def _save_quality_state(base_dir=None):
+    try:
+        path = _quality_state_path(base_dir)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with _QUALITY_STATE_LOCK:
+            data = {"last_push_epoch": _QUALITY_AUTO["last_push_epoch"],
+                    "silence": dict(_QUALITY_AUTO.get("silence") or {})}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def set_quality_auto(enabled, interval_h=24, silence_h=None):
+    """设置质量告警自动推送 (Phase 62)。interval_h<=0 视为关闭。"""
+    try:
+        ih = float(interval_h)
+    except (TypeError, ValueError):
+        ih = 24.0
+    _QUALITY_AUTO["enabled"] = bool(enabled) and ih > 0
+    _QUALITY_AUTO["interval_h"] = max(1.0, ih)
+    if silence_h is not None:
+        try:
+            _QUALITY_AUTO["silence_h"] = max(0.0, float(silence_h))
+        except (TypeError, ValueError):
+            pass
+    return get_quality_auto()
+
+
+def get_quality_auto():
+    """自动推送当前配置(不含 silence 明细)。"""
+    return {"enabled": _QUALITY_AUTO["enabled"],
+            "interval_h": _QUALITY_AUTO["interval_h"],
+            "silence_h": _QUALITY_AUTO["silence_h"],
+            "last_push_epoch": _QUALITY_AUTO["last_push_epoch"]}
+
+
+def _maybe_auto_quality(base_dir=None):
+    """调度器每 tick 调用: 到达间隔且启用 → 后台自动推送一次 (Phase 62)。
+
+    last_push_epoch 在派发前就更新(防 tick 密集重复派发), 推送失败也不回滚 ——
+    下一个间隔会再试, 符合"尽力而为"的告警语义。
+    """
+    if not _QUALITY_AUTO.get("enabled"):
+        return {"fired": False, "reason": "disabled"}
+    now = time.time()
+    interval = max(1.0, _bl_f(_QUALITY_AUTO.get("interval_h"), 24.0)) * 3600
+    if now - _bl_f(_QUALITY_AUTO.get("last_push_epoch")) < interval:
+        return {"fired": False, "reason": "interval"}
+    with _QUALITY_STATE_LOCK:
+        _QUALITY_AUTO["last_push_epoch"] = now
+    _save_quality_state(base_dir)
+    threading.Thread(target=_push_quality_safe, args=(base_dir,),
+                     daemon=True, name="quality-auto-push").start()
+    return {"fired": True}
+
+
+def _push_quality_safe(base_dir=None):
+    try:
+        push_quality_alerts(base_dir=base_dir,
+                            silence_hours=_bl_f(_QUALITY_AUTO.get("silence_h"), 24.0))
+    except Exception:
+        pass
 
 
 def _webhook_md(payload):

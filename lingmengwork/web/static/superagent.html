@@ -107,7 +107,8 @@
     <!-- Phase 60: 质量基线 -->
     <div class="card">
       <h3><span class="dot"></span>📏 质量基线 <span class="muted" style="font-size:11px;font-weight:400">同目标多次运行的统计分布 · 偏离自动告警</span>
-        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="loadQuality()">🔄 刷新</button>
+        <button class="btn2" id="qualityAutoBtn" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="toggleQualityAuto()">⏰ 自动推送: …</button>
+        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="loadQuality()">🔄 刷新</button>
         <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="pushQuality()">📢 推送告警</button></h3>
       <div id="qualityBox"><span class="muted">加载中…</span></div>
     </div>
@@ -597,6 +598,29 @@ function fillDiffSelects(){
     A.value = lastRuns[1].ts || "";
     B.value = lastRuns[0].ts || "";
   }
+}
+
+// ---------- Phase 62: 质量告警自动推送开关 ----------
+async function loadQualityAuto(){
+  const btn = document.getElementById("qualityAutoBtn");
+  if(!btn) return;
+  try{
+    const j = await (await fetch("/api/superagent/quality/auto")).json();
+    if(!j.ok) return;
+    btn.textContent = j.enabled ? ("⏰ 自动推送: 每"+j.interval_h+"h") : "⏰ 自动推送: 关";
+  }catch(e){}
+}
+async function toggleQualityAuto(){
+  try{
+    const cur = await (await fetch("/api/superagent/quality/auto")).json();
+    const enable = !(cur&&cur.enabled);
+    if(enable && !confirm("开启质量告警自动推送?\n\n调度器每 24h 自动扫描一次偏离告警并推送(同一目标 24h 静默期内不重复推)。")) return;
+    const j = await (await fetch("/api/superagent/quality/auto",
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({enabled: enable, interval_h: 24, silence_h: 24})})).json();
+    if(!j.ok){ alert("切换失败: "+(j.error||"未知")); return; }
+    loadQualityAuto();
+  }catch(e){ alert("请求异常: "+e); }
 }
 
 // ---------- Phase 61: 质量告警推送 ----------
@@ -1256,6 +1280,7 @@ loadTemplates();
 loadWebhooks();
 loadFeedback();
 loadQuality();
+loadQualityAuto();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
 </script>

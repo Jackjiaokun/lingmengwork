@@ -1545,6 +1545,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._quality_check()
         if p == "/api/superagent/quality/alerts":
             return self._quality_alerts()
+        if p == "/api/superagent/quality/auto":
+            return self._quality_auto_get()
         if p == "/api/superagent/replays":
             return self._replays_get()
         if p == "/api/superagent/lineage":
@@ -1930,6 +1932,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 质量告警推送 (Phase 61): POST ----
         if p == "/api/superagent/quality/push":
             return self._quality_push()
+        # ---- 质量告警自动推送开关 (Phase 62): POST ----
+        if p == "/api/superagent/quality/auto":
+            return self._quality_auto_post()
         # ---- 编排日报/周报 (Phase 50): 推送(POST) ----
         if p == "/api/superagent/digest/push":
             return self._digest_push()
@@ -2517,7 +2522,7 @@ class Handler(SimpleHTTPRequestHandler):
         return self._send_json({"ok": True, "alerts": rep, "count": len(rep)})
 
     def _quality_push(self):
-        """POST /api/superagent/quality/push {days?, z?, min_runs?, limit?} -> 推送质量告警 (Phase 61)。"""
+        """POST /api/superagent/quality/push {days?, z?, min_runs?, limit?, silence_hours?}。"""
         from .. import superagent as _sa
         body = self._read_json({}) or {}
         rep = _sa.push_quality_alerts(
@@ -2525,8 +2530,23 @@ class Handler(SimpleHTTPRequestHandler):
             days=body.get("days") or 7,
             z=body.get("z"),
             min_runs=body.get("min_runs"),
-            limit=body.get("limit") or 10)
+            limit=body.get("limit") or 10,
+            silence_hours=body.get("silence_hours") or 0)
         return self._send_json({"ok": True, **rep})
+
+    def _quality_auto_get(self):
+        """GET /api/superagent/quality/auto -> 自动推送配置 (Phase 62)。"""
+        from .. import superagent as _sa
+        return self._send_json({"ok": True, **_sa.get_quality_auto()})
+
+    def _quality_auto_post(self):
+        """POST /api/superagent/quality/auto {enabled, interval_h?, silence_h?} (Phase 62)。"""
+        from .. import superagent as _sa
+        body = self._read_json({}) or {}
+        st = _sa.set_quality_auto(body.get("enabled"),
+                                  body.get("interval_h") if body.get("interval_h") is not None else 24,
+                                  body.get("silence_h"))
+        return self._send_json({"ok": True, **st})
 
     def _annotations_get(self):
         """GET /api/superagent/annotations?ts= -> 批注列表 + 统计 (Phase 57)。"""
@@ -5577,6 +5597,14 @@ def run_web(host="127.0.0.1", port=PORT, cfg=None):
         try:
             _sa.set_default_retry_max(_cfg_get(_RUNTIME_CONFIG or _get_cfg(),
                                                "agent.orchestration_retry_max") or 0)
+        except Exception:
+            pass
+        # 质量告警自动推送 (Phase 62): config agent.quality_auto_push + quality_auto_interval_h
+        try:
+            _sa._load_quality_state(os.getcwd())
+            _sa.set_quality_auto(
+                bool(_cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.quality_auto_push")),
+                _cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.quality_auto_interval_h") or 24)
         except Exception:
             pass
         # llm_call 工厂: 每次调度执行时现取(后端/key 配置可能运行期变化)

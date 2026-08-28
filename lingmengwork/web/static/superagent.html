@@ -94,7 +94,7 @@
     </div>
 
     <div class="card">
-      <h3><span class="dot"></span>最近编排</h3>
+      <h3><span class="dot"></span>最近编排 <span class="muted" id="queueChip" style="font-size:11px;font-weight:400"></span></h3>
       <div id="runList"><span class="muted">暂无编排记录</span></div>
     </div>
   </div>
@@ -275,6 +275,12 @@ async function loadRuns(){
     const j = await r.json();
     lastRuns = j.runs||[];
     renderRuns();
+  }catch(e){}
+  // Phase 41: 编排并发/排队状态
+  try{
+    const q = await (await fetch("/api/superagent/queue")).json();
+    const chip = document.getElementById("queueChip");
+    if(chip) chip.textContent = "并发 "+(q.running||0)+"/"+(q.max||2)+(q.waiting?" · 排队 "+q.waiting:"");
   }catch(e){}
 }
 function renderRuns(){

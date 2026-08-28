@@ -1190,6 +1190,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_get()
         if p == "/api/superagent/detail":
             return self._superagent_detail()
+        if p == "/api/superagent/queue":
+            return self._superagent_queue()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1872,6 +1874,22 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"error": "未找到该编排记录"}, status=404)
         return self._send_json({"ok": True, "result": rep})
 
+    def _superagent_queue(self):
+        """GET /api/superagent/queue -> 编排并发/排队状态 (Phase 41)。
+
+        每次查询顺带应用 config `agent.max_orchestrations`(缺省 2)。
+        """
+        from .. import superagent as _sa
+        try:
+            m = int(_cfg_get(_get_cfg(), "agent.max_orchestrations") or 2)
+        except Exception:
+            m = 2
+        try:
+            _sa.set_max_orchestrations(m)
+        except Exception:
+            pass
+        return self._send_json({"ok": True, **_sa.get_queue_state()})
+
     def _superagent_run(self):
         """POST /api/superagent/run {goal, session_id?} -> 目标理解→域路由→并行编排→收敛→自检→记忆沉淀。
 
@@ -1884,9 +1902,15 @@ class Handler(SimpleHTTPRequestHandler):
             if not goal:
                 return self._send_json({"error": "缺少 goal"}, status=400)
             sa = _sa.SuperAgent(base_dir=os.getcwd())
+            try:
+                qws = min(60.0, max(1.0, float(body.get("queue_wait_sec") or 30.0)))
+            except (TypeError, ValueError):
+                qws = 30.0
             rep = sa.run(goal, session_id=body.get("session_id") or "",
                          llm_call=self._make_llm_call(),
-                         model=self._cfg_llm_model())
+                         model=self._cfg_llm_model(), queue_wait_sec=qws)
+            if rep.get("busy"):
+                return self._send_json(rep, status=429)
             return self._send_json({"ok": True, **rep})
         except Exception as e:
             return self._send_json({"error": "超级AGENT编排失败: %s" % e}, status=500)
@@ -1943,7 +1967,10 @@ class Handler(SimpleHTTPRequestHandler):
             rep = sa.run(goal, session_id=body.get("session_id") or "",
                          llm_call=self._make_llm_call(), on_stage=on_stage,
                          model=self._cfg_llm_model())
-            emit({"type": "done", "result": rep})
+            if rep.get("busy"):
+                emit({"type": "error", "busy": True, "message": rep.get("error") or "编排并发已满"})
+            else:
+                emit({"type": "done", "result": rep})
         except Exception as e:
             emit({"type": "error", "message": "超级AGENT编排失败: %s" % e})
 

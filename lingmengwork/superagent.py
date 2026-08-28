@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request as _urllib_req
@@ -530,6 +531,36 @@ def get_usage_totals(limit=500, base_dir=None):
     }
 
 
+# ------------------------------------------------------------------ Phase 41: 编排并发控制(队列 + 忙拒绝)
+_ORCH_SEM = threading.BoundedSemaphore(2)
+_ORCH_STATE = {"running": 0, "waiting": 0, "max": 2}
+_ORCH_STATE_LOCK = threading.Lock()
+
+DEFAULT_MAX_ORCHESTRATIONS = 2
+DEFAULT_QUEUE_WAIT_SEC = 30.0
+
+
+def set_max_orchestrations(n):
+    """设置并发编排上限(默认 2; 下一次获取槽位时生效)。返回生效值。"""
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        n = DEFAULT_MAX_ORCHESTRATIONS
+    n = max(1, n)
+    global _ORCH_SEM
+    with _ORCH_STATE_LOCK:
+        if _ORCH_STATE["max"] != n:
+            _ORCH_SEM = threading.BoundedSemaphore(n)
+            _ORCH_STATE["max"] = n
+    return n
+
+
+def get_queue_state():
+    """编排队列状态 {running, waiting, max}(供 API / 页面轮询)。"""
+    with _ORCH_STATE_LOCK:
+        return dict(_ORCH_STATE)
+
+
 class SuperAgent:
     """统一超级 AGENT 内核。"""
 
@@ -744,7 +775,8 @@ class SuperAgent:
             return {"experts": [], "connectors": [], "downgraded": []}
 
     # ---- 统一入口 ----
-    def run(self, goal, session_id="", llm_call=None, quality_gate=True, on_stage=None, model=""):
+    def run(self, goal, session_id="", llm_call=None, quality_gate=True, on_stage=None, model="",
+            queue_wait_sec=DEFAULT_QUEUE_WAIT_SEC):
         """超级 AGENT 统一编排入口。
 
         goal: 用户模糊目标
@@ -753,8 +785,40 @@ class SuperAgent:
         on_stage: 可选回调 on_stage({stage, ts, ok, detail}), 每阶段完成即触发
                   (Phase 38: 供 Web SSE 流式推送实时进度; 回调异常不阻塞主流程)
         model: 可选模型名(供成本估算按价格档计费, Phase 40); 空 → 默认估算档
+        queue_wait_sec: 并发槽位排队等待上限秒数(Phase 41); 超时忙拒绝 busy=True
         """
-        started = time.time()
+        # Phase 41: 并发槽位获取(有限排队等待, 超时忙拒绝; 不进编排历史)
+        with _ORCH_STATE_LOCK:
+            _ORCH_STATE["waiting"] += 1
+        try:
+            acquired = _ORCH_SEM.acquire(timeout=max(0.0, float(queue_wait_sec)))
+        finally:
+            with _ORCH_STATE_LOCK:
+                _ORCH_STATE["waiting"] -= 1
+        if not acquired:
+            return {"ok": False, "busy": True, "queued": False, "goal": goal,
+                    "error": "已有 %d 个编排并发运行, 排队 %.0fs 超时, 请稍后再试"
+                             % (_ORCH_STATE["max"], float(queue_wait_sec)),
+                    "trace": [], "elapsed_sec": 0.0, "usage": {}}
+
+        with _ORCH_STATE_LOCK:
+            _ORCH_STATE["running"] += 1
+        try:
+            return self._run_core(goal, session_id=session_id, llm_call=llm_call,
+                                  quality_gate=quality_gate, on_stage=on_stage,
+                                  model=model, started=time.time())
+        finally:
+            with _ORCH_STATE_LOCK:
+                _ORCH_STATE["running"] -= 1
+            try:
+                _ORCH_SEM.release()
+            except ValueError:
+                pass
+
+    def _run_core(self, goal, session_id="", llm_call=None, quality_gate=True,
+                  on_stage=None, model="", started=None):
+        """Phase 41: 槽位内的编排主体(仅由 run() 持并发槽位时调用)。"""
+        started = started or time.time()
         trace = []
         ok = True
         routed = []

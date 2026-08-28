@@ -561,6 +561,190 @@ def get_queue_state():
         return dict(_ORCH_STATE)
 
 
+# ------------------------------------------------------------------ Phase 43: 定时编排(调度器 + JSON 持久化)
+_SCHEDS_LOCK = threading.Lock()
+_SCHEDS = {}          # id -> entry
+_SCHEDS_LOADED = set()  # 已加载过的持久化文件路径(幂等)
+_SCHED_THREAD = None
+_INFLIGHT = set()     # 正在执行中的 schedule id(防同计划重复派发)
+
+
+def _sched_path(base_dir=None):
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    return os.path.join(base, "outputs", "superagent_schedules.json")
+
+
+def _load_scheds(base_dir=None):
+    """磁盘 → _SCHEDS(按文件路径幂等加载)。"""
+    path = _sched_path(base_dir)
+    with _SCHEDS_LOCK:
+        if path in _SCHEDS_LOADED:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for s in (data.get("schedules") or []):
+                if isinstance(s, dict) and s.get("id"):
+                    _SCHEDS[s["id"]] = s
+        except Exception:
+            pass
+        _SCHEDS_LOADED.add(path)
+
+
+def _save_scheds(base_dir=None):
+    try:
+        path = _sched_path(base_dir)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with _SCHEDS_LOCK:
+            data = {"schedules": sorted(_SCHEDS.values(), key=lambda s: s.get("created_at", ""))}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def list_schedules(base_dir=None):
+    _load_scheds(base_dir)
+    with _SCHEDS_LOCK:
+        return sorted(_SCHEDS.values(), key=lambda s: s.get("created_at", ""))
+
+
+def add_schedule(goal, every_sec=0, daily="", enabled=True, base_dir=None):
+    """新建定时编排。every_sec>=60 或 daily='HH:MM' 至少一个有效, 否则 ValueError。"""
+    goal = (goal or "").strip()
+    if not goal:
+        raise ValueError("goal 不能为空")
+    try:
+        every_sec = int(every_sec or 0)
+    except (TypeError, ValueError):
+        every_sec = 0
+    daily = (daily or "").strip()
+    if daily:
+        if not re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", daily):
+            raise ValueError("daily 需合法 HH:MM 格式 (00:00-23:59)")
+    elif every_sec < 60:
+        raise ValueError("every_sec 需 >=60 秒, 或提供 daily 时间")
+    sid = "s_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
+    entry = {"id": sid, "goal": goal, "every_sec": every_sec, "daily": daily,
+             "enabled": bool(enabled), "created_at": _now(),
+             "last_run": "", "last_ok": None, "last_error": "", "run_count": 0}
+    with _SCHEDS_LOCK:
+        _SCHEDS[sid] = entry
+    _save_scheds(base_dir)
+    return dict(entry)
+
+
+def update_schedule(sid, patch, base_dir=None):
+    """更新定时编排(白名单键: goal/every_sec/daily/enabled)。不存在返回 None。"""
+    with _SCHEDS_LOCK:
+        s = _SCHEDS.get(sid)
+        if not s:
+            return None
+        for k in ("goal", "every_sec", "daily", "enabled"):
+            if k in patch and patch[k] is not None:
+                s[k] = patch[k]
+        snap = dict(s)
+    _save_scheds(base_dir)
+    return snap
+
+
+def remove_schedule(sid, base_dir=None):
+    with _SCHEDS_LOCK:
+        removed = _SCHEDS.pop(sid, None) is not None
+    if removed:
+        _save_scheds(base_dir)
+    return removed
+
+
+def _sched_due(s, now=None):
+    """到期判定: 从未运行 → 立即到期; every_sec 按间隔; daily 每日 HH:MM(当天未跑过才到期)。"""
+    if not s.get("enabled"):
+        return False
+    now = now or datetime.now()
+    lr = s.get("last_run") or ""
+    if not lr:
+        return True
+    try:
+        last = datetime.strptime(lr, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return True
+    daily = (s.get("daily") or "").strip()
+    if daily:
+        try:
+            hh, mm = daily.split(":")
+            target = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+        except Exception:
+            return False
+        return now >= target and last < target
+    ev = int(s.get("every_sec") or 0)
+    if ev < 60:
+        return False
+    return (now - last).total_seconds() >= ev
+
+
+def run_schedule(sid, base_dir=None, llm_call=None, queue_wait_sec=5.0):
+    """立即执行一次定时编排(同步), 更新 last_run/last_ok/run_count 并持久化。"""
+    _load_scheds(base_dir)
+    with _SCHEDS_LOCK:
+        s = _SCHEDS.get(sid)
+    if not s:
+        return {"ok": False, "error": "schedule 不存在: %s" % sid}
+    sa = SuperAgent(base_dir=base_dir)
+    rep = sa.run(s["goal"], session_id="sched:%s" % sid, llm_call=llm_call,
+                 quality_gate=False, queue_wait_sec=queue_wait_sec)
+    with _SCHEDS_LOCK:
+        s["last_run"] = _now()
+        s["last_ok"] = bool(rep.get("ok"))
+        s["last_error"] = rep.get("error", "") or ""
+        s["run_count"] = int(s.get("run_count") or 0) + 1
+    _save_scheds(base_dir)
+    return {"ok": bool(rep.get("ok")), "schedule_id": sid, "result": rep}
+
+
+def _run_inflight_guard(sid, base_dir=None, llm_call=None):
+    try:
+        run_schedule(sid, base_dir=base_dir, llm_call=llm_call)
+    finally:
+        with _SCHEDS_LOCK:
+            _INFLIGHT.discard(sid)
+
+
+def _scheduler_tick(base_dir=None, llm_call=None):
+    """扫描到期计划并逐个派发后台执行(同计划在飞不重复派发)。"""
+    _load_scheds(base_dir)
+    for s in list_schedules(base_dir):
+        if not _sched_due(s):
+            continue
+        with _SCHEDS_LOCK:
+            if s["id"] in _INFLIGHT:
+                continue
+            _INFLIGHT.add(s["id"])
+        t = threading.Thread(target=_run_inflight_guard,
+                             args=(s["id"],), kwargs={"base_dir": base_dir, "llm_call": llm_call},
+                             daemon=True)
+        t.start()
+
+
+def start_scheduler(base_dir=None, llm_call=None, tick_sec=20):
+    """启动常驻调度线程(daemon, 幂等)。供 Web 服务启动时调用。"""
+    global _SCHED_THREAD
+    with _SCHEDS_LOCK:
+        if _SCHED_THREAD and _SCHED_THREAD.is_alive():
+            return False
+
+        def _loop():
+            while True:
+                try:
+                    _scheduler_tick(base_dir=base_dir, llm_call=llm_call)
+                except Exception:
+                    pass
+                time.sleep(max(5, int(tick_sec)))
+
+        _SCHED_THREAD = threading.Thread(target=_loop, daemon=True, name="superagent-scheduler")
+        _SCHED_THREAD.start()
+        return True
+
+
 class SuperAgent:
     """统一超级 AGENT 内核。"""
 

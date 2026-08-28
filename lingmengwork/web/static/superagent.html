@@ -104,6 +104,27 @@
       <div id="artList"><span class="muted">加载中…</span></div>
       <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
     </div>
+
+    <!-- Phase 43: 定时编排 -->
+    <div class="card">
+      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">间隔分钟或每日 HH:MM, 到期自动触发超级 AGENT</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:2;min-width:220px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">目标</div>
+          <textarea id="schedGoal" style="min-height:44px" placeholder="要自动执行的目标, 如: 每天巡检服务并汇总健康报告"></textarea>
+        </div>
+        <div style="flex:1;min-width:150px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">间隔(分钟, ≥1)</div>
+          <input id="schedEvery" type="number" min="1" placeholder="如 60">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">或每日时间 HH:MM</div>
+          <input id="schedDaily" placeholder="如 08:30">
+        </div>
+        <button onclick="createSchedule()">➕ 添加计划</button>
+      </div>
+      <div id="schedList" style="margin-top:10px"><span class="muted">加载中…</span></div>
+    </div>
   </div>
 
   <div id="result" class="hidden" style="margin-top:14px">
@@ -322,6 +343,72 @@ async function previewArtifact(path){
     box.textContent = "["+j.name+(j.truncated?" · 已截断 64KB":"")+"]\n\n"+(j.content||"(空文件)");
   }catch(e){ alert("请求异常: "+e); }
 }
+
+// ---------- Phase 43: 定时编排 ----------
+async function loadSchedules(){
+  try{
+    const j = await (await fetch("/api/superagent/schedules")).json();
+    const list = j.schedules||[];
+    const box = document.getElementById("schedList");
+    if(!list.length){ box.innerHTML = '<span class="muted">暂无计划。填写目标与间隔后添加。</span>'; return; }
+    box.innerHTML = list.map(s=>
+      '<div class="run" style="align-items:flex-start">'+
+        '<span><b>'+esc((s.goal||"").slice(0,40))+'</b> '+
+          '<span class="muted">'+(s.daily?('每日 '+esc(s.daily)):('每 '+Math.round((s.every_sec||0)/60)+' 分钟'))+
+          ' · 已跑 '+ (s.run_count||0) +' 次'+ (s.last_run?(' · 上次 '+esc(s.last_run)):('')) +'</span>'+
+          (s.last_ok===false?' <span class="ps err">❌ 上次失败</span>':'')+'</span>'+
+        '<span>'+
+          '<label style="font-size:12px;margin-right:8px"><input type="checkbox" style="width:auto" '+(s.enabled?'checked':'')+
+            ' onchange="toggleSchedule(\''+esc(s.id)+'\', this.checked)"> 启用</label>'+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="runScheduleNow(\''+esc(s.id)+'\')">立即执行</button> '+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="deleteSchedule(\''+esc(s.id)+'\')">删除</button>'+
+        '</span></div>').join("");
+  }catch(e){}
+}
+
+async function createSchedule(){
+  const goal = document.getElementById("schedGoal").value.trim();
+  const every = document.getElementById("schedEvery").value;
+  const daily = document.getElementById("schedDaily").value.trim();
+  if(!goal){ alert("请填写目标"); return; }
+  const body = {goal: goal};
+  if(daily){ body.daily = daily; }
+  else if(every){ body.every_sec = Math.max(1, parseInt(every,10)||1) * 60; }
+  else { alert("请填写间隔分钟或每日时间"); return; }
+  try{
+    const r = await fetch("/api/superagent/schedules/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const j = await r.json();
+    if(!j.ok){ alert("创建失败: "+(j.error||"未知")); return; }
+    document.getElementById("schedGoal").value = "";
+    document.getElementById("schedEvery").value = "";
+    document.getElementById("schedDaily").value = "";
+    loadSchedules();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function toggleSchedule(id, enabled){
+  try{
+    await fetch("/api/superagent/schedules/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, enabled})});
+    loadSchedules();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function deleteSchedule(id){
+  if(!confirm("删除该定时计划?")) return;
+  try{
+    await fetch("/api/superagent/schedules/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    loadSchedules();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function runScheduleNow(id){
+  try{
+    const j = await (await fetch("/api/superagent/schedules/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})})).json();
+    if(!j.ok){ alert("执行失败: "+(j.error||"未知")); }
+    loadSchedules();
+    loadRuns();
+  }catch(e){ alert("请求异常: "+e); }
+}
 function renderRuns(){
   document.getElementById("kRuns").textContent = lastRuns.length;
   const cross = lastRuns.filter(x=>(x.routed||[]).length>=2).length;
@@ -354,7 +441,9 @@ async function loadRunDetail(ts){
 }
 
 loadRuns();
+loadSchedules();
 setInterval(loadRuns, 5000);
+setInterval(loadSchedules, 15000);
 </script>
 </body>
 </html>

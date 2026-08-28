@@ -1196,6 +1196,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_artifacts()
         if p == "/api/superagent/artifacts/file":
             return self._superagent_artifact_file()
+        if p == "/api/superagent/schedules":
+            return self._schedules_get()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1520,6 +1522,15 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 超级 AGENT SSE 流式编排 (Phase 38): 每阶段实时推送进度 ----
         if p == "/api/superagent/run/stream":
             return self._superagent_run_stream()
+        # ---- 定时编排 (Phase 43): 计划增删改/立即执行 ----
+        if p == "/api/superagent/schedules/create":
+            return self._schedules_create()
+        if p == "/api/superagent/schedules/update":
+            return self._schedules_update()
+        if p == "/api/superagent/schedules/delete":
+            return self._schedules_delete()
+        if p == "/api/superagent/schedules/run":
+            return self._schedules_run_now()
         # ---- 插件中枢 (Phase 32): 动态注册 connector/expert ----
         if p == "/api/plugins/connectors/register":
             return self._plugin_connector_register()
@@ -2051,6 +2062,66 @@ class Handler(SimpleHTTPRequestHandler):
                 emit({"type": "done", "result": rep})
         except Exception as e:
             emit({"type": "error", "message": "超级AGENT编排失败: %s" % e})
+
+    # ---------------------------------------------------------------
+    # 定时编排 (Phase 43): 计划 CRUD + 立即执行
+    # ---------------------------------------------------------------
+    def _schedules_get(self):
+        """GET /api/superagent/schedules -> 定时编排计划列表。"""
+        from .. import superagent as _sa
+        return self._send_json({"ok": True, "schedules": _sa.list_schedules(base_dir=os.getcwd())})
+
+    def _schedules_create(self):
+        """POST /api/superagent/schedules/create {goal, every_sec?, daily?, enabled?}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        try:
+            entry = _sa.add_schedule(body.get("goal") or "",
+                                     every_sec=body.get("every_sec") or 0,
+                                     daily=body.get("daily") or "",
+                                     enabled=body.get("enabled", True),
+                                     base_dir=os.getcwd())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "schedule": entry})
+
+    def _schedules_update(self):
+        """POST /api/superagent/schedules/update {id, goal?/every_sec?/daily?/enabled?}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        sid = (body.get("id") or "").strip()
+        if not sid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        snap = _sa.update_schedule(sid, body, base_dir=os.getcwd())
+        if snap is None:
+            return self._send_json({"error": "schedule 不存在"}, status=404)
+        return self._send_json({"ok": True, "schedule": snap})
+
+    def _schedules_delete(self):
+        """POST /api/superagent/schedules/delete {id}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        sid = (body.get("id") or "").strip()
+        if not sid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        if not _sa.remove_schedule(sid, base_dir=os.getcwd()):
+            return self._send_json({"error": "schedule 不存在"}, status=404)
+        return self._send_json({"ok": True, "removed": sid})
+
+    def _schedules_run_now(self):
+        """POST /api/superagent/schedules/run {id} -> 立即执行一次(同步)。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        sid = (body.get("id") or "").strip()
+        if not sid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        rep = _sa.run_schedule(sid, base_dir=os.getcwd(),
+                               llm_call=self._make_llm_call(),
+                               queue_wait_sec=10.0)
+        return self._send_json({"ok": rep.get("ok", False),
+                                "schedule_id": sid,
+                                "error": rep.get("error", ""),
+                                "goal_ok": (rep.get("result") or {}).get("ok")})
 
     # ---------------------------------------------------------------
     # 插件中枢 (Phase 32): Connector/Expert 注册/发现/接入
@@ -4639,6 +4710,16 @@ def run_web(host="127.0.0.1", port=PORT, cfg=None):
     try:
         from .. import event_bus as _eb
         _eb.init_bus(persist_path=os.path.join(os.getcwd(), ".lmw_events", "events.jsonl"))
+    except Exception:
+        pass
+
+    # 定时编排调度器 (Phase 43): 常驻 daemon, 每 20s 扫描到期计划
+    try:
+        from .. import superagent as _sa
+        # llm_call 工厂: 每次调度执行时现取(后端/key 配置可能运行期变化)
+        _sa.start_scheduler(base_dir=os.getcwd(),
+                            llm_call=lambda p, system=None:
+                                (Handler._make_llm_call(None) or (lambda q, s=None: None))(p, system=system))
     except Exception:
         pass
 

@@ -626,11 +626,12 @@ def list_schedules(base_dir=None):
 
 
 def add_schedule(goal="", every_sec=0, daily="", enabled=True, base_dir=None,
-                 template_id="", tpl_vars=None):
+                 template_id="", tpl_vars=None, retry_max=None):
     """新建定时编排。every_sec>=60 或 daily='HH:MM' 至少一个有效, 否则 ValueError。
 
     Phase 45 模板联动: 传 template_id(+tpl_vars) 时从模板渲染目标快照;
     模板不存在或参数缺失 → ValueError。goal 也可同时提供(优先用模板渲染结果)。
+    Phase 52: retry_max=失败自动重试次数(0-5, 默认 0)。
     """
     tpl_vars = dict(tpl_vars or {})
     template_id = (template_id or "").strip()
@@ -657,11 +658,15 @@ def add_schedule(goal="", every_sec=0, daily="", enabled=True, base_dir=None,
             raise ValueError("daily 需合法 HH:MM 格式 (00:00-23:59)")
     elif every_sec < 60:
         raise ValueError("every_sec 需 >=60 秒, 或提供 daily 时间")
+    try:
+        retry_max = min(5, max(0, int(retry_max if retry_max is not None else 0)))
+    except (TypeError, ValueError):
+        retry_max = 0
     sid = "s_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
     entry = {"id": sid, "goal": goal, "every_sec": every_sec, "daily": daily,
              "enabled": bool(enabled), "created_at": _now(),
              "last_run": "", "last_ok": None, "last_error": "", "run_count": 0,
-             "template_id": template_id, "tpl_vars": tpl_vars}
+             "template_id": template_id, "tpl_vars": tpl_vars, "retry_max": retry_max}
     with _SCHEDS_LOCK:
         _SCHEDS[sid] = entry
     _save_scheds(base_dir)
@@ -669,12 +674,12 @@ def add_schedule(goal="", every_sec=0, daily="", enabled=True, base_dir=None,
 
 
 def update_schedule(sid, patch, base_dir=None):
-    """更新定时编排(白名单键: goal/every_sec/daily/enabled/template_id/tpl_vars)。不存在返回 None。"""
+    """更新定时编排(白名单键: goal/every_sec/daily/enabled/template_id/tpl_vars/retry_max)。不存在返回 None。"""
     with _SCHEDS_LOCK:
         s = _SCHEDS.get(sid)
         if not s:
             return None
-        for k in ("goal", "every_sec", "daily", "enabled", "template_id", "tpl_vars"):
+        for k in ("goal", "every_sec", "daily", "enabled", "template_id", "tpl_vars", "retry_max"):
             if k in patch and patch[k] is not None:
                 s[k] = patch[k]
         snap = dict(s)
@@ -732,21 +737,36 @@ def _schedule_effective_goal(s, base_dir=None):
 
 
 def run_schedule(sid, base_dir=None, llm_call=None, queue_wait_sec=5.0):
-    """立即执行一次定时编排(同步), 更新 last_run/last_ok/run_count 并持久化。"""
+    """立即执行一次定时编排(同步), 更新 last_run/last_ok/run_count 并持久化。
+
+    Phase 52: 失败按计划 retry_max 自动重试(指数退避, 见 run_with_retry)。
+    """
     _load_scheds(base_dir)
     with _SCHEDS_LOCK:
         s = _SCHEDS.get(sid)
     if not s:
         return {"ok": False, "error": "schedule 不存在: %s" % sid}
     eff_goal = _schedule_effective_goal(s, base_dir=base_dir)
+    try:
+        retry_max = min(5, max(0, int(s.get("retry_max") or 0)))
+    except (TypeError, ValueError):
+        retry_max = 0
     sa = SuperAgent(base_dir=base_dir)
-    rep = sa.run(eff_goal, session_id="sched:%s" % sid, llm_call=llm_call,
-                 quality_gate=False, queue_wait_sec=queue_wait_sec)
+    if retry_max > 0:
+        rep = run_with_retry(eff_goal, session_id="sched:%s" % sid, llm_call=llm_call,
+                             quality_gate=False, base_dir=base_dir,
+                             retry_max=retry_max, backoff_base=2.0,
+                             queue_wait_sec=queue_wait_sec)
+    else:
+        rep = sa.run(eff_goal, session_id="sched:%s" % sid, llm_call=llm_call,
+                     quality_gate=False, queue_wait_sec=queue_wait_sec)
     with _SCHEDS_LOCK:
         s["last_run"] = _now()
         s["last_ok"] = bool(rep.get("ok"))
         s["last_error"] = rep.get("error", "") or ""
         s["run_count"] = int(s.get("run_count") or 0) + 1
+        if rep.get("retries"):
+            s["last_retries"] = rep["retries"]
     _save_scheds(base_dir)
     return {"ok": bool(rep.get("ok")), "schedule_id": sid, "result": rep}
 
@@ -1783,3 +1803,47 @@ def run(goal, session_id="", llm_call=None, base_dir=None, quality_gate=True):
     """模块级便捷入口。"""
     return SuperAgent(base_dir=base_dir).run(
         goal, session_id=session_id, llm_call=llm_call, quality_gate=quality_gate)
+
+
+# ------------------------------------------------------------------ Phase 52: 编排失败自动重试(指数退避)
+_DEFAULT_RETRY = {"max": 0, "backoff": 5.0}
+
+
+def set_default_retry_max(n, backoff_sec=None):
+    """设置默认重试次数(0=不重试)与退避基数秒。供 Web 启动时注入 config。"""
+    try:
+        _DEFAULT_RETRY["max"] = max(0, int(n))
+    except (TypeError, ValueError):
+        pass
+    if backoff_sec is not None:
+        try:
+            _DEFAULT_RETRY["backoff"] = max(0.0, float(backoff_sec))
+        except (TypeError, ValueError):
+            pass
+    return dict(_DEFAULT_RETRY)
+
+
+def run_with_retry(goal, session_id="", llm_call=None, quality_gate=True, model="",
+                   base_dir=None, retry_max=None, backoff_base=None, queue_wait_sec=5.0):
+    """带指数退避的编排重试: 失败/busy 按 backoff*2^(n-1) 退避后重试(封顶 60s)。
+
+    retry_max 为 None 时用模块默认(_DEFAULT_RETRY); 返回最后一次结果, 附 retries=已重试次数。
+    """
+    if retry_max is None:
+        n = _DEFAULT_RETRY["max"]
+    else:
+        n = max(0, int(retry_max))
+    base = _DEFAULT_RETRY["backoff"] if backoff_base is None else max(0.0, float(backoff_base))
+    sa = SuperAgent(base_dir=base_dir)
+    attempt = 0
+    while True:
+        rep = sa.run(goal, session_id=session_id, llm_call=llm_call,
+                     quality_gate=quality_gate, model=model,
+                     queue_wait_sec=min(queue_wait_sec, 2.0))
+        if rep.get("ok") or attempt >= n:
+            rep["retries"] = attempt
+            return rep
+        attempt += 1
+        wait = min(60.0, base * (2 ** (attempt - 1)))
+        if wait > 0:
+            time.sleep(wait)

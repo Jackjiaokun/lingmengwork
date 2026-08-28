@@ -2266,7 +2266,8 @@ class Handler(SimpleHTTPRequestHandler):
                                      enabled=body.get("enabled", True),
                                      base_dir=os.getcwd(),
                                      template_id=body.get("template_id") or "",
-                                     tpl_vars=body.get("tpl_vars") or {})
+                                     tpl_vars=body.get("tpl_vars") or {},
+                                     retry_max=body.get("retry_max") or 0)
         except ValueError as e:
             return self._send_json({"error": str(e)}, status=400)
         return self._send_json({"ok": True, "schedule": entry})
@@ -5062,6 +5063,12 @@ def run_web(host="127.0.0.1", port=PORT, cfg=None):
             _sa.set_digest_time(_cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.digest_time") or "")
         except Exception:
             _sa.set_digest_time("")
+        # 定时编排失败自动重试次数 (Phase 52): config agent.orchestration_retry_max
+        try:
+            _sa.set_default_retry_max(_cfg_get(_RUNTIME_CONFIG or _get_cfg(),
+                                               "agent.orchestration_retry_max") or 0)
+        except Exception:
+            pass
         # llm_call 工厂: 每次调度执行时现取(后端/key 配置可能运行期变化)
         _sa.start_scheduler(base_dir=os.getcwd(),
                             llm_call=lambda p, system=None:

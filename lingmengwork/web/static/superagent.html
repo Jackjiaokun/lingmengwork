@@ -105,14 +105,21 @@
       <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
     </div>
 
-    <!-- Phase 43: 定时编排 -->
+    <!-- Phase 43/45: 定时编排 -->
     <div class="card">
-      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">间隔分钟或每日 HH:MM, 到期自动触发超级 AGENT</span></h3>
+      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">手动目标或引用模板, 间隔分钟或每日 HH:MM 到期自动触发</span></h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:2;min-width:220px">
+        <div style="flex:1;min-width:160px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">引用模板(可选)</div>
+          <select id="schedTpl" onchange="renderSchedTplVars()" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
+            <option value="">— 手动填写目标 —</option>
+          </select>
+        </div>
+        <div id="schedGoalWrap" style="flex:2;min-width:220px">
           <div class="muted" style="font-size:11px;margin-bottom:4px">目标</div>
           <textarea id="schedGoal" style="min-height:44px" placeholder="要自动执行的目标, 如: 每天巡检服务并汇总健康报告"></textarea>
         </div>
+        <div id="schedTplVarsWrap" class="hidden" style="flex:2;min-width:220px"></div>
         <div style="flex:1;min-width:150px">
           <div class="muted" style="font-size:11px;margin-bottom:4px">间隔(分钟, ≥1)</div>
           <input id="schedEvery" type="number" min="1" placeholder="如 60">
@@ -371,6 +378,7 @@ async function loadSchedules(){
     box.innerHTML = list.map(s=>
       '<div class="run" style="align-items:flex-start">'+
         '<span><b>'+esc((s.goal||"").slice(0,40))+'</b> '+
+          (s.template_name?'<span class="tag ok">🧩 '+esc(s.template_name)+'</span> ':'')+
           '<span class="muted">'+(s.daily?('每日 '+esc(s.daily)):('每 '+Math.round((s.every_sec||0)/60)+' 分钟'))+
           ' · 已跑 '+ (s.run_count||0) +' 次'+ (s.last_run?(' · 上次 '+esc(s.last_run)):('')) +'</span>'+
           (s.last_ok===false?' <span class="ps err">❌ 上次失败</span>':'')+'</span>'+
@@ -383,12 +391,45 @@ async function loadSchedules(){
   }catch(e){}
 }
 
+// Phase 45: 计划引用模板 — 下拉选中后动态生成参数输入
+let schedTplCache = [];
+function renderSchedTplVars(){
+  const sel = document.getElementById("schedTpl");
+  const tid = sel.value;
+  const goalWrap = document.getElementById("schedGoalWrap");
+  const varsWrap = document.getElementById("schedTplVarsWrap");
+  const t = schedTplCache.find(x=>x.id===tid);
+  if(!t){
+    goalWrap.classList.remove("hidden");
+    varsWrap.classList.add("hidden");
+    varsWrap.innerHTML = "";
+    return;
+  }
+  goalWrap.classList.add("hidden");
+  varsWrap.classList.remove("hidden");
+  const fields = t.fields||[];
+  varsWrap.innerHTML = '<div class="muted" style="font-size:11px;margin-bottom:4px">模板参数: '+esc(t.name)+'</div>'+
+    (fields.length? fields.map(f=>'<input class="schedTplVar" data-field="'+esc(f)+'" placeholder="'+esc(f)+'" style="margin-bottom:4px">').join("")
+      : '<span class="muted" style="font-size:12px">该模板无参数</span>');
+}
+
 async function createSchedule(){
-  const goal = document.getElementById("schedGoal").value.trim();
   const every = document.getElementById("schedEvery").value;
   const daily = document.getElementById("schedDaily").value.trim();
-  if(!goal){ alert("请填写目标"); return; }
-  const body = {goal: goal};
+  const body = {};
+  const tid = document.getElementById("schedTpl").value;
+  if(tid){
+    body.template_id = tid;
+    const vars = {};
+    document.querySelectorAll("#schedTplVarsWrap .schedTplVar").forEach(inp=>{
+      vars[inp.dataset.field] = inp.value;
+    });
+    body.tpl_vars = vars;
+  } else {
+    const goal = document.getElementById("schedGoal").value.trim();
+    if(!goal){ alert("请填写目标"); return; }
+    body.goal = goal;
+  }
   if(daily){ body.daily = daily; }
   else if(every){ body.every_sec = Math.max(1, parseInt(every,10)||1) * 60; }
   else { alert("请填写间隔分钟或每日时间"); return; }
@@ -428,13 +469,23 @@ async function runScheduleNow(id){
 }
 
 // ---------- Phase 44: 模板库 ----------
+let tplCache = [];
 async function loadTemplates(){
   try{
     const j = await (await fetch("/api/superagent/templates")).json();
-    const tpls = j.templates||[];
+    tplCache = j.templates||[];
+    // Phase 45: 同步填充定时编排的模板下拉
+    schedTplCache = tplCache;
+    const sel = document.getElementById("schedTpl");
+    if(sel){
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— 手动填写目标 —</option>' +
+        tplCache.map(t=>'<option value="'+esc(t.id)+'">'+esc(t.name)+'</option>').join("");
+      sel.value = cur;
+    }
     const box = document.getElementById("tplList");
-    if(!tpls.length){ box.innerHTML = '<span class="muted">暂无模板。保存常用目标模板后可一键发起。</span>'; return; }
-    box.innerHTML = tpls.map(t=>
+    if(!tplCache.length){ box.innerHTML = '<span class="muted">暂无模板。保存常用目标模板后可一键发起。</span>'; return; }
+    box.innerHTML = tplCache.map(t=>
       '<div class="run" style="align-items:flex-start">'+
         '<span><b>'+esc(t.name)+'</b> <span class="muted">'+esc((t.goal_template||"").slice(0,60))+'</span>'+
           '<br><span class="muted">'+((t.fields||[]).length?('参数: '+t.fields.map(esc).join(" · ")):'无参数')+

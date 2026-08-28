@@ -2083,7 +2083,7 @@ class Handler(SimpleHTTPRequestHandler):
         return self._send_json({"ok": True, "schedules": _sa.list_schedules(base_dir=os.getcwd())})
 
     def _schedules_create(self):
-        """POST /api/superagent/schedules/create {goal, every_sec?, daily?, enabled?}。"""
+        """POST /api/superagent/schedules/create {goal, every_sec?, daily?, enabled?, template_id?, tpl_vars?}。"""
         from .. import superagent as _sa
         body = self._read_json({})
         try:
@@ -2091,13 +2091,15 @@ class Handler(SimpleHTTPRequestHandler):
                                      every_sec=body.get("every_sec") or 0,
                                      daily=body.get("daily") or "",
                                      enabled=body.get("enabled", True),
-                                     base_dir=os.getcwd())
+                                     base_dir=os.getcwd(),
+                                     template_id=body.get("template_id") or "",
+                                     tpl_vars=body.get("tpl_vars") or {})
         except ValueError as e:
             return self._send_json({"error": str(e)}, status=400)
         return self._send_json({"ok": True, "schedule": entry})
 
     def _schedules_update(self):
-        """POST /api/superagent/schedules/update {id, goal?/every_sec?/daily?/enabled?}。"""
+        """POST /api/superagent/schedules/update {id, goal?/every_sec?/daily?/enabled?/template_id?/tpl_vars?}。"""
         from .. import superagent as _sa
         body = self._read_json({})
         sid = (body.get("id") or "").strip()

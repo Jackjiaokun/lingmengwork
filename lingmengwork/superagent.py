@@ -604,13 +604,44 @@ def _save_scheds(base_dir=None):
 
 
 def list_schedules(base_dir=None):
+    """计划列表(附 template_name — 引用的模板名, 已删模板留空)。"""
     _load_scheds(base_dir)
+    _load_tpls(base_dir)
+    out = []
     with _SCHEDS_LOCK:
-        return sorted(_SCHEDS.values(), key=lambda s: s.get("created_at", ""))
+        items = sorted(_SCHEDS.values(), key=lambda s: s.get("created_at", ""))
+    for s in items:
+        snap = dict(s)
+        tid = s.get("template_id") or ""
+        if tid:
+            with _TPL_LOCK:
+                t = _TPLS.get(tid)
+            snap["template_name"] = t["name"] if t else ""
+        else:
+            snap["template_name"] = ""
+        out.append(snap)
+    return out
 
 
-def add_schedule(goal, every_sec=0, daily="", enabled=True, base_dir=None):
-    """新建定时编排。every_sec>=60 或 daily='HH:MM' 至少一个有效, 否则 ValueError。"""
+def add_schedule(goal="", every_sec=0, daily="", enabled=True, base_dir=None,
+                 template_id="", tpl_vars=None):
+    """新建定时编排。every_sec>=60 或 daily='HH:MM' 至少一个有效, 否则 ValueError。
+
+    Phase 45 模板联动: 传 template_id(+tpl_vars) 时从模板渲染目标快照;
+    模板不存在或参数缺失 → ValueError。goal 也可同时提供(优先用模板渲染结果)。
+    """
+    tpl_vars = dict(tpl_vars or {})
+    template_id = (template_id or "").strip()
+    if template_id:
+        _load_tpls(base_dir)
+        with _TPL_LOCK:
+            t = _TPLS.get(template_id)
+        if not t:
+            raise ValueError("模板不存在: %s" % template_id)
+        goal_r, missing = render_template_text(t["goal_template"], tpl_vars)
+        if missing:
+            raise ValueError("模板参数缺失: %s" % ", ".join(missing))
+        goal = goal_r
     goal = (goal or "").strip()
     if not goal:
         raise ValueError("goal 不能为空")
@@ -627,7 +658,8 @@ def add_schedule(goal, every_sec=0, daily="", enabled=True, base_dir=None):
     sid = "s_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
     entry = {"id": sid, "goal": goal, "every_sec": every_sec, "daily": daily,
              "enabled": bool(enabled), "created_at": _now(),
-             "last_run": "", "last_ok": None, "last_error": "", "run_count": 0}
+             "last_run": "", "last_ok": None, "last_error": "", "run_count": 0,
+             "template_id": template_id, "tpl_vars": tpl_vars}
     with _SCHEDS_LOCK:
         _SCHEDS[sid] = entry
     _save_scheds(base_dir)
@@ -635,12 +667,12 @@ def add_schedule(goal, every_sec=0, daily="", enabled=True, base_dir=None):
 
 
 def update_schedule(sid, patch, base_dir=None):
-    """更新定时编排(白名单键: goal/every_sec/daily/enabled)。不存在返回 None。"""
+    """更新定时编排(白名单键: goal/every_sec/daily/enabled/template_id/tpl_vars)。不存在返回 None。"""
     with _SCHEDS_LOCK:
         s = _SCHEDS.get(sid)
         if not s:
             return None
-        for k in ("goal", "every_sec", "daily", "enabled"):
+        for k in ("goal", "every_sec", "daily", "enabled", "template_id", "tpl_vars"):
             if k in patch and patch[k] is not None:
                 s[k] = patch[k]
         snap = dict(s)
@@ -682,6 +714,21 @@ def _sched_due(s, now=None):
     return (now - last).total_seconds() >= ev
 
 
+def _schedule_effective_goal(s, base_dir=None):
+    """Phase 45: 计划生效目标 — 引用模板时执行期重渲染(参数快照); 模板已删/渲染失败回退目标快照。"""
+    goal = (s.get("goal") or "").strip()
+    tid = s.get("template_id") or ""
+    if not tid:
+        return goal
+    _load_tpls(base_dir)
+    with _TPL_LOCK:
+        t = _TPLS.get(tid)
+    if not t:
+        return goal
+    g, missing = render_template_text(t["goal_template"], s.get("tpl_vars") or {})
+    return g if (not missing and g.strip()) else goal
+
+
 def run_schedule(sid, base_dir=None, llm_call=None, queue_wait_sec=5.0):
     """立即执行一次定时编排(同步), 更新 last_run/last_ok/run_count 并持久化。"""
     _load_scheds(base_dir)
@@ -689,8 +736,9 @@ def run_schedule(sid, base_dir=None, llm_call=None, queue_wait_sec=5.0):
         s = _SCHEDS.get(sid)
     if not s:
         return {"ok": False, "error": "schedule 不存在: %s" % sid}
+    eff_goal = _schedule_effective_goal(s, base_dir=base_dir)
     sa = SuperAgent(base_dir=base_dir)
-    rep = sa.run(s["goal"], session_id="sched:%s" % sid, llm_call=llm_call,
+    rep = sa.run(eff_goal, session_id="sched:%s" % sid, llm_call=llm_call,
                  quality_gate=False, queue_wait_sec=queue_wait_sec)
     with _SCHEDS_LOCK:
         s["last_run"] = _now()

@@ -5025,6 +5025,13 @@ def run_web(host="127.0.0.1", port=PORT, cfg=None):
     # 定时编排调度器 (Phase 43): 常驻 daemon, 每 20s 扫描到期计划
     try:
         from .. import superagent as _sa
+        # 通知消息内嵌报告链接用(Phase 49): 优先 config agent.public_base_url
+        try:
+            _pub = _cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.public_base_url") \
+                or ("http://127.0.0.1:%d" % port)
+        except Exception:
+            _pub = "http://127.0.0.1:%d" % port
+        _sa.set_public_base_url(_pub)
         # llm_call 工厂: 每次调度执行时现取(后端/key 配置可能运行期变化)
         _sa.start_scheduler(base_dir=os.getcwd(),
                             llm_call=lambda p, system=None:

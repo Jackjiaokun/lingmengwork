@@ -41,14 +41,15 @@ def test_webhook_wrap_formats():
     payload = _sample_payload()
     # raw: 原样
     assert sa_mod._webhook_wrap({"fmt": "raw"}, payload) is payload
-    # feishu
+    # feishu: interactive 卡片(Phase 49 富文本)
     f = sa_mod._webhook_wrap({"fmt": "feishu"}, payload)
-    assert f["msg_type"] == "text"
-    assert "巡检服务" in f["content"]["text"] and "✅ 成功" in f["content"]["text"]
-    # dingtalk
+    assert f["msg_type"] == "interactive"
+    md = f["card"]["elements"][0]["content"]
+    assert "巡检服务" in md and "✅ 成功" in md
+    # dingtalk: markdown 消息
     d = sa_mod._webhook_wrap({"fmt": "dingtalk"}, payload)
-    assert d["msgtype"] == "text"
-    assert "巡检服务" in d["text"]["content"] and "耗时: 3s" in d["text"]["content"]
+    assert d["msgtype"] == "markdown"
+    assert "巡检服务" in d["markdown"]["text"] and "**耗时**: 3s" in d["markdown"]["text"]
     # 无 fmt 字段 → raw
     assert sa_mod._webhook_wrap({}, payload) is payload
 
@@ -93,8 +94,8 @@ def test_feishu_delivery_structure(tmp_path):
         sa_mod.add_webhook("http://127.0.0.1:9107/hook", fmt="feishu",
                            base_dir=str(tmp_path))
         sa_mod.notify_webhooks(_sample_payload(), base_dir=str(tmp_path), blocking=True)
-        assert _Capture.payload.get("msg_type") == "text", "飞书格式应包装为 msg_type 结构"
-        assert "巡检服务" in _Capture.payload["content"]["text"]
+        assert _Capture.payload.get("msg_type") == "interactive", "飞书格式应为 interactive 卡片"
+        assert "巡检服务" in _Capture.payload["card"]["elements"][0]["content"]
     finally:
         srv.shutdown()
         srv.server_close()

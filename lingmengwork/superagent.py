@@ -969,29 +969,91 @@ def list_webhooks(base_dir=None):
 
 
 _WEBHOOK_FORMATS = ("raw", "feishu", "dingtalk")
+_PUBLIC_BASE_URL = {"url": ""}
+
+
+def set_public_base_url(url):
+    """设置面板公开可达基础地址(供通知消息内嵌报告链接)。供 Web 启动时调用。"""
+    _PUBLIC_BASE_URL["url"] = (url or "").rstrip("/")
+    return _PUBLIC_BASE_URL["url"]
+
+
+def _report_url_for(result):
+    """生成单次编排的公开报告链接(未配置 base_url 或无 ts 时返回空)。"""
+    base = _PUBLIC_BASE_URL.get("url") or ""
+    ts = result.get("ts") or ""
+    if base and ts:
+        return "%s/api/superagent/report?ts=%s" % (base, urllib.parse.quote(ts))
+    return ""
 
 
 def _webhook_text(payload):
-    """把编排结果压成一句话摘要(供飞书/钉钉等文本消息格式)。"""
+    """把编排结果压成文本摘要(供飞书/钉钉等文本消息格式)。"""
     mark = "✅ 成功" if payload.get("ok") else "❌ 失败"
+    routed = "/".join(payload.get("routed") or []) or "-"
     parts = ["【灵梦work 编排%s】" % ("完成" if payload.get("ok") else "失败"),
              "目标: %s" % payload.get("goal", ""),
              "状态: %s" % mark,
-             "路由: %s" % "/".join(payload.get("routed") or []) or "路由: -",
+             "路由: %s" % routed,
              "耗时: %ss" % payload.get("elapsed_sec", 0)]
     if payload.get("error"):
         parts.append("错误: %s" % payload["error"])
+    if payload.get("report_url"):
+        parts.append("报告: %s" % payload["report_url"])
     return "\n".join(parts)
 
 
 def _webhook_wrap(entry, payload):
-    """按接收端格式包装 payload: raw(原 JSON) / feishu / dingtalk 文本消息。"""
+    """按接收端格式包装 payload: raw(原 JSON) / feishu(markdown 卡片) / dingtalk(markdown 消息)。"""
     fmt = entry.get("fmt") or "raw"
     if fmt == "feishu":
-        return {"msg_type": "text", "content": {"text": _webhook_text(payload)}}
+        title = "灵梦work 编排完成 ✅" if payload.get("ok") else "灵梦work 编排失败 ⛔"
+        tpl = "green" if payload.get("ok") else "red"
+        md = _webhook_md(payload)
+        card = {
+            "config": {"wide_screen_mode": True},
+            "header": {"title": {"tag": "plain_text", "content": title},
+                       "template": tpl},
+            "elements": [{"tag": "markdown", "content": md}],
+        }
+        link = payload.get("report_url") or ""
+        if link:
+            card["elements"].append({
+                "tag": "action",
+                "actions": [{"tag": "button",
+                             "text": {"tag": "plain_text", "content": "查看完整报告"},
+                             "url": link, "type": "primary"}]})
+        return {"msg_type": "interactive", "card": card}
     if fmt == "dingtalk":
-        return {"msgtype": "text", "text": {"content": _webhook_text(payload)}}
+        title = "灵梦work 编排完成" if payload.get("ok") else "灵梦work 编排失败"
+        text = "### %s %s\n\n%s" % (title, mark_md(payload), _webhook_md(payload))
+        md = {"msgtype": "markdown", "markdown": {"title": title, "text": text}}
+        link = payload.get("report_url") or ""
+        if link:
+            md["actionCard"] = {"title": title, "text": text,
+                                "singleTitle": "查看完整报告", "singleURL": link}
+        return md
     return payload
+
+
+def mark_md(payload):
+    return "✅ 成功" if payload.get("ok") else "❌ 失败"
+
+
+def _webhook_md(payload):
+    """markdown 版摘要(飞书卡片/钉钉 markdown 共用)。"""
+    routed = "/".join(payload.get("routed") or []) or "-"
+    lines = ["**目标**: %s" % payload.get("goal", ""),
+             "**状态**: %s" % mark_md(payload),
+             "**路由**: %s" % routed,
+             "**耗时**: %ss" % payload.get("elapsed_sec", 0)]
+    if payload.get("selfcheck_score") is not None:
+        lines.append("**自检分**: %s" % payload["selfcheck_score"])
+    if payload.get("error"):
+        lines.append("**错误**: %s" % payload["error"])
+    if payload.get("report_url"):
+        lines.append("[📄 查看完整报告](%s)" % payload["report_url"])
+    return "\n".join(lines)
 
 
 def add_webhook(url, events="all", secret="", enabled=True, base_dir=None, fmt="raw"):
@@ -1079,6 +1141,7 @@ def notify_webhooks(result, base_dir=None, blocking=False):
             "partners_ok": (result.get("converge") or {}).get("partners_ok", 0),
             "artifacts": ((result.get("executions") or {}).get("artifacts", []) or [])[:20],
             "error": result.get("error", ""),
+            "report_url": _report_url_for(result),
         }
         targets = [h for h in list_webhooks(base_dir)
                    if h.get("enabled") and h.get("events") in ("all", event)]
@@ -1482,6 +1545,7 @@ class SuperAgent:
                 "est_total_tokens": usage.get("est_total_tokens", 0),
                 "est_cost_cny": usage.get("est_cost_cny", 0.0),
             }
+            result["ts"] = ts  # Phase 49: 供通知消息内嵌报告链接
             _RUNS.append(summary)
             self._persist_result(ts, summary, result)
         except Exception:

@@ -1535,6 +1535,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_diff_report()
         if p == "/api/superagent/annotations":
             return self._annotations_get()
+        if p == "/api/superagent/feedback":
+            return self._feedback_get()
+        if p == "/api/superagent/feedback/optimize":
+            return self._feedback_optimize()
         if p == "/api/superagent/replays":
             return self._replays_get()
         if p == "/api/superagent/lineage":
@@ -2394,6 +2398,29 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _feedback_get(self):
+        """GET /api/superagent/feedback?low_rating_max= -> 反馈分析 + 规则建议 (Phase 59)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        lo = (q.get("low_rating_max") or [""])[0]
+        rep = _sa.analyze_feedback(base_dir=os.getcwd(), low_rating_max=lo or 2)
+        return self._send_json({"ok": True, **rep})
+
+    def _feedback_optimize(self):
+        """GET /api/superagent/feedback/optimize?ts= -> 优化后目标预览(不执行) (Phase 59)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.build_optimized_goal(ts, base_dir=os.getcwd(),
+                                       llm_call=self._make_llm_call())
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录"}, status=404)
+        if not rep.get("ok"):
+            return self._send_json(rep, status=400)
+        return self._send_json({"ok": True, **rep})
+
     def _superagent_replay(self):
         """POST /api/superagent/replay {ts, model?, quality_gate?} -> 重跑历史编排 (Phase 58)。
 
@@ -2416,7 +2443,8 @@ class Handler(SimpleHTTPRequestHandler):
                 model=body.get("model") if body.get("model") is not None
                 else self._cfg_llm_model(),
                 quality_gate=body.get("quality_gate", True) is not False,
-                queue_wait_sec=qws)
+                queue_wait_sec=qws,
+                optimize=body.get("optimize", False) is True)
             if rep is None:
                 return self._send_json({"error": "未找到该编排记录"}, status=404)
             if rep.get("busy"):

@@ -2145,24 +2145,229 @@ def _diff_verdict(metrics):
     return "持平"
 
 
-# ------------------------------------------------------------------ Phase 58: 编排回放(同目标重跑 + 血缘追踪)
-def replay_run(ts, base_dir=None, llm_call=None, session_id=None, model=None,
-               quality_gate=True, queue_wait_sec=None):
-    """按历史编排重跑一次 (Phase 58)。
+# ------------------------------------------------------------------ Phase 59: 批注驱动的自优化
+# 评分 <= 该值视为"低分反馈"(可被 analyze 的 low_rating_max 覆盖)
+_FEEDBACK_LOW_MAX = 2
+_OPT_FEEDBACK_MAX = 8
 
-    取原编排的 goal(与 model, 未显式指定时) 重跑一遍, 并在结果上打
-    `replay_of = ts` 血缘标记 —— 之后可直接用 Phase 56 的 diff_runs 做 A/B 对比。
 
-    返回 {"ok":True, "source_ts", "replay_ts", "goal", "result"}
-    或   {"ok":False, "error"/"busy", ...}; 原记录不存在返回 None。
+def collect_feedback(base_dir=None, min_rating=None, limit=300):
+    """把批注与它们对应的编排记录 join 起来 (Phase 59)。
+
+    返回按批注时间升序的反馈条目: 批注字段 + 对应编排的 goal/ok/score/routed/elapsed。
+    min_rating 非空时只保留 rating >= 该值的条目(用于只看高分/只看低分)。
+    找不到对应编排(已被归档/清理)的批注仍然保留, goal 为空串。
+    """
+    annos = list_annotations(base_dir=base_dir)
+    runs = {}
+    for row in _load_persisted(limit, base_dir):
+        runs[row.get("ts")] = row.get("result") or {}
+    out = []
+    for a in annos:
+        rating = a.get("rating")
+        if min_rating is not None:
+            if not (isinstance(rating, int) and rating >= int(min_rating)):
+                continue
+        r = runs.get(a.get("ts")) or {}
+        cv = r.get("converge") or {}
+        out.append({
+            "anno_id": a.get("id"),
+            "ts": a.get("ts") or "",
+            "goal": r.get("goal") or "",
+            "ok": bool(r.get("ok")),
+            "rating": rating,
+            "tags": list(a.get("tags") or []),
+            "text": a.get("text") or "",
+            "author": a.get("author") or "",
+            "created_at": a.get("created_at") or "",
+            "score": cv.get("selfcheck_score"),
+            "routed": list(r.get("routed") or []),
+            "elapsed_sec": r.get("elapsed_sec"),
+        })
+    return out
+
+
+def _clamp_low_max(low_rating_max):
+    try:
+        lo = int(low_rating_max)
+    except (TypeError, ValueError):
+        lo = _FEEDBACK_LOW_MAX
+    return max(1, min(5, lo))
+
+
+def analyze_feedback(base_dir=None, low_rating_max=_FEEDBACK_LOW_MAX):
+    """汇总人工反馈 → 结构化分析 + 规则建议 (Phase 59)。
+
+    返回 {count, rated, avg_rating, low_rating_max, low_rated, low_goals,
+          tags, domains, suggestions}
+    - tags / domains: 按「低分次数降序 → 总次数降序 → 名称」排序, 定位问题模式
+    - suggestions: 纯规则生成(不依赖 LLM), 可直接展示给用户
+    """
+    fb = collect_feedback(base_dir=base_dir)
+    rated = [f for f in fb if isinstance(f["rating"], int)]
+    avg = round(sum(f["rating"] for f in rated) / len(rated), 2) if rated else None
+    lo = _clamp_low_max(low_rating_max)
+    low = [f for f in rated if f["rating"] <= lo]
+
+    tags = {}
+    for f in rated:
+        for t in f["tags"]:
+            d = tags.setdefault(t, {"count": 0, "low": 0, "sum": 0})
+            d["count"] += 1
+            d["sum"] += f["rating"]
+            if f["rating"] <= lo:
+                d["low"] += 1
+    tag_stats = sorted(
+        [{"tag": k, "count": v["count"], "low": v["low"],
+          "avg_rating": round(v["sum"] / v["count"], 2),
+          "low_rate": round(v["low"] / v["count"] * 100, 1)}
+         for k, v in tags.items()],
+        key=lambda d: (-d["low"], -d["count"], d["tag"]))
+
+    doms = {}
+    for f in rated:
+        for dm in (f["routed"] or ["(无路由)"]):
+            d = doms.setdefault(dm, {"count": 0, "low": 0, "sum": 0})
+            d["count"] += 1
+            d["sum"] += f["rating"]
+            if f["rating"] <= lo:
+                d["low"] += 1
+    domain_stats = sorted(
+        [{"domain": k, "count": v["count"], "low": v["low"],
+          "avg_rating": round(v["sum"] / v["count"], 2),
+          "low_rate": round(v["low"] / v["count"] * 100, 1)}
+         for k, v in doms.items()],
+        key=lambda d: (-d["low"], -d["count"], d["domain"]))
+
+    low_goals = [{"ts": f["ts"], "goal": f["goal"], "rating": f["rating"],
+                  "tags": f["tags"], "text": (f["text"] or "")[:300]}
+                 for f in low]
+
+    suggestions = []
+    if avg is not None and avg < 3.0:
+        suggestions.append("整体满意度 %.2f/5 偏低，建议优先重排提示词与路由域覆盖" % avg)
+    for t in tag_stats[:3]:
+        if t["low"] >= 2 or (t["count"] >= 2 and t["low_rate"] >= 50.0):
+            suggestions.append(
+                "标签「%s」在 %d 次评分中 %d 次低分（低分率 %.0f%%，均分 %.2f），"
+                "该类问题应专项复查" % (t["tag"], t["count"], t["low"],
+                                        t["low_rate"], t["avg_rating"]))
+    for d in domain_stats[:3]:
+        if d["low"] >= 2 or (d["count"] >= 2 and d["low_rate"] >= 50.0):
+            suggestions.append(
+                "域「%s」%d 次评分中 %d 次低分（均分 %.2f），该域伙伴产出质量待提升"
+                % (d["domain"], d["count"], d["low"], d["avg_rating"]))
+    if low:
+        worst = sorted(low, key=lambda f: (f["rating"], f["created_at"]))[:3]
+        for f in worst:
+            g = (f["goal"] or "(无目标)")[:40]
+            suggestions.append("低分目标（%d 分）: %s —— 可直接「优化并重跑」"
+                               % (f["rating"], g))
+    if not suggestions:
+        suggestions.append("暂无明显负面模式，保持当前配置")
+    return {
+        "count": len(fb), "rated": len(rated), "avg_rating": avg,
+        "low_rating_max": lo, "low_rated": len(low),
+        "low_goals": low_goals[:10], "tags": tag_stats[:10],
+        "domains": domain_stats[:10], "suggestions": suggestions,
+    }
+
+
+def render_feedback_block(entries, max_items=_OPT_FEEDBACK_MAX):
+    """把反馈条目渲染成可拼进提示词的文本块 (Phase 59)。"""
+    lines = []
+    for f in (entries or [])[-max(1, int(max_items)):]:
+        head = ("- 评分 %d/5" % f["rating"]) if isinstance(f.get("rating"), int) else "- 未评分"
+        if f.get("tags"):
+            head += " [%s]" % "/".join(f["tags"])
+        body = " ".join((f.get("text") or "").split())[:400]
+        lines.append((head + " " + body).rstrip())
+    return "\n".join(lines)
+
+
+def build_optimized_goal(ts, base_dir=None, llm_call=None,
+                         max_feedback=_OPT_FEEDBACK_MAX):
+    """把一次编排的历史批注沉淀成「优化后目标」 (Phase 59)。
+
+    规则模式(无 LLM / LLM 失败): 原目标 + 【历史人工反馈 · 请针对性改进】文本块。
+    LLM 模式: 由 LLM 把批评合成为可执行的约束, 失败或输出过短自动回退规则模式。
+
+    返回 {"ok":True, "source_ts", "original_goal", "optimized_goal",
+          "feedback_block", "feedback_count", "used_llm", "method"}
+    原记录不存在返回 None; 无批注时 optimized_goal == 原目标(原样回放)。
     """
     src = get_run_detail(ts, base_dir=base_dir)
     if src is None:
         return None
     goal = (src.get("goal") or "").strip()
     if not goal:
+        return {"ok": False, "source_ts": ts,
+                "error": "原编排没有可优化的目标(goal 为空)"}
+
+    entries = [f for f in collect_feedback(base_dir=base_dir) if f["ts"] == ts]
+    if not entries:
+        return {"ok": True, "source_ts": ts, "original_goal": goal,
+                "optimized_goal": goal, "feedback_block": "",
+                "feedback_count": 0, "used_llm": False, "method": "none",
+                "note": "该编排暂无批注，优化后目标与原目标一致"}
+
+    block = render_feedback_block(entries, max_feedback)
+    rule_goal = "%s\n\n【历史人工反馈 · 请针对性改进】\n%s" % (goal, block)
+
+    used_llm = False
+    final = rule_goal
+    if llm_call:
+        try:
+            sys = ("你是提示词优化器。把「原始目标」与「历史人工反馈」合成为一段改进后的目标描述。"
+                   "要求：保留原始目标的核心诉求；把反馈中的批评转成可执行的约束；"
+                   "不要丢失原有交付物要求。只输出改进后的目标正文，不要解释、不要 markdown 标题。")
+            out = llm_call("原始目标:\n%s\n\n历史人工反馈:\n%s" % (goal, block), sys=sys)
+            out = " ".join((out or "").split())
+            # 输出过短视为失败(大概率是截断/拒答), 回退规则模式
+            if out and len(out) >= max(10, len(goal) // 3):
+                final, used_llm = out, True
+        except Exception:
+            pass
+
+    return {"ok": True, "source_ts": ts, "original_goal": goal,
+            "optimized_goal": final, "feedback_block": block,
+            "feedback_count": len(entries), "used_llm": used_llm,
+            "method": "llm" if used_llm else "rule"}
+
+
+# ------------------------------------------------------------------ Phase 58: 编排回放(同目标重跑 + 血缘追踪)
+def replay_run(ts, base_dir=None, llm_call=None, session_id=None, model=None,
+               quality_gate=True, queue_wait_sec=None, optimize=False):
+    """按历史编排重跑一次 (Phase 58; Phase 59 加 optimize)。
+
+    取原编排的 goal(与 model, 未显式指定时) 重跑一遍, 并在结果上打
+    `replay_of = ts` 血缘标记 —— 之后可直接用 Phase 56 的 diff_runs 做 A/B 对比。
+
+    optimize=True (Phase 59): 不用原 goal, 改用 build_optimized_goal() 把该编排
+    的历史批注沉淀成「优化后目标」再跑 —— 低分反馈直接驱动下一轮。
+
+    返回 {"ok":True, "source_ts", "replay_ts", "goal", "original_goal",
+          "optimized", "method", "result"}
+    或   {"ok":False, "error"/"busy", ...}; 原记录不存在返回 None。
+    """
+    src = get_run_detail(ts, base_dir=base_dir)
+    if src is None:
+        return None
+    original_goal = (src.get("goal") or "").strip()
+    if not original_goal:
         return {"ok": False, "error": "原编排没有可回放的目标(goal 为空)",
                 "source_ts": ts}
+
+    optimized = bool(optimize)
+    method = "none"
+    goal = original_goal
+    if optimized:
+        opt = build_optimized_goal(ts, base_dir=base_dir, llm_call=llm_call)
+        if not opt or not opt.get("ok"):
+            return {"ok": False, "source_ts": ts,
+                    "error": (opt or {}).get("error") or "优化目标生成失败"}
+        goal = opt["optimized_goal"]
+        method = opt.get("method") or "rule"
 
     sa = SuperAgent(base_dir=base_dir)
     sa.replay_of = ts
@@ -2179,7 +2384,8 @@ def replay_run(ts, base_dir=None, llm_call=None, session_id=None, model=None,
         return {"ok": False, "busy": True, "source_ts": ts,
                 "error": result.get("error") or "编排排队超时", "result": result}
     return {"ok": True, "source_ts": ts, "replay_ts": result.get("ts") or "",
-            "goal": goal, "result": result}
+            "goal": goal, "original_goal": original_goal,
+            "optimized": optimized, "method": method, "result": result}
 
 
 def list_replays(source_ts=None, base_dir=None, limit=200):

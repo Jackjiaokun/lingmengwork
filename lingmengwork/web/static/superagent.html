@@ -104,6 +104,13 @@
       <div id="trendBox"><span class="muted">加载中…</span></div>
     </div>
 
+    <!-- Phase 59: 反馈自优化 -->
+    <div class="card">
+      <h3><span class="dot"></span>🧪 反馈自优化 <span class="muted" style="font-size:11px;font-weight:400">低分批注 → 改写目标 → 优化回放</span>
+        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="loadFeedback()">🔄 刷新分析</button></h3>
+      <div id="feedbackBox"><span class="muted">加载中…</span></div>
+    </div>
+
     <!-- Phase 56: 编排 A/B 对比 -->
     <div class="card">
       <h3><span class="dot"></span>🔀 编排对比 <span class="muted" style="font-size:11px;font-weight:400">选两次编排看改动带来了什么变化</span></h3>
@@ -580,6 +587,76 @@ function fillDiffSelects(){
   if(!A.value && !B.value && lastRuns.length >= 2){
     A.value = lastRuns[1].ts || "";
     B.value = lastRuns[0].ts || "";
+  }
+}
+
+// ---------- Phase 59: 反馈自优化 ----------
+async function loadFeedback(){
+  const box = document.getElementById("feedbackBox");
+  if(!box) return;
+  try{
+    const j = await (await fetch("/api/superagent/feedback")).json();
+    if(!j.ok){ box.innerHTML = '<span style="color:var(--bad)">分析失败</span>'; return; }
+    const head = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
+      '<span class="pill">批注 <b>'+j.count+'</b></span>'+
+      '<span class="pill">已评分 <b>'+j.rated+'</b></span>'+
+      (j.avg_rating!=null? '<span class="pill">均分 <b style="color:'+(j.avg_rating<3?'var(--bad)':'var(--good)')+'">'+j.avg_rating+'</b>/5</span>':'')+
+      '<span class="pill">低分(≤'+j.low_rating_max+') <b style="color:'+(j.low_rated?'var(--warn)':'var(--tx)')+'">'+j.low_rated+'</b></span></div>';
+
+    const sug = (j.suggestions||[]).map(s=>'<div style="font-size:12px;padding:2px 0">💡 '+esc(s)+'</div>').join("");
+
+    const tags = (j.tags||[]).length
+      ? '<div class="muted" style="font-size:12px;margin:8px 0 3px">标签惩罚榜(低分率降序)</div>'+
+        j.tags.map(t=>'<div style="display:flex;gap:8px;font-size:12px;padding:2px 0;border-top:1px solid var(--bd)">'+
+          '<b style="min-width:110px">'+esc(t.tag)+'</b>'+
+          '<span class="muted">'+t.count+' 次 · 均分 '+t.avg_rating+'</span>'+
+          '<span style="margin-left:auto;color:'+(t.low_rate>=50?'var(--bad)':'var(--tx)')+'">低分率 '+t.low_rate+'%</span></div>').join("")
+      : "";
+
+    const goals = (j.low_goals||[]).length
+      ? '<div class="muted" style="font-size:12px;margin:8px 0 3px">低分目标(可优化重跑)</div>'+
+        j.low_goals.map(g=>'<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:3px 0;border-top:1px solid var(--bd)">'+
+          '<span style="color:var(--warn)">'+g.rating+'★</span>'+
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(g.goal)+'">'+esc((g.goal||"(无目标)").slice(0,40))+'</span>'+
+          '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="optimizeReplay(\''+esc(g.ts)+'\')">🧪 优化并重跑</button></div>').join("")
+      : "";
+
+    box.innerHTML = head + sug + tags + goals || '<span class="muted">暂无反馈数据</span>';
+  }catch(e){ box.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
+}
+
+async function optimizeReplay(ts){
+  if(!ts) return;
+  let opt = null;
+  try{
+    // 先预览优化后目标, 让用户确认再烧配额
+    const j = await (await fetch("/api/superagent/feedback/optimize?ts="+encodeURIComponent(ts))).json();
+    if(!j.ok){ alert("优化预览失败: "+(j.error||"未知")); return; }
+    opt = j;
+  }catch(e){ alert("请求异常: "+e); return; }
+  const show = (opt.optimized_goal||"").slice(0, 600);
+  if(!confirm("优化后目标预览 ("+(opt.method==="llm"?"LLM 改写":"规则拼接")+", 反馈 "+opt.feedback_count+" 条):\n\n"+show+
+      "\n\n确认用这个目标重跑一次编排? (完成后自动与原编排对比)")) return;
+  // 复用 Phase 58 回放链路, 带 optimize 标志
+  const btn = event && event.currentTarget;
+  const oldText = btn ? btn.textContent : "";
+  if(btn){ btn.textContent = "⏳ 优化回放中"; btn.style.pointerEvents = "none"; }
+  try{
+    const j = await (await fetch("/api/superagent/replay",
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({ts, optimize:true})})).json();
+    if(!j.ok){ alert("优化回放失败: "+(j.error||((j.busy)?"编排排队超时":"未知"))); return; }
+    const a = j.source_ts, b = j.replay_ts;
+    await loadRuns();
+    const A = document.getElementById("diffA"), B = document.getElementById("diffB");
+    if(A && B){ A.value = a; B.value = b; }
+    runDiff();
+    const card = document.getElementById("diffBox");
+    if(card) card.scrollIntoView({behavior:"smooth"});
+    alert("✅ 优化回放完成 ("+(j.method||"rule")+")\n原: " + a + "\n新: " + b + "\n已自动载入 A/B 对比");
+  }catch(e){ alert("请求异常: "+e); }
+  finally{
+    if(btn){ btn.textContent = oldText || "🧪 优化并重跑"; btn.style.pointerEvents = ""; }
   }
 }
 
@@ -1101,6 +1178,7 @@ loadRuns();
 loadSchedules();
 loadTemplates();
 loadWebhooks();
+loadFeedback();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
 </script>

@@ -16,6 +16,7 @@ import json
 import os
 import threading
 import time
+TODAY = time.strftime("%Y-%m-%d")
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -48,8 +49,8 @@ G = "同一目标"
 
 
 def _seed_alert(tmp_path):
-    rows = [(f"2026-08-28 {h:02d}:00:00", G, 90, 3.0, 2) for h in (8, 9, 10)]
-    rows.append(("2026-08-28 13:00:00", G, 40, 3.0, 2))
+    rows = [(f"{TODAY} {h:02d}:00:00", G, 90, 3.0, 2) for h in (8, 9, 10)]
+    rows.append((TODAY + " 13:00:00", G, 40, 3.0, 2))
     _write(tmp_path, rows)
 
 

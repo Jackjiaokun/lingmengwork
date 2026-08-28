@@ -45,8 +45,12 @@ def _write(base_dir, rows):
 
 
 G = "同一目标"
-T1, T2, T3 = "2026-08-28 10:00:00", "2026-08-28 11:00:00", "2026-08-28 12:00:00"
-T_BAD = "2026-08-28 13:00:00"
+import time as _t
+TODAY = _t.strftime("%Y-%m-%d")
+def _d(h):
+    return "%s %02d:00:00" % (TODAY, h)
+T1, T2, T3 = _d(10), _d(11), _d(12)
+T_BAD = _d(13)
 
 
 def _seed(tmp_path, score=90, elapsed=3.0, pok=2):
@@ -118,13 +122,13 @@ def test_check_quality_paths(tmp_path):
     assert rep["baseline"]["score"]["mean"] == 90.0
 
     # 正常
-    _write(tmp_path, [("2026-08-28 14:00:00", G, 91, 3.0, 2)])
-    rep2 = sa_mod.check_quality("2026-08-28 14:00:00", base_dir=str(tmp_path))
+    _write(tmp_path, [(_d(14), G, 91, 3.0, 2)])
+    rep2 = sa_mod.check_quality(_d(14), base_dir=str(tmp_path))
     assert rep2["verdict"] == "正常" and rep2["deviations"] == []
 
     # insufficient: 独目标只有 1 次
-    _write(tmp_path, [("2026-08-28 15:00:00", "独目标", 60, 1, 1)])
-    rep3 = sa_mod.check_quality("2026-08-28 15:00:00", base_dir=str(tmp_path))
+    _write(tmp_path, [(_d(15), "独目标", 60, 1, 1)])
+    rep3 = sa_mod.check_quality(_d(15), base_dir=str(tmp_path))
     assert rep3["verdict"] == "insufficient" and rep3["have"] == 0 and rep3["need"] == 3
 
     # 记录不存在
@@ -134,17 +138,17 @@ def test_check_quality_paths(tmp_path):
 def test_list_quality_alerts(tmp_path):
     _seed(tmp_path, score=90)
     _write(tmp_path, [(T_BAD, G, 40, 3.0, 2)])
-    _write(tmp_path, [("2026-08-28 14:00:00", G, 91, 3.0, 2)])
+    _write(tmp_path, [(_d(14), G, 91, 3.0, 2)])
     alerts = sa_mod.list_quality_alerts(str(tmp_path), days=30)
     assert len(alerts) == 1, "只有 T_BAD 偏离"
     assert alerts[0]["ts"] == T_BAD
     assert alerts[0]["deviations"][0]["metric"] == "score"
 
     # 多条告警: high 优先, 组内 ts 倒序
-    _write(tmp_path, [("2026-08-28 15:00:00", G, 20, 3.0, 2)])  # 更烂 -> high
-    _write(tmp_path, [("2026-08-28 16:00:00", G, 84, 3.0, 2)])  # 接近伪 std 边界
+    _write(tmp_path, [(_d(15), G, 20, 3.0, 2)])  # 更烂 -> high
+    _write(tmp_path, [(_d(16), G, 84, 3.0, 2)])  # 接近伪 std 边界
     alerts2 = sa_mod.list_quality_alerts(str(tmp_path), days=30)
-    assert alerts2[0]["ts"] == "2026-08-28 15:00:00", "high 应最前"
+    assert alerts2[0]["ts"] == _d(15), "high 应最前"
 
 
 def test_quality_api_e2e(tmp_path):

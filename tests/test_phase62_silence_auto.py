@@ -18,6 +18,7 @@ import json
 import os
 import threading
 import time
+TODAY = time.strftime("%Y-%m-%d")
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -50,8 +51,8 @@ def _write(base_dir, rows):
 
 
 def _seed(tmp_path, goal="同一目标"):
-    rows = [(f"2026-08-28 {h:02d}:00:00", goal, 90, 3.0, 2) for h in (8, 9, 10)]
-    rows.append(("2026-08-28 13:00:00", goal, 40, 3.0, 2))
+    rows = [(f"{TODAY} {h:02d}:00:00", goal, 90, 3.0, 2) for h in (8, 9, 10)]
+    rows.append((TODAY + " 13:00:00", goal, 40, 3.0, 2))
     _write(tmp_path, rows)
 
 
@@ -112,8 +113,8 @@ def test_silence_not_recorded_when_no_receiver(tmp_path):
 
 def test_silence_per_goal_isolation(tmp_path):
     _seed(tmp_path, goal="目标A")
-    rows = [(f"2026-08-28 {h:02d}:00:00", "目标B", 90, 3.0, 2) for h in (8, 9, 10)]
-    rows.append(("2026-08-28 13:00:00", "目标B", 40, 3.0, 2))
+    rows = [(f"{TODAY} {h:02d}:00:00", "目标B", 90, 3.0, 2) for h in (8, 9, 10)]
+    rows.append((TODAY + " 13:00:00", "目标B", 40, 3.0, 2))
     _write(tmp_path, rows)
     srv = ThreadingHTTPServer(("127.0.0.1", 9104), _Capture)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

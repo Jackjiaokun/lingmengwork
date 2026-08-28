@@ -2543,3 +2543,185 @@ def run_with_retry(goal, session_id="", llm_call=None, quality_gate=True, model=
         wait = min(60.0, base * (2 ** (attempt - 1)))
         if wait > 0:
             time.sleep(wait)
+
+
+# ------------------------------------------------------------------ Phase 60: 编排质量基线(统计分布 + 偏离自动告警)
+_BASELINE_DAYS_DEFAULT = 30
+_BASELINE_MIN_RUNS = 3
+_BASELINE_Z = 2.0
+# (summary 键, 展示名, 哪一侧算坏)
+_BASELINE_METRICS = (
+    ("score", "自检分", "lower"),
+    ("elapsed", "耗时", "higher"),
+    ("partners_ok", "伙伴成功", "lower"),
+)
+
+
+def _bl_f(v, d=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return float(d)
+
+
+def _ts_epoch(ts):
+    """'YYYY-MM-DD HH:MM:SS' -> epoch 秒; 解析失败返回 0.0(会被时间窗过滤掉)。"""
+    try:
+        return time.mktime(time.strptime(str(ts), "%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        return 0.0
+
+
+def _baseline_rows(base_dir=None, days=_BASELINE_DAYS_DEFAULT, limit=500):
+    """时间窗内的编排摘要(disk-only, 与 trend/digest 同口径)。"""
+    cutoff = time.time() - max(1, int(days or _BASELINE_DAYS_DEFAULT)) * 86400
+    out = []
+    for row in _load_persisted(limit, base_dir):
+        s = row.get("summary") or {}
+        ep = _ts_epoch(s.get("ts"))
+        if not ep or ep < cutoff:
+            continue
+        out.append({
+            "ts": s.get("ts") or "",
+            "goal": s.get("goal") or "",
+            "ok": bool(s.get("ok")),
+            "score": _bl_f(s.get("selfcheck_score")),
+            "elapsed": _bl_f(s.get("elapsed_sec")),
+            "partners_ok": _bl_f(s.get("partners_ok")),
+        })
+    return out
+
+
+def _bl_stats(vals):
+    n = len(vals)
+    if not n:
+        return {"count": 0, "mean": None, "std": None, "min": None, "max": None}
+    mean = sum(vals) / n
+    std = (sum((v - mean) ** 2 for v in vals) / n) ** 0.5
+    return {"count": n, "mean": round(mean, 2), "std": round(std, 2),
+            "min": round(min(vals), 2), "max": round(max(vals), 2)}
+
+
+def _bl_deviations(me, peers, zt):
+    """对比 me 与 peers, 返回坏方向超阈值的偏离列表 (Phase 60)。
+
+    std==0 时用 max(1%|mean|, 1.0) 做伪标准差兜底 —— 规则式编排分数高度一致
+    (std 恒 0), 不兜底就永远检不出偏离。
+    """
+    devs = []
+    for key, label, bad in _BASELINE_METRICS:
+        vals = [p[key] for p in peers]
+        if not vals:
+            continue
+        mean = sum(vals) / len(vals)
+        std = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+        eff_std = std if std > 1e-9 else max(abs(mean) * 0.01, 1.0)
+        v = me[key]
+        zs = (v - mean) / eff_std
+        hit = (zs <= -zt) if bad == "lower" else (zs >= zt)
+        if hit:
+            devs.append({
+                "metric": key, "label": label,
+                "value": round(v, 2), "mean": round(mean, 2),
+                "std": round(std, 2), "z": round(zs, 2),
+                "direction": bad,
+                "severity": "high" if abs(zs) >= zt * 1.5 else "medium",
+            })
+    return devs
+
+
+def get_quality_baseline(base_dir=None, days=_BASELINE_DAYS_DEFAULT,
+                         min_runs=_BASELINE_MIN_RUNS):
+    """编排质量基线 (Phase 60): 全局 + 按 goal 分组的指标分布。
+
+    disk-only(与 trend/digest 同口径, 跨 base_dir 不串味); 天窗口期 rows。
+    返回 {"days","min_runs","total_runs","global":{score/elapsed/partners_ok},
+          "goals":[{goal,runs,同三指标}, ...按 runs 降序]}
+    """
+    days = max(1, int(days or _BASELINE_DAYS_DEFAULT))
+    min_runs = max(2, int(min_runs or _BASELINE_MIN_RUNS))
+    rows = _baseline_rows(base_dir, days)
+    global_ = {key: _bl_stats([r[key] for r in rows]) for key, _, _ in _BASELINE_METRICS}
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["goal"], []).append(r)
+    goals = []
+    for g, rs in groups.items():
+        if len(rs) < min_runs:
+            continue
+        entry = {"goal": g, "runs": len(rs)}
+        for key, _, _ in _BASELINE_METRICS:
+            entry[key] = _bl_stats([r[key] for r in rs])
+        goals.append(entry)
+    goals.sort(key=lambda d: (-d["runs"], d["goal"]))
+    return {"days": days, "min_runs": min_runs, "total_runs": len(rows),
+            "global": global_, "goals": goals}
+
+
+def check_quality(ts, base_dir=None, days=_BASELINE_DAYS_DEFAULT,
+                  z=_BASELINE_Z, min_runs=_BASELINE_MIN_RUNS):
+    """检查某次编排是否偏离同目标基线 (Phase 60)。
+
+    同 goal 历史回放/编排 >= min_runs(不含自身)才可比; 不足返回 verdict=insufficient。
+    返回 {"ok":True, "ts","goal","verdict":"正常|偏离|insufficient",
+          "deviations":[...], "baseline":{...}, "peers","z"}; 记录不存在返回 None。
+    """
+    rows = _baseline_rows(base_dir, days)
+    me = next((r for r in rows if r["ts"] == ts), None)
+    if me is None:
+        return None
+    try:
+        zt = max(0.5, float(z if z is not None else _BASELINE_Z))
+    except (TypeError, ValueError):
+        zt = _BASELINE_Z
+    min_runs = max(2, int(min_runs or _BASELINE_MIN_RUNS))
+    peers = [r for r in rows if r["goal"] == me["goal"] and r["ts"] != ts]
+    if len(peers) < min_runs:
+        return {"ok": True, "ts": ts, "goal": me["goal"],
+                "verdict": "insufficient", "have": len(peers), "need": min_runs,
+                "deviations": [], "baseline": None, "peers": len(peers), "z": zt}
+    devs = _bl_deviations(me, peers, zt)
+    baseline = {}
+    for key, label, _bad in _BASELINE_METRICS:
+        st = _bl_stats([p[key] for p in peers])
+        baseline[key] = {"label": label, "mean": st["mean"], "std": st["std"],
+                         "count": st["count"]}
+    return {"ok": True, "ts": ts, "goal": me["goal"],
+            "verdict": "偏离" if devs else "正常",
+            "deviations": devs, "baseline": baseline,
+            "peers": len(peers), "z": zt}
+
+
+def list_quality_alerts(base_dir=None, days=7, z=_BASELINE_Z,
+                        min_runs=_BASELINE_MIN_RUNS, limit=50):
+    """扫描时间窗内全部编排, 列出偏离同目标基线的告警 (Phase 60)。
+
+    返回按严重度(high 优先)+ts 倒序的告警列表, 每条含 deviations。
+    """
+    try:
+        zt = max(0.5, float(z if z is not None else _BASELINE_Z))
+    except (TypeError, ValueError):
+        zt = _BASELINE_Z
+    min_runs = max(2, int(min_runs or _BASELINE_MIN_RUNS))
+    rows = _baseline_rows(base_dir, days)
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["goal"], []).append(r)
+    alerts = []
+    for g, rs in groups.items():
+        if len(rs) < min_runs + 1:
+            continue
+        for me in rs:
+            peers = [p for p in rs if p["ts"] != me["ts"]]
+            if len(peers) < min_runs:
+                continue
+            devs = _bl_deviations(me, peers, zt)
+            if devs:
+                alerts.append({"ts": me["ts"], "goal": g, "ok": me["ok"],
+                               "score": me["score"], "elapsed": me["elapsed"],
+                               "deviations": devs,
+                               "high": any(d["severity"] == "high" for d in devs)})
+    # 稳定双排序: 先 ts 倒序(最新在前), 再 high 优先 —— 组内保持最新在前
+    alerts.sort(key=lambda a: a["ts"] or "", reverse=True)
+    alerts.sort(key=lambda a: not a.pop("high"))
+    return alerts[:max(1, int(limit or 50))]

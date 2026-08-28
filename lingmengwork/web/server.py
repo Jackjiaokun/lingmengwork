@@ -1539,6 +1539,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._feedback_get()
         if p == "/api/superagent/feedback/optimize":
             return self._feedback_optimize()
+        if p == "/api/superagent/quality/baseline":
+            return self._quality_baseline()
+        if p == "/api/superagent/quality/check":
+            return self._quality_check()
+        if p == "/api/superagent/quality/alerts":
+            return self._quality_alerts()
         if p == "/api/superagent/replays":
             return self._replays_get()
         if p == "/api/superagent/lineage":
@@ -2475,6 +2481,37 @@ class Handler(SimpleHTTPRequestHandler):
         if rep is None:
             return self._send_json({"error": "未找到该编排记录"}, status=404)
         return self._send_json({"ok": True, **rep})
+
+    def _quality_baseline(self):
+        """GET /api/superagent/quality/baseline?days=30&min_runs=3 -> 质量基线 (Phase 60)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        days = (q.get("days") or ["30"])[0]
+        mr = (q.get("min_runs") or ["3"])[0]
+        rep = _sa.get_quality_baseline(base_dir=os.getcwd(), days=days, min_runs=mr)
+        return self._send_json({"ok": True, **rep})
+
+    def _quality_check(self):
+        """GET /api/superagent/quality/check?ts=&z=2 -> 单次编排偏离检查 (Phase 60)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.check_quality(ts, base_dir=os.getcwd(), z=(q.get("z") or ["2"])[0])
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录(或不在时间窗内)"}, status=404)
+        return self._send_json({"ok": True, **rep})
+
+    def _quality_alerts(self):
+        """GET /api/superagent/quality/alerts?days=7&z=2 -> 偏离告警列表 (Phase 60)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        rep = _sa.list_quality_alerts(
+            base_dir=os.getcwd(),
+            days=(q.get("days") or ["7"])[0],
+            z=(q.get("z") or ["2"])[0])
+        return self._send_json({"ok": True, "alerts": rep, "count": len(rep)})
 
     def _annotations_get(self):
         """GET /api/superagent/annotations?ts= -> 批注列表 + 统计 (Phase 57)。"""

@@ -104,6 +104,13 @@
       <div id="trendBox"><span class="muted">加载中…</span></div>
     </div>
 
+    <!-- Phase 60: 质量基线 -->
+    <div class="card">
+      <h3><span class="dot"></span>📏 质量基线 <span class="muted" style="font-size:11px;font-weight:400">同目标多次运行的统计分布 · 偏离自动告警</span>
+        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="loadQuality()">🔄 刷新</button></h3>
+      <div id="qualityBox"><span class="muted">加载中…</span></div>
+    </div>
+
     <!-- Phase 59: 反馈自优化 -->
     <div class="card">
       <h3><span class="dot"></span>🧪 反馈自优化 <span class="muted" style="font-size:11px;font-weight:400">低分批注 → 改写目标 → 优化回放</span>
@@ -588,6 +595,59 @@ function fillDiffSelects(){
     A.value = lastRuns[1].ts || "";
     B.value = lastRuns[0].ts || "";
   }
+}
+
+// ---------- Phase 60: 质量基线 ----------
+async function loadQuality(){
+  const box = document.getElementById("qualityBox");
+  if(!box) return;
+  try{
+    const j = await (await fetch("/api/superagent/quality/alerts?days=30")).json();
+    if(!j.ok){ box.innerHTML = '<span style="color:var(--bad)">加载失败</span>'; return; }
+    const b = await (await fetch("/api/superagent/quality/baseline?days=30")).json();
+    let h = "";
+    if(b.ok){
+      const g = b.global||{};
+      const fmt = (m)=> (m&&m.count? m.mean+"±"+m.std : "—");
+      h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
+        '<span class="pill">近'+b.days+'天编排 <b>'+b.total_runs+'</b></span>'+
+        '<span class="pill">自检分 <b>'+fmt(g.score)+'</b></span>'+
+        '<span class="pill">耗时 <b>'+fmt(g.elapsed)+'</b>s</span>'+
+        '<span class="pill">伙伴成功 <b>'+fmt(g.partners_ok)+'</b></span>'+
+        '<span class="pill">可比目标组 <b>'+((b.goals||[]).length)+'</b> <span class="muted">(≥'+b.min_runs+'次)</span></span></div>';
+      if((b.goals||[]).length){
+        h += '<div class="muted" style="font-size:12px;margin:4px 0 3px">按目标基线(前 5 组)</div>';
+        b.goals.slice(0,5).forEach(function(t){
+          h += '<div style="display:flex;gap:8px;font-size:12px;padding:2px 0;border-top:1px solid var(--bd)">'+
+            '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(t.goal)+'">'+
+            esc((t.goal||"(无目标)").slice(0,30))+'</span>'+
+            '<span class="muted">'+t.runs+' 次 · 分 '+fmt(t.score)+' · '+fmt(t.elapsed)+'s</span></div>';
+        });
+      }
+    }
+    const alerts = j.alerts||[];
+    h += '<div class="muted" style="font-size:12px;margin:10px 0 3px">偏离告警 ('+alerts.length+')</div>';
+    if(!alerts.length){
+      h += '<span class="muted" style="font-size:12px">无偏离 —— 各编排均在同目标基线之内</span>';
+    }else{
+      alerts.forEach(function(a){
+        const badges = (a.deviations||[]).map(function(d){
+          const cls = d.severity==="high" ? "var(--bad)" : "var(--warn)";
+          return '<span style="color:'+cls+';font-size:11px">'+esc(d.label)+' '+d.value+
+                 ' (基线 '+d.mean+'±'+d.std+', z='+d.z+')</span>';
+        }).join(" ");
+        h += '<div style="border-top:1px solid var(--bd);padding:5px 0;font-size:12px">'+
+          '<div style="display:flex;gap:8px;align-items:center">'+
+          '<a href="javascript:void(0)" onclick="loadRunDetail(\''+esc(a.ts)+'\')" '+
+          'style="color:var(--tx)">'+esc((a.ts||"").slice(5,19))+'</a>'+
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(a.goal)+'">'+
+          esc((a.goal||"(无目标)").slice(0,30))+'</span>'+
+          '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="replayRun(\''+esc(a.ts)+'\')">🔁 回放</button></div>'+
+          '<div style="margin-top:2px">'+badges+'</div></div>';
+      });
+    }
+    box.innerHTML = h;
+  }catch(e){ box.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
 }
 
 // ---------- Phase 59: 反馈自优化 ----------
@@ -1179,6 +1239,7 @@ loadSchedules();
 loadTemplates();
 loadWebhooks();
 loadFeedback();
+loadQuality();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
 </script>

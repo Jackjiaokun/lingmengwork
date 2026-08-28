@@ -812,15 +812,45 @@ async function loadFeedback(){
       : "";
 
     const goals = (j.low_goals||[]).length
-      ? '<div class="muted" style="font-size:12px;margin:8px 0 3px">低分目标(可优化重跑)</div>'+
-        j.low_goals.map(g=>'<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:3px 0;border-top:1px solid var(--bd)">'+
+      ? '<div class="muted" style="font-size:12px;margin:8px 0 3px">低分目标(可优化重跑 / 快速批注)</div>'+
+        j.low_goals.map(g=>'<div style="font-size:12px;padding:3px 0;border-top:1px solid var(--bd)">'+
+          '<div style="display:flex;gap:8px;align-items:center">'+
           '<span style="color:var(--warn)">'+g.rating+'★</span>'+
           '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(g.goal)+'">'+esc((g.goal||"(无目标)").slice(0,40))+'</span>'+
-          '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="optimizeReplay(\''+esc(g.ts)+'\')">🧪 优化并重跑</button></div>').join("")
+          '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="toggleQuickAnno(\''+esc(g.ts)+'\')">✍️ 批注</button>'+
+          '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="optimizeReplay(\''+esc(g.ts)+'\')">🧪 优化并重跑</button></div>'+
+          '<div id="qa-'+esc(g.ts)+'" class="hidden" style="margin-top:6px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:8px">'+
+            '<textarea id="qa-text-'+esc(g.ts)+'" rows="2" placeholder="这条编排差在哪 / 下次怎么改…" style="width:100%;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:6px 8px;font:inherit;resize:vertical"></textarea>'+
+            '<div style="display:flex;gap:8px;margin-top:6px;align-items:center">'+
+              '<select id="qa-rating-'+esc(g.ts)+'" style="background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:5px 8px;font:inherit;font-size:12px">'+
+                '<option value="1">★ 1</option><option value="2" selected>★★ 2</option><option value="3">★★★ 3</option></select>'+
+              '<button style="padding:5px 14px;font-size:12px" onclick="submitQuickAnno(\''+esc(g.ts)+'\')">💬 提交批注</button>'+
+            '</div></div></div>').join("")
       : "";
 
     box.innerHTML = head + sug + tags + goals || '<span class="muted">暂无反馈数据</span>';
   }catch(e){ box.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
+}
+
+// ---- Phase 69: 洞察页低分目标快速批注 ----
+function toggleQuickAnno(ts){
+  const box = document.getElementById("qa-"+ts);
+  if(box) box.classList.toggle("hidden");
+}
+async function submitQuickAnno(ts){
+  const text = (document.getElementById("qa-text-"+ts).value||"").trim();
+  if(!text){ alert("请填写批注内容"); return; }
+  const rating = parseInt(document.getElementById("qa-rating-"+ts).value,10) || null;
+  try{
+    const j = await (await fetch("/api/superagent/annotations/create",
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({ts, text, rating, author:"洞察页", sediment:true})})).json();
+    if(!j.ok){ alert("提交失败: "+(j.error||"未知")); return; }
+    const box = document.getElementById("qa-"+ts);
+    if(box) box.classList.add("hidden");
+    document.getElementById("qa-text-"+ts).value = "";
+    loadFeedback();
+  }catch(e){ alert("请求异常: "+e); }
 }
 
 async function optimizeReplay(ts){

@@ -16,8 +16,8 @@ def _read(name):
 def test_index_sidebar_has_new_entries():
     html = _read("index.html")
     for tok in ('href="/superagent"', "超级 AGENT 工作台",
-                'href="/memory_graph"', "记忆图谱",
-                'href="/plugin_hub"', "插件中枢"):
+                'href="/memory-graph"', "记忆图谱",
+                'href="/plugins"', "插件中枢"):
         assert tok in html, "index 侧栏缺: " + tok
     # 工作台应在「智能工作区」分组内且是第一个入口
     g1 = html[html.index('data-group="workspace"'):html.index('data-group="security"')]

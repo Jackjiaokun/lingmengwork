@@ -13,7 +13,7 @@
         { href: "/enhance",    ico: "🧠", label: "专家·技能" }
       ],
       security: [
-        { href: "/plugin_hub", ico: "🔌", label: "插件中枢" },
+        { href: "/plugins", ico: "🔌", label: "插件中枢" },
         { href: "/secrets",    ico: "🔐", label: "密钥保险箱" },
         { href: "/backups",    ico: "📦", label: "备份与回滚" },
         { href: "/sandbox",    ico: "🛡️", label: "工作区沙箱" },

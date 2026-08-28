@@ -11,7 +11,7 @@
     ["/observability", "可观测"],
     ["/planboard", "计划"],
     ["/sandbox", "沙箱"],
-    ["/plugin_hub", "插件"],
+    ["/plugins", "插件"],
     ["/settings", "设置"]
   ];
   var cur = location.pathname.replace(/\/+$/, "") || "/";

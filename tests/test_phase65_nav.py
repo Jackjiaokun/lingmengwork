@@ -17,7 +17,7 @@ from lingmengwork.web import server as _srv
 
 STATIC = os.path.join(os.path.dirname(_srv.__file__), "static")
 ROUTES = ["/", "/superagent", "/cost", "/observability", "/planboard",
-          "/sandbox", "/plugin_hub", "/settings"]
+          "/sandbox", "/plugins", "/settings"]
 
 
 def test_nav_js_content():

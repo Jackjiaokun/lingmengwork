@@ -1412,7 +1412,24 @@ def _webhook_wrap(entry, payload):
     """按接收端格式包装 payload: raw(原 JSON) / feishu(markdown 卡片) / dingtalk(markdown 消息)。"""
     fmt = entry.get("fmt") or "raw"
     is_digest = payload.get("event") == "digest"
+    is_quality = payload.get("event") == "quality"
     if fmt == "feishu":
+        if is_quality:
+            card = {
+                "config": {"wide_screen_mode": True},
+                "header": {"title": {"tag": "plain_text",
+                                     "content": "🚨 灵梦work 质量告警"},
+                           "template": "red"},
+                "elements": [{"tag": "markdown", "content": _quality_md(payload)}],
+            }
+            link = payload.get("panel_url") or ""
+            if link:
+                card["elements"].append({
+                    "tag": "action",
+                    "actions": [{"tag": "button",
+                                 "text": {"tag": "plain_text", "content": "查看质量基线"},
+                                 "url": link, "type": "primary"}]})
+            return {"msg_type": "interactive", "card": card}
         if is_digest:
             title = "📊 灵梦work 编排%s" % ("日报" if payload.get("period") == "daily" else "周报")
             card = {
@@ -1440,6 +1457,15 @@ def _webhook_wrap(entry, payload):
                              "url": link, "type": "primary"}]})
         return {"msg_type": "interactive", "card": card}
     if fmt == "dingtalk":
+        if is_quality:
+            title = "🚨 灵梦work 质量告警"
+            text = "### %s\n\n%s" % (title, _quality_md(payload))
+            md = {"msgtype": "markdown", "markdown": {"title": title, "text": text}}
+            link = payload.get("panel_url") or ""
+            if link:
+                md["actionCard"] = {"title": title, "text": text,
+                                    "singleTitle": "查看质量基线", "singleURL": link}
+            return md
         if is_digest:
             title = "📊 灵梦work 编排%s" % ("日报" if payload.get("period") == "daily" else "周报")
             text = "### %s\n\n%s" % (title, _digest_md(payload))
@@ -1459,6 +1485,58 @@ def mark_md(payload):
     return "✅ 成功" if payload.get("ok") else "❌ 失败"
 
 
+def _panel_url_for(path="/superagent"):
+    """面板页公开链接(未配置 base_url 返回空)。"""
+    base = _PUBLIC_BASE_URL.get("url") or ""
+    return ("%s%s" % (base, path)) if base else ""
+
+
+def _quality_md(payload):
+    """质量告警的 markdown 正文(飞书卡片/钉钉 markdown 共用)。"""
+    lines = ["**窗口**: 近 %s 天 · 偏离告警 **%s** 条"
+             % (payload.get("days"), payload.get("count"))]
+    for a in (payload.get("alerts") or [])[:10]:
+        lines.append("---")
+        lines.append("**%s** %s" % ((a.get("ts") or "")[5:19],
+                                    (a.get("goal") or "(无目标)")[:30]))
+        for d in (a.get("deviations") or [])[:3]:
+            lines.append("- %s **%s** (基线 %s±%s, z=%s)"
+                         % (d.get("label"), d.get("value"), d.get("mean"),
+                            d.get("std"), d.get("z")))
+    link = payload.get("panel_url") or ""
+    if link:
+        lines.append("[📏 查看质量基线](%s)" % link)
+    return "\n".join(lines)
+
+
+def push_quality_alerts(base_dir=None, days=7, z=None,
+                        min_runs=None, limit=10):
+    """扫描质量告警并向启用接收端(events: all|quality)推送 (Phase 61)。
+
+    无告警时不发(empty push 静默返回 sent=0, skipped=True), 避免定时任务刷屏。
+    返回 {"ok":True, "alerts", "sent", "errors", "skipped"}。
+    """
+    alerts = list_quality_alerts(base_dir=base_dir, days=days, z=z,
+                                 min_runs=min_runs, limit=max(1, int(limit or 10)))
+    payload = {"event": "quality", "ts": _now(), "days": days,
+               "count": len(alerts), "alerts": alerts,
+               "panel_url": _panel_url_for("/superagent")}
+    targets = [h for h in list_webhooks(base_dir)
+               if h.get("enabled") and h.get("events") in ("all", "quality")]
+    sent, errs = 0, []
+    for h in targets:
+        try:
+            status, err = _webhook_post(h, payload)
+            if status == 200:
+                sent += 1
+            else:
+                errs.append("%s: %s" % (h["url"][:50], err or status))
+        except Exception as e:
+            errs.append(str(e)[:100])
+    return {"ok": True, "event": "quality", "alerts": len(alerts),
+            "sent": sent, "errors": errs, "skipped": len(alerts) == 0}
+
+
 def _webhook_md(payload):
     """markdown 版摘要(飞书卡片/钉钉 markdown 共用)。"""
     routed = "/".join(payload.get("routed") or []) or "-"
@@ -1476,11 +1554,11 @@ def _webhook_md(payload):
 
 
 def add_webhook(url, events="all", secret="", enabled=True, base_dir=None, fmt="raw"):
-    """新建通知 Webhook。url 需 http(s):// 开头; events: all|done|fail; fmt: raw|feishu|dingtalk。"""
+    """新建通知 Webhook。url 需 http(s):// 开头; events: all|done|fail|quality; fmt: raw|feishu|dingtalk。"""
     url = (url or "").strip()
     if not re.match(r"^https?://", url):
         raise ValueError("url 需以 http:// 或 https:// 开头")
-    events = events if events in ("all", "done", "fail") else "all"
+    events = events if events in ("all", "done", "fail", "quality") else "all"
     fmt = fmt if fmt in _WEBHOOK_FORMATS else "raw"
     wid = "w_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
     entry = {"id": wid, "url": url, "events": events, "secret": secret or "",

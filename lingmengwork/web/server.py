@@ -1927,6 +1927,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._annotations_create()
         if p == "/api/superagent/annotations/delete":
             return self._annotations_delete()
+        # ---- 质量告警推送 (Phase 61): POST ----
+        if p == "/api/superagent/quality/push":
+            return self._quality_push()
         # ---- 编排日报/周报 (Phase 50): 推送(POST) ----
         if p == "/api/superagent/digest/push":
             return self._digest_push()
@@ -2512,6 +2515,18 @@ class Handler(SimpleHTTPRequestHandler):
             days=(q.get("days") or ["7"])[0],
             z=(q.get("z") or ["2"])[0])
         return self._send_json({"ok": True, "alerts": rep, "count": len(rep)})
+
+    def _quality_push(self):
+        """POST /api/superagent/quality/push {days?, z?, min_runs?, limit?} -> 推送质量告警 (Phase 61)。"""
+        from .. import superagent as _sa
+        body = self._read_json({}) or {}
+        rep = _sa.push_quality_alerts(
+            base_dir=os.getcwd(),
+            days=body.get("days") or 7,
+            z=body.get("z"),
+            min_runs=body.get("min_runs"),
+            limit=body.get("limit") or 10)
+        return self._send_json({"ok": True, **rep})
 
     def _annotations_get(self):
         """GET /api/superagent/annotations?ts= -> 批注列表 + 统计 (Phase 57)。"""

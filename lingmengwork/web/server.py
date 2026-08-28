@@ -1027,6 +1027,19 @@ _SETTINGS_SCHEMA = [
         {"key": "mcp.enabled", "section": "mcp", "type": "bool",
          "label": "启用 MCP 工具中枢", "restart": True},
     ]},
+    {"title": "编排与通知", "fields": [
+        {"key": "agent.public_base_url", "section": "agent", "type": "string",
+         "label": "面板公开地址(通知内嵌链接, 如 http://1.2.3.4:8318)",
+         "restart": False},
+        {"key": "agent.digest_time", "section": "agent", "type": "string",
+         "label": "日报自动推送时刻 HH:MM(留空=不自动)", "restart": False},
+        {"key": "agent.orchestration_retry_max", "section": "agent", "type": "int",
+         "label": "定时编排失败重试次数(0=不重试)", "restart": False},
+        {"key": "agent.quality_auto_push", "section": "agent", "type": "bool",
+         "label": "质量告警自动推送(偏离基线时)", "restart": False},
+        {"key": "agent.quality_auto_interval_h", "section": "agent", "type": "float",
+         "label": "自动推送间隔(小时)", "restart": False},
+    ]},
 ]
 
 # ===== 外部 LLM 大模型配置 (GUI 可视化管理) =====
@@ -4337,6 +4350,29 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             global _RUNTIME_CONFIG
             _RUNTIME_CONFIG = load_config(str(path))
+        except Exception:
+            pass
+        # Phase 63: 运行期开关即时重注入 (通知/重试/质量自动推送改完即生效, 无需重启)
+        try:
+            from .. import superagent as _sa
+            _sa.set_digest_time(_cfg_get(_RUNTIME_CONFIG, "agent.digest_time") or "")
+        except Exception:
+            pass
+        try:
+            _sa.set_default_retry_max(
+                _cfg_get(_RUNTIME_CONFIG, "agent.orchestration_retry_max") or 0)
+        except Exception:
+            pass
+        try:
+            _pub = _cfg_get(_RUNTIME_CONFIG, "agent.public_base_url") or ""
+            if _pub:
+                _sa.set_public_base_url(_pub)
+        except Exception:
+            pass
+        try:
+            _sa.set_quality_auto(
+                bool(_cfg_get(_RUNTIME_CONFIG, "agent.quality_auto_push")),
+                _cfg_get(_RUNTIME_CONFIG, "agent.quality_auto_interval_h") or 24)
         except Exception:
             pass
         # 若改动涉及 MCP, 尝试即时重连 (禁用需重启才能断开旧连接)

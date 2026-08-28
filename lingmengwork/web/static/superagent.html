@@ -140,6 +140,15 @@
   .guard{border-left:3px solid var(--warn);background:rgba(251,191,36,.08);padding:8px 12px;
     border-radius:0 8px 8px 0;margin:6px 0;font-size:12.5px;color:var(--warn)}
 
+  /* 结果区二级标签 */
+  .rtabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--bd);margin-bottom:14px}
+  .rtab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--mut);
+    padding:7px 15px;border-radius:10px 10px 0 0;font:600 12.5px/1.4 inherit;font-family:inherit;box-shadow:none}
+  .rtab:hover{color:var(--tx)}
+  .rtab.on{color:var(--tx);background:var(--panel2);border-color:var(--bd)}
+  .run .rmeta{display:inline-flex;gap:10px;align-items:center;font-size:12px}
+  .run .chev{color:var(--mut);font-size:15px;line-height:1}
+
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:rgba(140,150,210,.22);border-radius:8px}
   ::-webkit-scrollbar-thumb:hover{background:rgba(140,150,210,.36)}
@@ -179,7 +188,7 @@
       <textarea id="goalInput" placeholder="输入一个模糊目标, 如: 做段产品介绍视频并写发布文案、准备上线部署"></textarea>
       <div class="row">
         <button id="runBtn" onclick="runSuper()">🚀 启动超级 AGENT 编排</button>
-        <button class="btn2" onclick="document.getElementById('goalInput').value=''">清空</button>
+        
         <span class="muted" id="elapsed"></span>
       </div>
       <p class="muted" style="margin-top:10px">内核自动: ① 用 LLM(可选)抽取意图/域/约束 ② 联邦路由到 1..N 伙伴并行派发 ③ 三级护栏收敛 ④ 系统自检质量门 ⑤ 结论沉淀进记忆图谱。</p>
@@ -195,79 +204,91 @@
   </div>
 
   <div id="result" class="hidden" style="margin-top:14px">
-    <!-- Phase 55: 结构化导出工具条 -->
-    <div class="card" style="margin-bottom:14px">
-      <h3><span class="dot"></span>结构化导出</h3>
-      <div id="exportBar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
-      <!-- Phase 58: 回放血缘 -->
-      <div id="lineageBox" style="margin-top:10px"></div>
-    </div>
+    <nav class="rtabs">
+      <button class="rtab on" data-rt="overview" onclick="showResultTab('overview')">📊 概览</button>
+      <button class="rtab" data-rt="trace" onclick="showResultTab('trace')">🧭 Trace</button>
+      <button class="rtab" data-rt="annos" onclick="showResultTab('annos')">✍️ 批注</button>
+      <button class="rtab" data-rt="artifacts" onclick="showResultTab('artifacts')">📦 产物</button>
+      <button class="rtab" data-rt="export" onclick="showResultTab('export')">⬇️ 导出</button>
+    </nav>
 
-    <!-- Phase 57: 人工批注 -->
-    <div class="card" style="margin-bottom:14px">
-      <h3><span class="dot"></span>✍️ 人工批注 <span class="muted" style="font-size:11px;font-weight:400">评论/评分/标签 · 自动沉淀进记忆图谱</span>
-        <span id="annoStats" class="muted" style="font-size:11px;font-weight:400;margin-left:8px"></span></h3>
-      <div id="annoForm">
-        <textarea id="annoText" rows="2" placeholder="这次编排哪里好 / 哪里不行 / 下次怎么改…"
-          style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:8px 10px;font:inherit;resize:vertical"></textarea>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
-          <div style="min-width:130px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">评分(可选)</div>
-            <select id="annoRating" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:8px 10px;font:inherit">
-              <option value="">— 不评分 —</option>
-              <option value="5">★★★★★ 5</option>
-              <option value="4">★★★★ 4</option>
-              <option value="3">★★★ 3</option>
-              <option value="2">★★ 2</option>
-              <option value="1">★ 1</option>
-            </select>
-          </div>
-          <div style="flex:1;min-width:150px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">标签(逗号分隔, 可选)</div>
-            <input id="annoTags" placeholder="如: 提示词待改, 结果可用">
-          </div>
-          <div style="min-width:120px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">署名(可选)</div>
-            <input id="annoAuthor" placeholder="匿名">
-          </div>
-          <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
-            <input type="checkbox" id="annoSediment" checked> 沉淀进记忆
-          </label>
-          <button onclick="addAnnotation()">💬 提交批注</button>
+    <div id="rst-overview" class="rpane">
+      <div class="grid">
+        <div class="card">
+          <h3><span class="dot"></span>目标理解</h3>
+          <div id="intentBox"></div>
+        </div>
+        <div class="card">
+          <h3><span class="dot"></span>收敛报告（三级护栏）</h3>
+          <div id="convergeBox"></div>
         </div>
       </div>
-      <div id="annoList" style="margin-top:12px"><span class="muted">加载中…</span></div>
-    </div>
-    <div class="grid">
-      <div class="card">
-        <h3><span class="dot"></span>目标理解</h3>
-        <div id="intentBox"></div>
+      <div class="card" style="margin-top:14px">
+        <h3><span class="dot"></span>伙伴并行结果</h3>
+        <div id="partnerResult"></div>
       </div>
+    </div>
+
+    <div id="rst-trace" class="rpane hidden">
       <div class="card">
         <h3><span class="dot"></span>编排 trace（分阶段 · 进审计链）</h3>
         <div class="timeline" id="traceBox"></div>
       </div>
     </div>
 
-    <div class="grid" style="margin-top:14px">
+    <div id="rst-annos" class="rpane hidden">
       <div class="card">
-        <h3><span class="dot"></span>伙伴并行结果</h3>
-        <div id="partnerResult"></div>
-      </div>
-      <div class="card">
-        <h3><span class="dot"></span>收敛报告（三级护栏）</h3>
-        <div id="convergeBox"></div>
+        <h3><span class="dot"></span>✍️ 人工批注 <span class="muted" style="font-size:11px;font-weight:400">评论/评分/标签 · 自动沉淀进记忆图谱</span>
+          <span id="annoStats" class="muted" style="font-size:11px;font-weight:400;margin-left:8px"></span></h3>
+        <div id="annoForm">
+          <textarea id="annoText" rows="2" placeholder="这次编排哪里好 / 哪里不行 / 下次怎么改…"></textarea>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+            <div style="min-width:130px">
+              <div class="muted" style="font-size:11px;margin-bottom:4px">评分(可选)</div>
+              <select id="annoRating" style="width:100%">
+                <option value="">— 不评分 —</option>
+                <option value="5">★★★★★ 5</option>
+                <option value="4">★★★★ 4</option>
+                <option value="3">★★★ 3</option>
+                <option value="2">★★ 2</option>
+                <option value="1">★ 1</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:150px">
+              <div class="muted" style="font-size:11px;margin-bottom:4px">标签(逗号分隔, 可选)</div>
+              <input id="annoTags" placeholder="如: 提示词待改, 结果可用">
+            </div>
+            <div style="min-width:120px">
+              <div class="muted" style="font-size:11px;margin-bottom:4px">署名(可选)</div>
+              <input id="annoAuthor" placeholder="匿名">
+            </div>
+            <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="checkbox" id="annoSediment" checked> 沉淀进记忆
+            </label>
+            <button onclick="addAnnotation()">💬 提交批注</button>
+          </div>
+        </div>
+        <div id="annoList" style="margin-top:12px"><span class="muted">加载中…</span></div>
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
-      <h3><span class="dot"></span>记忆沉淀（memory_graph）</h3>
-      <div id="memoryBox"></div>
+    <div id="rst-artifacts" class="rpane hidden">
+      <div class="card" style="margin-bottom:14px">
+        <h3><span class="dot"></span>记忆沉淀（memory_graph）</h3>
+        <div id="memoryBox"></div>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>执行落地（executor · 产物）</h3>
+        <div id="execBox"></div>
+      </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
-      <h3><span class="dot"></span>执行落地（executor · 产物）</h3>
-      <div id="execBox"></div>
+    <div id="rst-export" class="rpane hidden">
+      <div class="card">
+        <h3><span class="dot"></span>导出与血缘</h3>
+        <div id="exportBar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+        <div id="lineageBox" style="margin-top:10px"></div>
+      </div>
     </div>
   </div>
   </section>
@@ -304,14 +325,14 @@
     <div class="card">
       <h3><span class="dot"></span>📏 质量基线 <span class="muted" style="font-size:11px;font-weight:400">同目标多次运行的统计分布 · 偏离自动告警</span>
         <button class="btn2" id="qualityAutoBtn" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="toggleQualityAuto()">⏰ 自动推送: …</button>
-        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="loadQuality()">🔄 刷新</button>
+        
         <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="pushQuality()">📢 推送告警</button></h3>
       <div id="qualityBox"><span class="muted">加载中…</span></div>
     </div>
 
     <div class="card">
       <h3><span class="dot"></span>🧪 反馈自优化 <span class="muted" style="font-size:11px;font-weight:400">低分批注 → 改写目标 → 优化回放</span>
-        <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="loadFeedback()">🔄 刷新分析</button></h3>
+        </h3>
       <div id="feedbackBox"><span class="muted">加载中…</span></div>
     </div>
   </div>
@@ -325,7 +346,7 @@
         <option value="low">低分(≤2)</option>
         <option value="unrated">未评分</option>
       </select>
-      <button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:4px" onclick="loadAllAnnos()">🔄 刷新</button></h3>
+      </h3>
     <div id="annoAllBox"><span class="muted">加载中…</span></div>
   </div>
   </section>
@@ -367,10 +388,12 @@
       <!-- Phase 50: 编排日报/周报 -->
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <b style="font-size:13px">📊 编排摘要</b>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest('daily')">预览日报(24h)</button>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest('weekly')">预览周报(7d)</button>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest('daily')">📤 推送日报</button>
-        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest('weekly')">📤 推送周报</button>
+        <select id="digestPeriod" style="background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:4px 8px;font:inherit;font-size:12px">
+          <option value="daily">日报 (24h)</option>
+          <option value="weekly">周报 (7d)</option>
+        </select>
+        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="previewDigest(document.getElementById('digestPeriod').value)">👁 预览</button>
+        <button class="btn2" style="padding:3px 12px;font-size:12px" onclick="pushDigest(document.getElementById('digestPeriod').value)">📤 推送</button>
       </div>
       <pre id="digestBox" class="hidden" style="margin-top:8px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:260px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
     </div>
@@ -514,15 +537,13 @@ function renderExportBar(ts){
     return;
   }
   const u = encodeURIComponent(currentTs);
-  const a = (href,label,title)=>'<a href="'+href+'" title="'+title+'" style="text-decoration:none;color:var(--tx);font-size:12px;'+
-    'border:1px solid var(--bd);border-radius:8px;padding:3px 10px">'+label+'</a>';
+  const a = (href,label,title)=>'<a class="ra" href="'+href+'" title="'+title+'">'+label+'</a>';
   bar.innerHTML =
     a('/api/superagent/export?ts='+u+'&fmt=md','⬇️ Markdown','导出可读 Markdown 报告')+
     a('/api/superagent/export?ts='+u+'&fmt=json','⬇️ JSON','导出原始结构化结果')+
     a('/api/superagent/export/bundle?ts='+u,'📦 ZIP 包','导出 md+json 打包 zip')+
     a('/api/superagent/report?ts='+u,'📄 HTML 报告','生成可分享 HTML 报告')+
-    '<button onclick="copyOrchMd()" style="font-size:12px;border:1px solid var(--bd);border-radius:8px;'+
-    'padding:3px 10px;background:transparent;color:var(--tx);cursor:pointer">📋 复制 MD</button>';
+    '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="copyOrchMd()">📋 复制 MD</button>';
 }
 async function copyOrchMd(){
   if(!currentTs){ alert("无可导出的编排记录"); return; }
@@ -643,8 +664,19 @@ async function saveAnnoEdit(id){
   }catch(e){ alert("请求异常: "+e); }
 }
 
+// ---- Phase 75: 结果区二级标签 ----
+function showResultTab(t){
+  document.querySelectorAll('.rpane').forEach(function(p){
+    p.classList.toggle('hidden', p.id !== 'rst-'+t);
+  });
+  document.querySelectorAll('.rtab').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-rt') === t);
+  });
+}
+
 function renderResult(j){
   document.getElementById("result").classList.remove("hidden");
+  showResultTab('overview');
   renderExportBar(j.ts||"");
   loadAnnotations(j.ts||"");
   loadLineage(j.ts||"");
@@ -1509,22 +1541,7 @@ function renderRuns(){
     '<div class="run" style="cursor:pointer" title="点击回看本次编排详情" onclick="loadRunDetail(\''+esc(x.ts||"")+'\')">'+
     '<span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
     '<span class="muted">'+(x.routed||[]).join("/")+'</span></span>'+
-    '<span class="acts"><a href="/api/superagent/report?ts='+encodeURIComponent(x.ts||"")+'" target="_blank" '+
-      'title="生成可分享 HTML 报告" class="ra" '+
-      'onclick="event.stopPropagation()">📄 报告</a> '+
-    '<a href="/api/superagent/export?ts='+encodeURIComponent(x.ts||"")+'&fmt=md" '+
-      'title="导出 Markdown 报告" class="ra" '+
-      'onclick="event.stopPropagation()">⬇️ MD</a> '+
-    '<a href="/api/superagent/export?ts='+encodeURIComponent(x.ts||"")+'&fmt=json" '+
-      'title="导出原始 JSON 结果" class="ra" '+
-      'onclick="event.stopPropagation()">⬇️ JSON</a> '+
-    '<a href="/api/superagent/export/bundle?ts='+encodeURIComponent(x.ts||"")+'" '+
-      'title="导出 md+json 打包 zip" class="ra" '+
-      'onclick="event.stopPropagation()">📦 ZIP</a> '+
-    '<a href="javascript:void(0)" '+
-      'title="用同一目标重跑一次, 完成后自动与原编排对比" class="ra" '+
-      'onclick="event.stopPropagation();replayRun(\''+esc(x.ts||"")+'\')">🔁 回放</a> '+
-    '<span class="rstat '+(x.ok?'ok':'bad')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></span></div>'
+    '<span class="rmeta"><span class="rstat '+(x.ok?'ok':'bad')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span>'+'<span class="muted">'+esc((x.ts||"").slice(5,16))+'</span>'+'<span class="chev">›</span></span></div>'
   ).join("") : '<span class="muted">'+(kw? "无匹配编排":"暂无编排记录")+'</span>';
   document.getElementById("runList").innerHTML = html;
   const pager = document.getElementById("runPager");
@@ -1575,7 +1592,13 @@ function showTab(t){
   document.querySelectorAll('.navbtn, .sb-item').forEach(function(b){
     b.classList.toggle('on', b.getAttribute('data-t') === t);
   });
-  try{ localStorage.setItem('lmw_sa_tab', t); }catch(e){}
+    try{ localStorage.setItem('lmw_sa_tab', t); }catch(e){}
+  const REFRESH = {
+    insight: function(){ loadTrend(); loadQuality(); loadFeedback(); loadAllAnnos(); },
+    auto: function(){ loadSchedules(); },
+    art: function(){ loadArtifacts(); }
+  };
+  if(REFRESH[t]) { try{ REFRESH[t](); }catch(e){} }
 }
 (function(){
   var t = 'orch';

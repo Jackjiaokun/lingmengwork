@@ -220,4 +220,4 @@ def test_page_has_export_ui():
     assert "exportBar" in html and "renderExportBar" in html and "copyOrchMd" in html
     assert "/api/superagent/export?ts=" in html
     assert "/api/superagent/export/bundle?ts=" in html
-    assert "结构化导出" in html
+    assert "导出与血缘" in html  # Phase 75: 二级标签整合后标题

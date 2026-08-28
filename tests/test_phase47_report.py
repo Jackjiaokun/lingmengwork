@@ -107,4 +107,5 @@ def test_page_has_report_button():
     with open(path, encoding="utf-8") as f:
         html = f.read()
     assert "/api/superagent/report?ts=" in html
-    assert "📄 报告" in html
+    # Phase 75: 报告入口从历史行迁到结果区「导出」子页签
+    assert "📄 HTML 报告" in html

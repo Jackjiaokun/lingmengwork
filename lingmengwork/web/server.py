@@ -1667,6 +1667,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 超级 AGENT SSE 流式编排 (Phase 38): 每阶段实时推送进度 ----
         if p == "/api/superagent/run/stream":
             return self._superagent_run_stream()
+        # ---- 产物归档 (Phase 53) ----
+        if p == "/api/superagent/artifacts/archive":
+            return self._artifacts_archive()
         # ---- 定时编排 (Phase 43): 计划增删改/立即执行 ----
         if p == "/api/superagent/schedules/create":
             return self._schedules_create()
@@ -2116,6 +2119,14 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"error": str(e)}, status=500)
         items.sort(key=lambda x: x.pop("_ts"), reverse=True)
         return self._send_json({"ok": True, "artifacts": items, "dir": "outputs/superagent"})
+
+    def _artifacts_archive(self):
+        """POST /api/superagent/artifacts/archive {max_age_days?} -> 归档超龄产物 (Phase 53)。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        rep = _sa.archive_old_artifacts(base_dir=os.getcwd(),
+                                        max_age_days=body.get("max_age_days") or 30)
+        return self._send_json(rep)
 
     def _artifact_safe_path(self):
         """校验 query path 严格落在 outputs/superagent 内(防目录穿越), 返回绝对路径或 None。"""

@@ -27,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 import urllib.parse
 import urllib.request as _urllib_req
 from datetime import datetime, timedelta
@@ -794,6 +795,11 @@ def _scheduler_tick(base_dir=None, llm_call=None):
                              daemon=True)
         t.start()
     _maybe_push_daily_digest(base_dir)
+    # 自动归档 (Phase 53): 每 tick 轻量扫描, 有超龄产物才写 zip
+    try:
+        archive_old_artifacts(base_dir=base_dir)
+    except Exception:
+        pass
 
 
 # ------------------------------------------------------------------ Phase 50: 编排日报/周报(统计聚合 + Webhook 推送)
@@ -811,6 +817,66 @@ def set_digest_time(t):
 
 def get_digest_state():
     return dict(_DIGEST_STATE)
+
+
+# ------------------------------------------------------------------ Phase 53: 产物自动归档(zip 压缩 + 历史修剪)
+def archive_old_artifacts(base_dir=None, max_age_days=30):
+    """归档 outputs/superagent/ 下超龄产物到 archive_<YYYYMM>.zip 并删除原文件。
+
+    同时修剪编排历史 JSONL 超龄行(剔除行归档进 zip)。返回 {archived, bytes_freed, zip}。
+    """
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    root = os.path.join(base, "outputs", "superagent")
+    if not os.path.isdir(root):
+        os.makedirs(root, exist_ok=True)  # 无产物目录也继续(仍可修剪历史 JSONL)
+    try:
+        max_age_days = min(3650, max(1, int(max_age_days)))
+    except (TypeError, ValueError):
+        max_age_days = 30
+    cutoff = time.time() - max_age_days * 86400
+    zip_path = os.path.join(root, "archive_%s.zip" % time.strftime("%Y%m"))
+    existed = os.path.exists(zip_path)
+    archived, freed = 0, 0
+    with zipfile.ZipFile(zip_path, "a" if existed else "w", zipfile.ZIP_DEFLATED) as zf:
+        existing = set(zf.namelist())
+        for fn in sorted(os.listdir(root)):
+            p = os.path.join(root, fn)
+            if not os.path.isfile(p) or fn.startswith("archive_"):
+                continue
+            if os.path.getmtime(p) > cutoff:
+                continue
+            arc = fn if fn not in existing else "%d_%s" % (int(time.time()), fn)
+            zf.write(p, arcname=arc)
+            existing.add(arc)
+            freed += os.path.getsize(p)
+            archived += 1
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+        # 修剪编排历史 JSONL 超龄行
+        runs_path = _persist_path(base)
+        if os.path.isfile(runs_path):
+            old_lines, kept = [], []
+            for line in open(runs_path, encoding="utf-8"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    dt = datetime.strptime((json.loads(line).get("ts") or ""),
+                                           "%Y-%m-%d %H:%M:%S")
+                    (old_lines if dt.timestamp() <= cutoff else kept).append(line)
+                except Exception:
+                    kept.append(line)
+            if old_lines:
+                arc = "superagent_runs_old_%d.jsonl" % int(time.time())
+                zf.writestr(arc, "\n".join(old_lines) + "\n")
+                with open(runs_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(kept) + ("\n" if kept else ""))
+                freed += sum(len(l.encode("utf-8")) for l in old_lines)
+                archived += 1
+    return {"ok": True, "archived": archived, "bytes_freed": freed,
+            "zip": os.path.basename(zip_path)}
 
 
 def _maybe_push_daily_digest(base_dir=None):

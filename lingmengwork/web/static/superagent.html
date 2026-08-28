@@ -100,7 +100,7 @@
 
     <!-- Phase 42: 编排产物中心 -->
     <div class="card">
-      <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span></h3>
+      <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span><button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="archiveArtifacts()">🗜️ 归档30天前产物</button></h3>
       <div id="artList"><span class="muted">加载中…</span></div>
       <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
     </div>
@@ -402,6 +402,16 @@ async function loadArtifacts(){
              'style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:3px 10px">下载</a>'+
         '</span></div>').join("");
   }catch(e){}
+}
+
+async function archiveArtifacts(){
+  if(!confirm("把 30 天前的产物打包为 zip 并删除原文件?")) return;
+  try{
+    const j = await (await fetch("/api/superagent/artifacts/archive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({max_age_days:30})})).json();
+    if(!j.ok){ alert("归档失败"); return; }
+    alert("已归档 " + (j.archived||0) + " 项, 释放 " + ((j.bytes_freed||0)/1024).toFixed(1) + " KB" + (j.zip? ("\n压缩包: "+j.zip) : ""));
+    loadArtifacts();
+  }catch(e){ alert("请求异常: "+e); }
 }
 
 async function previewArtifact(path){

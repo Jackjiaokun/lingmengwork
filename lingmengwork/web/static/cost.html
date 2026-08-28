@@ -116,6 +116,32 @@
     </div>
   </section>
 
+  <!-- Phase 64/67: 成本预算护栏 -->
+  <section>
+    <h2 class="sec-title">🛡️ 预算护栏 (单日编排成本)</h2>
+    <div class="card">
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+        <div class="stat-lg">
+          <span class="num" id="b-today">¥0</span>
+          <span class="lab">今日编排成本 · 预算 <b id="b-limit" style="color:var(--txt)">不限</b></span>
+          <div style="height:8px;border-radius:4px;background:var(--bg2);overflow:hidden;margin-top:6px">
+            <div id="b-bar" style="height:100%;width:0%;border-radius:4px;background:linear-gradient(90deg,#7c5cff,#4dd0e1);transition:width .3s"></div>
+          </div>
+          <span class="lab" id="b-note">未设置预算, 定时编排不限流。</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;justify-content:center">
+          <div class="hint" style="margin:0">设置单日预算 (¥), 超限自动暂停定时编排, 次日自动恢复:</div>
+          <div style="display:flex;gap:8px">
+            <input id="b-input" type="number" min="0" step="1" placeholder="如 10 (0=不限)"
+              style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:8px 12px;font:inherit">
+            <button class="btn" style="padding:8px 16px" onclick="saveBudget()">保存</button>
+          </div>
+          <span class="lab" id="b-state"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section>
     <h2 class="sec-title">价目参考 (元 / 千 token)</h2>
     <div class="card" style="padding:6px 6px">
@@ -175,7 +201,41 @@ async function load(){
   }catch(e){$("#meta-time").textContent="加载失败: "+e}
 }
 let timer=null;
-function start(){stop();load();if($("#auto").checked)timer=setInterval(load,5000)}
+// Phase 64/67: 预算护栏状态
+async function loadBudget(){
+  try{
+    const j=await(await fetch("/api/superagent/budget")).json();
+    if(!j.ok)return;
+    const lim=Number(j.daily_limit||0), cost=Number(j.today_cost||0);
+    $("#b-today").textContent=fmtCny(cost);
+    $("#b-limit").textContent=lim>0?("¥"+lim.toFixed(2)):"不限";
+    if(lim>0){
+      const pct=Math.min(100,Math.round(cost/lim*100));
+      const bar=$("#b-bar");
+      bar.style.width=pct+"%";
+      bar.style.background=pct>=100?"linear-gradient(90deg,#ff5c7c,#ffb454)":"linear-gradient(90deg,#7c5cff,#4dd0e1)";
+      $("#b-note").textContent="已用 "+pct+"%"+(j.over?"　⚠ 已达上限":"");
+    }else{
+      $("#b-bar").style.width="0%";
+      $("#b-note").textContent="未设置预算, 定时编排不限流。";
+    }
+    $("#b-state").innerHTML=j.paused
+      ?'<span style="color:var(--warn)">⏸ 定时编排已暂停 (超预算), 次日自动恢复'+(j.paused_at?" · "+esc(j.paused_at):"")+'</span>'
+      :(j.over?'<span style="color:var(--fail)">⚠ 已超预算, 下个调度周期起暂停</span>':'<span style="color:var(--ok)">✓ 预算内</span>');
+    if(document.activeElement!==$("#b-input"))$("#b-input").value=lim>0?lim:"";
+  }catch(e){}
+}
+async function saveBudget(){
+  const v=parseFloat($("#b-input").value||"0");
+  try{
+    const j=await(await fetch("/api/superagent/budget",
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({daily_limit:v})})).json();
+    if(!j.ok){alert("保存失败: "+(j.error||"未知"));return;}
+    loadBudget();
+  }catch(e){alert("请求异常: "+e)}
+}
+function start(){stop();load();loadBudget();if($("#auto").checked)timer=setInterval(function(){load();loadBudget();},5000)}
 function stop(){if(timer)clearInterval(timer)}
 $("#auto").addEventListener("change",start);
 start();

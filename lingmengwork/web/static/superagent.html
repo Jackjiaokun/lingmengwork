@@ -486,10 +486,26 @@ async function loadAnnotations(ts){
         '<b>'+esc(a.author||"匿名")+'</b>'+
         '<span style="color:var(--warn)">'+stars+'</span>'+
         '<span class="muted">'+esc(a.created_at||"")+'</span>'+sed+
-        '<button class="btn2" style="padding:1px 8px;font-size:11px;margin-left:auto" onclick="delAnnotation(\''+esc(a.id)+'\')">删除</button>'+
+        '<span style="margin-left:auto;display:inline-flex;gap:6px">'+
+        '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="toggleAnnoEdit(\''+esc(a.id)+'\')">✏️ 编辑</button>'+
+        '<button class="btn2" style="padding:1px 8px;font-size:11px" onclick="delAnnotation(\''+esc(a.id)+'\')">删除</button></span>'+
         '</div>'+
         '<div style="font-size:13px;margin-top:4px;white-space:pre-wrap">'+esc(a.text)+'</div>'+
         (tags? '<div style="margin-top:4px">'+tags+'</div>' : '')+
+        '<div id="anno-edit-'+esc(a.id)+'" class="hidden" style="margin-top:8px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:10px">'+
+          '<textarea id="anno-e-text-'+esc(a.id)+'" rows="2" style="width:100%;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:8px;font:inherit;resize:vertical">'+esc(a.text)+'</textarea>'+
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">'+
+            '<div style="min-width:110px"><div class="muted" style="font-size:11px;margin-bottom:3px">评分</div>'+
+              '<select id="anno-e-rating-'+esc(a.id)+'" style="width:100%;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:6px 8px;font:inherit">'+
+                '<option value="">— 不评分 —</option>'+
+                [5,4,3,2,1].map(n=>'<option value="'+n+'"'+(a.rating===n?' selected':'')+'>'+"★".repeat(n)+"</option>").join("")+
+              '</select></div>'+
+            '<div style="flex:1;min-width:140px"><div class="muted" style="font-size:11px;margin-bottom:3px">标签(逗号分隔)</div>'+
+              '<input id="anno-e-tags-'+esc(a.id)+'" value="'+esc((a.tags||[]).join(", "))+'" style="width:100%;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:6px 8px;font:inherit"></div>'+
+            '<button onclick="saveAnnoEdit(\''+esc(a.id)+'\')">💾 保存</button>'+
+            '<button class="btn2" onclick="toggleAnnoEdit(\''+esc(a.id)+'\')">取消</button>'+
+          '</div>'+
+        '</div>'+
         '</div>';
     }).join("");
   }catch(e){ list.innerHTML = '<span style="color:var(--bad)">请求异常: '+esc(e)+'</span>'; }
@@ -527,6 +543,26 @@ async function delAnnotation(id){
     const j = await (await fetch("/api/superagent/annotations/delete",
       {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})})).json();
     if(!j.ok){ alert("删除失败: "+(j.error||"未知")); return; }
+    loadAnnotations(currentTs);
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+// ---- Phase 68: 批注编辑 ----
+function toggleAnnoEdit(id){
+  const box = document.getElementById("anno-edit-"+id);
+  if(box) box.classList.toggle("hidden");
+}
+async function saveAnnoEdit(id){
+  const text = (document.getElementById("anno-e-text-"+id).value||"").trim();
+  if(!text){ alert("批注内容不能为空"); return; }
+  const rating = document.getElementById("anno-e-rating-"+id).value; // ""=清除评分
+  const tags = (document.getElementById("anno-e-tags-"+id).value||"")
+    .split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+  try{
+    const j = await (await fetch("/api/superagent/annotations/update",
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({id, text, rating, tags})})).json();
+    if(!j.ok){ alert("保存失败: "+(j.error||"未知")); return; }
     loadAnnotations(currentTs);
   }catch(e){ alert("请求异常: "+e); }
 }

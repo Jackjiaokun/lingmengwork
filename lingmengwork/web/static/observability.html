@@ -122,6 +122,14 @@
   .empty{color:var(--mut);padding:24px;text-align:center;font-size:13px}
   .err{color:var(--fail);padding:10px 0;font-size:13px}
   @media (max-width:760px){.g-health,.top-stats{grid-template-columns:1fr 1fr}.donut-wrap{flex-direction:column;align-items:flex-start}}
+
+  /* ---- v2: 页签化 ---- */
+  .hidden{display:none}
+  .obs-nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;max-width:1180px;margin:14px auto 0;padding:0 0;border-bottom:1px solid var(--line)}
+  .obs-nav button{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--mut);
+    padding:8px 18px;border-radius:10px 10px 0 0;font:600 13px/1.4 inherit;font-family:inherit;cursor:pointer}
+  .obs-nav button:hover{color:var(--txt)}
+  .obs-nav button.on{color:var(--txt);background:var(--card);border-color:var(--line)}
 </style>
 </head>
 <body>
@@ -138,6 +146,14 @@
   <div id="sibnav"></div>
 
 <main>
+  <nav class="obs-nav">
+    <button class="on" data-t="health" onclick="showObsTab('health')">🩺 健康度</button>
+    <button data-t="trace" onclick="showObsTab('trace')">🛠️ 调用追踪</button>
+    <button data-t="orch" onclick="showObsTab('orch')">🤖 编排</button>
+    <button data-t="feed" onclick="showObsTab('feed')">📡 事件流</button>
+  </nav>
+
+  <div id="obstab-health" class="tabpane">
   <section>
     <h2 class="sec-title">全链路健康度</h2>
     <div id="health" class="grid g-health"></div>
@@ -146,7 +162,9 @@
       <div id="mcp" class="grid g-mcp"></div>
     </div>
   </section>
+  </div>
 
+  <div id="obstab-trace" class="tabpane hidden">
   <section>
     <h2 class="sec-title">工具调用运行追踪</h2>
     <div id="topstats" class="grid top-stats"></div>
@@ -181,7 +199,9 @@
       <div id="timeline" class="tl"></div>
     </div>
   </section>
+  </div>
 
+  <div id="obstab-orch" class="tabpane hidden">
   <section>
     <h2 class="sec-title">🤖 超级 AGENT 编排 (Phase 35 · 全链路可观测)</h2>
     <div id="agentstats" class="grid g-health"></div>
@@ -197,11 +217,14 @@
       </table>
     </div>
   </section>
+  </div>
 
+  <div id="obstab-feed" class="tabpane hidden">
   <section>
     <h2 class="sec-title">最近事件流 (最近 50)</h2>
     <div id="feed" class="feed"></div>
   </section>
+  </div>
 </main>
 
 <script>
@@ -426,6 +449,23 @@ $("#refresh").addEventListener("click",loadAll);
 loadAll(); startAuto();
 </script>
   <script src="/static/subnav.js"></script>
+  
+// ---- v2: 页签切换 ----
+function showObsTab(t){
+  document.querySelectorAll('.tabpane').forEach(function(p){
+    p.classList.toggle('hidden', p.id !== 'obstab-'+t);
+  });
+  document.querySelectorAll('.obs-nav button').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-t') === t);
+  });
+  try{ localStorage.setItem('lmw_obs_tab', t); }catch(e){}
+}
+(function(){
+  var t = 'health';
+  try{ t = localStorage.getItem('lmw_obs_tab') || 'health'; }catch(e){}
+  showObsTab(t);
+})();
+
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
 </body>

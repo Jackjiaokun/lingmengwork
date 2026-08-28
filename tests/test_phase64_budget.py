@@ -21,6 +21,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+import time as _time
+
+TODAY = _time.strftime("%Y-%m-%d")
+YDAY = (_time.localtime(_time.time() - 86400)) and _time.strftime("%Y-%m-%d", _time.localtime(_time.time() - 86400))
 
 from lingmengwork import superagent as sa_mod
 from lingmengwork.web import server as _srv
@@ -58,9 +62,9 @@ def _seed_schedules(base_dir, n=1):
 
 
 def test_today_cost_only_today(tmp_path):
-    _write(tmp_path, [("2026-08-28 10:00:00", "g", 0.5),
-                      ("2026-08-28 11:00:00", "g", 0.3),
-                      ("2026-08-27 10:00:00", "g", 9.9)])
+    _write(tmp_path, [(TODAY + " 10:00:00", "g", 0.5),
+                      (TODAY + " 11:00:00", "g", 0.3),
+                      (YDAY + " 09:00:00", "g2", 9.9)])
     assert sa_mod.today_cost(str(tmp_path)) == 0.8, "只统计今天"
 
 
@@ -76,10 +80,10 @@ def test_set_daily_budget_semantics():
 
 def test_budget_state_over_and_auto_resume(tmp_path):
     sa_mod.set_daily_budget(1.0)
-    _write(tmp_path, [("2026-08-28 10:00:00", "g", 0.4)])
+    _write(tmp_path, [(TODAY + " 10:00:00", "g", 0.4)])
     st = sa_mod.get_budget_state(str(tmp_path))
     assert st["over"] is False and st["today_cost"] == 0.4
-    _write(tmp_path, [("2026-08-28 12:00:00", "g", 0.7)])
+    _write(tmp_path, [(TODAY + " 12:00:00", "g", 0.7)])
     st2 = sa_mod.get_budget_state(str(tmp_path))
     assert st2["over"] is True, "0.4+0.7=1.1 >= 1.0 超限"
     # 暂停后次日(成本归零)自动解除
@@ -94,7 +98,7 @@ def test_budget_state_over_and_auto_resume(tmp_path):
 def test_tick_skips_dispatch_when_over_budget(tmp_path):
     _seed_schedules(tmp_path)
     sa_mod.set_daily_budget(1.0)
-    _write(tmp_path, [("2026-08-28 10:00:00", "g", 2.0)])  # 已超限
+    _write(tmp_path, [(TODAY + " 10:00:00", "g", 2.0)])  # 已超限
     sa_mod._scheduler_tick(base_dir=str(tmp_path))
     assert sa_mod._BUDGET["paused"] is True
     assert sa_mod._BUDGET["paused_at"], "应记录暂停时间"
@@ -117,7 +121,7 @@ def test_tick_normal_dispatch_and_alert_once(tmp_path, monkeypatch):
     assert pushed == [], "未超限不应推预算告警"
 
     # 超限: 告警一次
-    _write(tmp_path, [("2026-08-28 10:00:00", "g", 5.0)])
+    _write(tmp_path, [(TODAY + " 10:00:00", "g", 5.0)])
     sa_mod._scheduler_tick(base_dir=str(tmp_path))
     sa_mod._scheduler_tick(base_dir=str(tmp_path))
     assert len(pushed) == 1, "同日只推一次预算告警"
@@ -139,7 +143,7 @@ class _Capture(BaseHTTPRequestHandler):
 
 def test_budget_alert_delivery_and_wrap(tmp_path):
     sa_mod.set_daily_budget(1.0)
-    _write(tmp_path, [("2026-08-28 10:00:00", "g", 5.0)])
+    _write(tmp_path, [(TODAY + " 10:00:00", "g", 5.0)])
     srv = ThreadingHTTPServer(("127.0.0.1", 9107), _Capture)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     _Capture.hits = []

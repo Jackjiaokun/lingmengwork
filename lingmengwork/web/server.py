@@ -1946,6 +1946,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._annotations_create()
         if p == "/api/superagent/annotations/delete":
             return self._annotations_delete()
+        # ---- 批注编辑 (Phase 68): POST ----
+        if p == "/api/superagent/annotations/update":
+            return self._annotations_update()
         # ---- 质量告警推送 (Phase 61): POST ----
         if p == "/api/superagent/quality/push":
             return self._quality_push()
@@ -2613,6 +2616,26 @@ class Handler(SimpleHTTPRequestHandler):
         from .. import superagent as _sa
         body = self._read_json() or {}
         rep = _sa.remove_annotation(body.get("id"), base_dir=os.getcwd())
+        if not rep.get("ok"):
+            return self._send_json(rep, status=404)
+        return self._send_json({"ok": True, **rep})
+
+    def _annotations_update(self):
+        """POST /api/superagent/annotations/update {id, text?, rating?, tags?} (Phase 68)。
+
+        text/rating/tags 缺省键不动; rating 传 "" 清除评分; 无记录 404。
+        """
+        from .. import superagent as _sa
+        body = self._read_json() or {}
+        anno_id = body.get("id")
+        if not anno_id:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        rep = _sa.update_annotation(
+            anno_id,
+            text=body.get("text"),
+            rating=body.get("rating"),
+            tags=body.get("tags"),
+            base_dir=os.getcwd())
         if not rep.get("ok"):
             return self._send_json(rep, status=404)
         return self._send_json({"ok": True, **rep})

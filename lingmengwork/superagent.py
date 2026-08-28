@@ -1335,6 +1335,95 @@ def remove_annotation(anno_id, base_dir=None):
     return {"ok": True}
 
 
+def update_annotation(anno_id, text=None, rating=None, tags=None,
+                      base_dir=None, resediment=True):
+    """更新一条批注 (Phase 68)。
+
+    - text:  None=不动; 空串/纯空白 → 拒绝; 其余 → 更新(截 4000)
+    - rating: None=不动; "" → 清除评分; int/数字串 → 钳到 1-5(非法归 None)
+    - tags:  None=不动; list → 去重去空截 8 替换
+    - updated_at 留痕; 原 sedimented=True 且正文有变 → 重新沉淀一次
+      (memory_graph 按 absorb 内容去重, 不会无限膨胀)
+
+    返回 {"ok":True, "annotation": {...}} / {"ok":False, "error"}。
+    """
+    _load_annos(base_dir)
+    with _ANNOS_LOCK:
+        a = _ANNOS.get(str(anno_id))
+        if not a:
+            return {"ok": False, "error": "未找到该批注"}
+        old_text = a.get("text") or ""
+        text_changed = False
+        if text is not None:
+            t = str(text).strip()
+            if not t:
+                return {"ok": False, "error": "批注内容不能为空"}
+            t = t[:4000]
+            if t != old_text:
+                a["text"] = t
+                text_changed = True
+        if rating is not None:
+            if isinstance(rating, str):
+                rs = rating.strip()
+                if rs == "":
+                    a["rating"] = None            # 显式清除评分
+                else:
+                    try:
+                        r = int(rs)
+                        a["rating"] = r if r in _ANNO_RATINGS else None
+                    except (TypeError, ValueError):
+                        pass                       # 非法字符串不动
+            else:
+                try:
+                    r = int(rating)
+                    a["rating"] = r if r in _ANNO_RATINGS else None
+                except (TypeError, ValueError):
+                    pass
+        if tags is not None:
+            cleaned = [str(t).strip() for t in (tags or []) if str(t).strip()][:8]
+            a["tags"] = list(dict.fromkeys(cleaned))
+        a["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        snap = dict(a)
+    _save_annos(base_dir)
+
+    # 编辑后重沉淀(仅原批注已沉淀过且正文有变化)
+    if resediment and snap.get("sedimented") and text_changed:
+        try:
+            goal = ""
+            row = get_run_detail(snap.get("ts"), base_dir=base_dir)
+            if isinstance(row, dict):
+                goal = row.get("goal") or ""
+            r2 = snap.get("rating")
+            sed = _mg.get_graph(base_dir).absorb(
+                "【人工批注·修订】%s" % (goal or snap.get("ts") or ""),
+                "%s\n批注: %s" % (("评分 %d/5" % r2) if r2 else "",
+                                  snap.get("text") or ""),
+                session_id="annotation")
+            with _ANNOS_LOCK:
+                a2 = _ANNOS.get(str(anno_id))
+                if a2:
+                    a2["sediment"] = {
+                        "entities_added": int(sed.get("entities_added") or 0),
+                        "relations_added": int(sed.get("relations_added") or 0),
+                        "facts_count": int(sed.get("facts_count") or 0),
+                        "error": sed.get("error") if not sed.get("ok") else None,
+                    }
+                    a2["sedimented"] = bool(sed.get("ok"))
+            _save_annos(base_dir)
+            with _ANNOS_LOCK:
+                a3 = _ANNOS.get(str(anno_id))
+                snap = dict(a3) if a3 else snap
+        except Exception as e:
+            with _ANNOS_LOCK:
+                a4 = _ANNOS.get(str(anno_id))
+                if a4:
+                    a4["sediment"] = {"entities_added": 0, "relations_added": 0,
+                                      "facts_count": 0,
+                                      "error": "%s: %s" % (type(e).__name__, e)}
+            _save_annos(base_dir)
+    return {"ok": True, "annotation": snap}
+
+
 def get_annotation_stats(ts=None, base_dir=None):
     """批注统计 (Phase 57): 条数 / 平均分 / 标签分布 / 已沉淀条数。"""
     annos = list_annotations(ts, base_dir=base_dir)

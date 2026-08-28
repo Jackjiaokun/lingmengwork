@@ -135,6 +135,7 @@
         <input id="runSearch" placeholder="🔍 搜目标关键词…" oninput="renderRuns()"
           style="margin-left:8px;width:150px;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:3px 10px;font:inherit;font-size:11px"><span class="muted" id="runCount" style="font-size:11px;font-weight:400"></span></h3>
       <div id="runList"><span class="muted">暂无编排记录</span></div>
+      <div id="runPager" class="muted" style="margin-top:6px;font-size:11px;display:flex;gap:10px;align-items:center"></div>
     </div>
   </div>
 
@@ -1416,6 +1417,14 @@ async function pushDigest(period){
     alert(j.ok? ("📤 " + label + "已推送 " + j.sent + " 个接收端" + ((j.errors&&j.errors.length)?("\n失败:\n"+j.errors.join("\n")):"")) : "推送失败: "+(j.error||"未知"));
   }catch(e){ alert("请求异常: "+e); }
 }
+let runPage = 1, runLastKw = "";
+const RUN_PAGE_SIZE = 50;
+function runPageGo(d){
+  runPage = Math.max(1, runPage + d);
+  renderRuns();
+  const el = document.getElementById("runList");
+  if(el) el.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
 function renderRuns(){
   document.getElementById("kRuns").textContent = lastRuns.length;
   const cross = lastRuns.filter(x=>(x.routed||[]).length>=2).length;
@@ -1424,15 +1433,19 @@ function renderRuns(){
   document.getElementById("kConflict").textContent = cf;
   const scs = lastRuns.map(x=>x.selfcheck_score??100).filter(s=>typeof s==="number");
   document.getElementById("kScore").textContent = scs.length? Math.round(scs.reduce((a,b)=>a+b,0)/scs.length):"—";
-  // Phase 71: 关键词过滤(KPI 保持全量统计)
+  // Phase 71: 关键词过滤(KPI 保持全量统计) + Phase 72: 分页
   const kw = ((document.getElementById("runSearch")||{}).value||"").trim().toLowerCase();
+  if(kw !== runLastKw){ runPage = 1; runLastKw = kw; }
   const runs = kw ? lastRuns.filter(x =>
       (x.goal||"").toLowerCase().includes(kw) ||
       (x.ts||"").includes(kw) ||
       (x.routed||[]).join("/").toLowerCase().includes(kw)) : lastRuns;
   const cnt = document.getElementById("runCount");
   if(cnt) cnt.textContent = kw ? (runs.length+"/"+lastRuns.length+" 条命中") : "";
-  const html = runs.length? runs.map(x=>
+  const pages = Math.max(1, Math.ceil(runs.length / RUN_PAGE_SIZE));
+  if(runPage > pages) runPage = pages;
+  const pageRuns = runs.slice((runPage-1)*RUN_PAGE_SIZE, runPage*RUN_PAGE_SIZE);
+  const html = pageRuns.length? pageRuns.map(x=>
     '<div class="run" style="cursor:pointer" title="点击回看本次编排详情" onclick="loadRunDetail(\''+esc(x.ts||"")+'\')">'+
     '<span><b>'+esc((x.goal||"").slice(0,28))+'</b> '+
     '<span class="muted">'+(x.routed||[]).join("/")+'</span></span>'+
@@ -1454,6 +1467,16 @@ function renderRuns(){
     '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></span></div>'
   ).join("") : '<span class="muted">'+(kw? "无匹配编排":"暂无编排记录")+'</span>';
   document.getElementById("runList").innerHTML = html;
+  const pager = document.getElementById("runPager");
+  if(pager){
+    if(pages <= 1){ pager.innerHTML = ""; }
+    else{
+      pager.innerHTML =
+        '<button class="btn2" style="padding:1px 10px;font-size:11px" onclick="runPageGo(-1)"'+(runPage<=1?" disabled":"")+'>◀ 上一页</button>'+
+        '<span>第 '+runPage+' / '+pages+' 页 · 共 '+runs.length+' 条</span>'+
+        '<button class="btn2" style="padding:1px 10px;font-size:11px" onclick="runPageGo(1)"'+(runPage>=pages?" disabled":"")+'>下一页 ▶</button>';
+    }
+  }
 }
 
 // Phase 39: 历史编排回看 — 点击记录拉取完整结果(磁盘持久化, 重启不丢)并复用渲染

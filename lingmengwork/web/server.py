@@ -1200,6 +1200,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._schedules_get()
         if p == "/api/superagent/templates":
             return self._sa_tpl_get()
+        if p == "/api/superagent/webhooks":
+            return self._webhooks_get()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1542,6 +1544,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self._sa_tpl_delete()
         if p == "/api/superagent/templates/render":
             return self._sa_tpl_render()
+        # ---- Webhook 通知 (Phase 46): 接收端管理/测试 ----
+        if p == "/api/superagent/webhooks/create":
+            return self._webhooks_create()
+        if p == "/api/superagent/webhooks/update":
+            return self._webhooks_update()
+        if p == "/api/superagent/webhooks/delete":
+            return self._webhooks_delete()
+        if p == "/api/superagent/webhooks/test":
+            return self._webhooks_test()
         # ---- 插件中枢 (Phase 32): 动态注册 connector/expert ----
         if p == "/api/plugins/connectors/register":
             return self._plugin_connector_register()
@@ -2191,6 +2202,77 @@ class Handler(SimpleHTTPRequestHandler):
         if rep is None:
             return self._send_json({"error": "template 不存在"}, status=404)
         return self._send_json({"ok": True, **rep})
+
+    # ---------------------------------------------------------------
+    # Webhook 通知 (Phase 46): 接收端管理/测试
+    # ---------------------------------------------------------------
+    def _webhooks_get(self):
+        """GET /api/superagent/webhooks -> 通知接收端列表。"""
+        from .. import superagent as _sa
+        return self._send_json({"ok": True, "webhooks": _sa.list_webhooks(base_dir=os.getcwd())})
+
+    def _webhooks_create(self):
+        """POST /api/superagent/webhooks/create {url, events?, secret?, enabled?}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        try:
+            entry = _sa.add_webhook(body.get("url") or "",
+                                    events=body.get("events") or "all",
+                                    secret=body.get("secret") or "",
+                                    enabled=body.get("enabled", True),
+                                    base_dir=os.getcwd())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "webhook": entry})
+
+    def _webhooks_update(self):
+        """POST /api/superagent/webhooks/update {id, url?/events?/secret?/enabled?}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        wid = (body.get("id") or "").strip()
+        if not wid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        try:
+            snap = _sa.update_webhook(wid, body, base_dir=os.getcwd())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        if snap is None:
+            return self._send_json({"error": "webhook 不存在"}, status=404)
+        return self._send_json({"ok": True, "webhook": snap})
+
+    def _webhooks_delete(self):
+        """POST /api/superagent/webhooks/delete {id}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        wid = (body.get("id") or "").strip()
+        if not wid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        if not _sa.remove_webhook(wid, base_dir=os.getcwd()):
+            return self._send_json({"error": "webhook 不存在"}, status=404)
+        return self._send_json({"ok": True, "removed": wid})
+
+    def _webhooks_test(self):
+        """POST /api/superagent/webhooks/test {id} 或 {url, secret?} -> 发送测试事件。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        wid = (body.get("id") or "").strip()
+        if wid:
+            hooks = [h for h in _sa.list_webhooks(base_dir=os.getcwd()) if h["id"] == wid]
+            if not hooks:
+                return self._send_json({"error": "webhook 不存在"}, status=404)
+            entry = hooks[0]
+        else:
+            url = (body.get("url") or "").strip()
+            if not url:
+                return self._send_json({"error": "缺少 id 或 url"}, status=400)
+            entry = {"id": "_test", "url": url, "secret": body.get("secret") or "",
+                     "events": "all", "enabled": True}
+        payload = {"event": "test", "goal": "(Webhook 连通性测试)", "ok": True,
+                   "ts": _sa._now(), "elapsed_sec": 0, "routed": [],
+                   "selfcheck_score": None, "partners_ok": 0, "artifacts": [], "error": ""}
+        status, err = _sa._webhook_post(entry, payload)
+        return self._send_json({"ok": status == 200, "status": status,
+                                "error": err})
 
     # ---------------------------------------------------------------
     # 插件中枢 (Phase 32): Connector/Expert 注册/发现/接入

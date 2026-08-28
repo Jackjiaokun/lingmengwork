@@ -16,6 +16,8 @@
 """
 
 import collections
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -920,6 +922,157 @@ def use_template(tid, variables=None, base_dir=None):
     return {"id": tid, "name": t["name"], "goal": goal, "missing": missing}
 
 
+# ------------------------------------------------------------------ Phase 46: 编排结果 Webhook 通知
+_HOOKS_LOCK = threading.Lock()
+_HOOKS = {}
+_HOOKS_LOADED = set()
+_WEBHOOK_TIMEOUT = 5
+
+
+def _webhooks_path(base_dir=None):
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    return os.path.join(base, "outputs", "superagent_webhooks.json")
+
+
+def _load_webhooks(base_dir=None):
+    path = _webhooks_path(base_dir)
+    with _HOOKS_LOCK:
+        if path in _HOOKS_LOADED:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for h in (data.get("webhooks") or []):
+                if isinstance(h, dict) and h.get("id"):
+                    _HOOKS[h["id"]] = h
+        except Exception:
+            pass
+        _HOOKS_LOADED.add(path)
+
+
+def _save_webhooks(base_dir=None):
+    try:
+        path = _webhooks_path(base_dir)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with _HOOKS_LOCK:
+            data = {"webhooks": sorted(_HOOKS.values(), key=lambda h: h.get("created_at", ""))}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def list_webhooks(base_dir=None):
+    _load_webhooks(base_dir)
+    with _HOOKS_LOCK:
+        return sorted(_HOOKS.values(), key=lambda h: h.get("created_at", ""))
+
+
+def add_webhook(url, events="all", secret="", enabled=True, base_dir=None):
+    """新建通知 Webhook。url 需 http(s):// 开头; events: all|done|fail。"""
+    url = (url or "").strip()
+    if not re.match(r"^https?://", url):
+        raise ValueError("url 需以 http:// 或 https:// 开头")
+    events = events if events in ("all", "done", "fail") else "all"
+    wid = "w_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
+    entry = {"id": wid, "url": url, "events": events, "secret": secret or "",
+             "enabled": bool(enabled), "created_at": _now(),
+             "last_status": None, "last_ts": "", "last_error": ""}
+    with _HOOKS_LOCK:
+        _HOOKS[wid] = entry
+    _save_webhooks(base_dir)
+    return dict(entry)
+
+
+def update_webhook(wid, patch, base_dir=None):
+    """更新 Webhook(白名单键: url/events/secret/enabled)。不存在返回 None。"""
+    with _HOOKS_LOCK:
+        h = _HOOKS.get(wid)
+        if not h:
+            return None
+        for k in ("url", "events", "secret", "enabled"):
+            if k in patch and patch[k] is not None:
+                h[k] = patch[k] if k != "enabled" else bool(patch[k])
+        snap = dict(h)
+    if "url" in patch and not re.match(r"^https?://", str(patch.get("url") or "")):
+        raise ValueError("url 需以 http:// 或 https:// 开头")
+    _save_webhooks(base_dir)
+    return snap
+
+
+def remove_webhook(wid, base_dir=None):
+    with _HOOKS_LOCK:
+        removed = _HOOKS.pop(wid, None) is not None
+    if removed:
+        _save_webhooks(base_dir)
+    return removed
+
+
+def _webhook_post(entry, payload):
+    """同步 POST 一个 Webhook(带可选 HMAC-SHA256 签名), 回写 last_status。"""
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json",
+               "X-LMW-Event": str(payload.get("event", ""))}
+    err = ""
+    try:
+        if entry.get("secret"):
+            sig = hmac.new(str(entry["secret"]).encode("utf-8"),
+                           body, hashlib.sha256).hexdigest()
+            headers["X-LMW-Signature"] = "sha256=" + sig
+        req = _urllib_req.Request(entry["url"], data=body, headers=headers, method="POST")
+        with _urllib_req.urlopen(req, timeout=_WEBHOOK_TIMEOUT) as resp:
+            status = resp.getcode()
+    except Exception as e:
+        status = 0
+        err = "%s: %s" % (type(e).__name__, str(e)[:200])
+    with _HOOKS_LOCK:
+        h = _HOOKS.get(entry["id"])
+        if h is not None:
+            h["last_status"] = status
+            h["last_ts"] = _now()
+            h["last_error"] = "" if status == 200 else err
+    _save_webhooks()
+    return status, err
+
+
+def notify_webhooks(result, base_dir=None, blocking=False):
+    """把编排结果推送到启用的事件匹配 Webhook(默认后台线程, 异常静默)。
+
+    event: done(ok=True) / fail(ok=False)。
+    """
+    try:
+        _load_webhooks(base_dir)
+        event = "done" if result.get("ok") else "fail"
+        payload = {
+            "event": event, "goal": result.get("goal", ""),
+            "ok": bool(result.get("ok")), "ts": _now(),
+            "elapsed_sec": result.get("elapsed_sec", 0),
+            "routed": result.get("routed", []),
+            "selfcheck_score": (result.get("converge") or {}).get("selfcheck_score"),
+            "partners_ok": (result.get("converge") or {}).get("partners_ok", 0),
+            "artifacts": ((result.get("executions") or {}).get("artifacts", []) or [])[:20],
+            "error": result.get("error", ""),
+        }
+        targets = [h for h in list_webhooks(base_dir)
+                   if h.get("enabled") and h.get("events") in ("all", event)]
+        if not targets:
+            return
+
+        def _worker():
+            for h in targets:
+                try:
+                    _webhook_post(h, payload)
+                except Exception:
+                    pass
+
+        if blocking:
+            _worker()
+        else:
+            threading.Thread(target=_worker, daemon=True).start()
+    except Exception:
+        pass
+
+
 class SuperAgent:
     """统一超级 AGENT 内核。"""
 
@@ -1253,6 +1406,7 @@ class SuperAgent:
                 "usage": meter.stats(),
             }
             self._record(result)
+            notify_webhooks(result, base_dir=self.base_dir)
             return result
 
         result = {
@@ -1272,6 +1426,7 @@ class SuperAgent:
             "usage": meter.stats(),
         }
         self._record(result)
+        notify_webhooks(result, base_dir=self.base_dir)
         return result
 
     def _record(self, result):

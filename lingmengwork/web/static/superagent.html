@@ -149,6 +149,31 @@
       </div>
       <div id="tplList" style="margin-top:10px"><span class="muted">加载中…</span></div>
     </div>
+
+    <!-- Phase 46: 通知 Webhook -->
+    <div class="card">
+      <h3><span class="dot"></span>🔔 通知 Webhook <span class="muted" style="font-size:11px;font-weight:400">编排完成/失败时 POST JSON 到接收端(带可选 HMAC 签名)</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:3;min-width:240px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">接收 URL</div>
+          <input id="whUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx 或自定义">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">事件</div>
+          <select id="whEvents" style="width:100%;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:10px 12px;font:inherit">
+            <option value="all">全部(done+fail)</option>
+            <option value="done">仅完成</option>
+            <option value="fail">仅失败</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">签名密钥(可选)</div>
+          <input id="whSecret" placeholder="留空不签名">
+        </div>
+        <button onclick="createWebhook()">➕ 添加</button>
+      </div>
+      <div id="whList" style="margin-top:10px"><span class="muted">加载中…</span></div>
+    </div>
   </div>
 
   <div id="result" class="hidden" style="margin-top:14px">
@@ -538,6 +563,67 @@ async function useTemplate(id){
     runSuper();
   }catch(e){ alert("请求异常: "+e); }
 }
+
+// ---------- Phase 46: 通知 Webhook ----------
+async function loadWebhooks(){
+  try{
+    const j = await (await fetch("/api/superagent/webhooks")).json();
+    const hooks = j.webhooks||[];
+    const box = document.getElementById("whList");
+    if(!hooks.length){ box.innerHTML = '<span class="muted">暂无接收端。编排完成/失败时不会外发通知。</span>'; return; }
+    box.innerHTML = hooks.map(h=>
+      '<div class="run" style="align-items:flex-start">'+
+        '<span><b>'+esc(h.url.slice(0,60))+'</b> '+
+          '<span class="muted">'+(h.events==='all'?'全部':(h.events==='done'?'仅完成':'仅失败'))+
+          (h.secret?' · 🔐已签名':'')+
+          ' · 上次 '+(h.last_status===null||h.last_status===undefined?'未发送':(h.last_status===200?'✅ 200':('❌ '+(h.last_status||'失败'))))+
+          (h.last_ts?(' '+esc(h.last_ts)):'')+'</span></span>'+
+        '<span>'+
+          '<label style="font-size:12px;margin-right:8px"><input type="checkbox" style="width:auto" '+(h.enabled?'checked':'')+
+            ' onchange="toggleWebhook(\''+esc(h.id)+'\', this.checked)"> 启用</label>'+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="testWebhook(\''+esc(h.id)+'\')">测试</button> '+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="deleteWebhook(\''+esc(h.id)+'\')">删除</button>'+
+        '</span></div>').join("");
+  }catch(e){}
+}
+
+async function createWebhook(){
+  const url = document.getElementById("whUrl").value.trim();
+  if(!url){ alert("请填写接收 URL"); return; }
+  try{
+    const r = await fetch("/api/superagent/webhooks/create",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({url, events: document.getElementById("whEvents").value,
+                           secret: document.getElementById("whSecret").value.trim()})});
+    const j = await r.json();
+    if(!j.ok){ alert("添加失败: "+(j.error||"未知")); return; }
+    document.getElementById("whUrl").value = "";
+    document.getElementById("whSecret").value = "";
+    loadWebhooks();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function toggleWebhook(id, enabled){
+  try{
+    await fetch("/api/superagent/webhooks/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, enabled})});
+    loadWebhooks();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function deleteWebhook(id){
+  if(!confirm("删除该通知接收端?")) return;
+  try{
+    await fetch("/api/superagent/webhooks/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    loadWebhooks();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function testWebhook(id){
+  try{
+    const j = await (await fetch("/api/superagent/webhooks/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})})).json();
+    alert(j.ok? "✅ 测试送达 (HTTP "+j.status+")" : "❌ 测试失败: "+(j.error||("HTTP "+j.status)));
+    loadWebhooks();
+  }catch(e){ alert("请求异常: "+e); }
+}
 function renderRuns(){
   document.getElementById("kRuns").textContent = lastRuns.length;
   const cross = lastRuns.filter(x=>(x.routed||[]).length>=2).length;
@@ -572,6 +658,7 @@ async function loadRunDetail(ts){
 loadRuns();
 loadSchedules();
 loadTemplates();
+loadWebhooks();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
 </script>

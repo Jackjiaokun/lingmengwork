@@ -1908,6 +1908,143 @@ def run(goal, session_id="", llm_call=None, base_dir=None, quality_gate=True):
         goal, session_id=session_id, llm_call=llm_call, quality_gate=quality_gate)
 
 
+# ------------------------------------------------------------------ Phase 56: 两次编排结果对比(A/B diff)
+# 每个指标: (取值路径, 展示名, 单位, 越大越好?)
+_DIFF_METRICS = (
+    ("elapsed_sec", "耗时", "s", False),
+    ("score", "自检分", "", True),
+    ("partners_ok", "伙伴成功", "", True),
+    ("guards", "护栏告警", "", False),
+    ("conflicts", "方案冲突", "", False),
+    ("llm_calls", "LLM 调用", "次", False),
+    ("tokens", "Tokens", "", False),
+    ("cost", "成本", "¥", False),
+)
+
+
+def _diff_snapshot(result):
+    """把一次编排压平成对比用的关键指标快照。"""
+    r = result or {}
+    cv = r.get("converge") or {}
+    us = r.get("usage") or {}
+    dp = r.get("dispatch") or {}
+    partners = dp.get("partners") or []
+    ex = r.get("executions") or {}
+
+    def num(v, d=0):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return float(d)
+
+    return {
+        "ts": r.get("ts") or "",
+        "goal": r.get("goal") or "",
+        "ok": bool(r.get("ok")),
+        "error": r.get("error") or "",
+        "elapsed_sec": round(num(r.get("elapsed_sec")), 3),
+        "score": round(num(cv.get("selfcheck_score"), 100), 1),
+        "routed": list(r.get("routed") or []),
+        "partners_ok": sum(1 for p in partners if p.get("status") == "ok"),
+        "partners_total": len(partners),
+        "partners": partners,
+        "guards": len(cv.get("guards") or []),
+        "conflicts": len(cv.get("conflicts") or []),
+        "artifacts": [str(a) for a in (ex.get("artifacts") or [])],
+        "llm_calls": int(num(us.get("llm_calls"))),
+        "tokens": int(num(us.get("est_total_tokens"))),
+        "cost": round(num(us.get("est_cost_cny")), 6),
+    }
+
+
+def _diff_verdict(metrics):
+    """按指标改善/退化数量给出总体结论。
+
+    注意: m["better"] 是「越大越好」方向标记, 不是「是否改善」;
+    判定必须用 m["improved"]。
+    """
+    changed = [m for m in metrics if m.get("delta")]
+    better = sum(1 for m in changed if m.get("improved"))
+    worse = len(changed) - better
+    if better and better > worse:
+        return "改善"
+    if worse and worse > better:
+        return "退化"
+    if better and better == worse:
+        return "有得有失"
+    return "持平"
+
+
+def diff_runs(ts_a, ts_b, base_dir=None):
+    """对比两次编排结果 (Phase 56)。
+
+    ts_a = 基线(旧), ts_b = 对照(新)。
+    返回结构化 diff dict; 任一 ts 找不到记录则返回 None。
+
+    结构:
+      {"a": 快照A, "b": 快照B,
+       "metrics": [{key,label,unit,old,new,delta,better,improved}],
+       "routed": {"added","removed","same"},
+       "partners": [{name,domain,status_a,status_b,changed,only_in}],
+       "artifacts": {"added","removed","same"},
+       "goal_changed": bool,
+       "verdict": "改善|退化|持平|有得有失"}
+    """
+    ra = get_run_detail(ts_a, base_dir)
+    rb = get_run_detail(ts_b, base_dir)
+    if ra is None or rb is None:
+        return None
+    a, b = _diff_snapshot(ra), _diff_snapshot(rb)
+
+    metrics = []
+    for key, label, unit, higher_better in _DIFF_METRICS:
+        old, new = a.get(key, 0), b.get(key, 0)
+        try:
+            delta = round(float(new) - float(old), 6)
+        except (TypeError, ValueError):
+            delta = 0.0
+        improved = (delta > 0) if higher_better else (delta < 0)
+        metrics.append({
+            "key": key, "label": label, "unit": unit,
+            "old": old, "new": new, "delta": delta,
+            "higher_better": higher_better,
+            "better": higher_better,          # 该指标"越大越好"与否(供 UI 着色)
+            "improved": bool(improved and delta != 0),
+        })
+
+    sa_, sb_ = set(a["routed"]), set(b["routed"])
+    aa, ab = set(a["artifacts"]), set(b["artifacts"])
+
+    # 伙伴逐名对比: 按 (domain, name) 配对, 未配对标 only_in
+    pa = {(p.get("domain", ""), p.get("name", "")): p for p in a["partners"]}
+    pb = {(p.get("domain", ""), p.get("name", "")): p for p in b["partners"]}
+    partners = []
+    for k in list(pa.keys()) + [k for k in pb if k not in pa]:
+        x, y = pa.get(k), pb.get(k)
+        sx = (x or {}).get("status", "")
+        sy = (y or {}).get("status", "")
+        partners.append({
+            "name": k[1], "domain": k[0],
+            "status_a": sx, "status_b": sy,
+            "only_in": "a" if y is None else ("b" if x is None else ""),
+            "changed": sx != sy,
+            "summary_a": str((x or {}).get("summary") or "")[:2000],
+            "summary_b": str((y or {}).get("summary") or "")[:2000],
+        })
+
+    return {
+        "a": a, "b": b,
+        "metrics": metrics,
+        "routed": {"added": sorted(sb_ - sa_), "removed": sorted(sa_ - sb_),
+                   "same": sorted(sa_ & sb_)},
+        "partners": partners,
+        "artifacts": {"added": sorted(ab - aa), "removed": sorted(aa - ab),
+                      "same": sorted(aa & ab)},
+        "goal_changed": (a["goal"] or "") != (b["goal"] or ""),
+        "verdict": _diff_verdict(metrics),
+    }
+
+
 # ------------------------------------------------------------------ Phase 52: 编排失败自动重试(指数退避)
 _DEFAULT_RETRY = {"max": 0, "backoff": 5.0}
 

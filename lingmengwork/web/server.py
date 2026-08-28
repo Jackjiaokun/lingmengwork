@@ -444,6 +444,124 @@ def _render_orch_md(result):
     return "\n".join(lines)
 
 
+def _render_diff_report(d):
+    """把 diff_runs 的结果渲染成自包含 HTML 左右对比报告 (Phase 56)。
+
+    零外部依赖(内联 CSS), 可直接在新标签页打开 / 另存 / 转发。
+    """
+    a, b = d.get("a") or {}, d.get("b") or {}
+    e = lambda s: (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+                   .replace(">", "&gt;").replace('"', "&quot;"))
+    verdict = e(d.get("verdict") or "持平")
+    vcolor = {"改善": "#4ade80", "退化": "#f87171", "有得有失": "#fbbf24"}.get(verdict, "#94a3b8")
+
+    rows = []
+    for m in d.get("metrics") or []:
+        old, new, delta = m.get("old"), m.get("new"), m.get("delta")
+        if delta == 0:
+            dcls, dtxt = "same", "±0"
+        elif m.get("improved"):
+            dcls, dtxt = "good", ("+" if delta > 0 else "") + str(delta)
+        else:
+            dcls, dtxt = "bad", ("+" if delta > 0 else "") + str(delta)
+        rows.append(
+            '<tr><td class="k">%s</td><td>%s%s</td><td class="%s">%s</td><td>%s%s</td></tr>'
+            % (e(m.get("label")), e(old), e(m.get("unit")), dcls, dtxt,
+               e(new), e(m.get("unit"))))
+
+    prows = []
+    for p in d.get("partners") or []:
+        if p.get("only_in") == "a":
+            badge, cls = "仅 A", "rm"
+        elif p.get("only_in") == "b":
+            badge, cls = "仅 B", "add"
+        elif p.get("changed"):
+            badge, cls = "状态变化", "chg"
+        else:
+            badge, cls = "一致", "same"
+        prows.append(
+            '<tr><td class="k">%s <span class="muted">· %s</span></td>'
+            '<td>%s</td><td class="%s">%s</td><td>%s</td></tr>'
+            % (e(p.get("name")), e(p.get("domain")), e(p.get("status_a") or "—"),
+               cls, badge, e(p.get("status_b") or "—")))
+
+    rt = d.get("routed") or {}
+    at = d.get("artifacts") or {}
+    chips = lambda arr, cls: ("".join('<span class="chip %s">%s</span>' % (cls, e(x))
+                                      for x in arr)) or '<span class="muted">无</span>'
+
+    return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>灵梦work · 编排对比报告</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:#0b1020;color:#e2e8f0;
+ font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:22px 0 8px;color:#a5b4fc}
+.sub{color:#8b96ad;font-size:12px;margin-bottom:18px}
+.verdict{display:inline-block;padding:4px 14px;border-radius:999px;font-weight:700;
+ border:1px solid currentColor;color:%(vcolor)s;margin-left:8px;font-size:12px}
+table{width:100%%;border-collapse:collapse;margin-top:6px;
+ background:#121a30;border-radius:10px;overflow:hidden}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #1e293b;font-size:13px}
+th{background:#1a2440;color:#94a3b8;font-weight:600;font-size:12px}
+td.k{color:#cbd5e1;font-weight:600;width:26%%}
+tr:last-child td{border-bottom:none}
+.good{color:#4ade80;font-weight:700}.bad{color:#f87171;font-weight:700}
+.same{color:#94a3b8}.chg{color:#fbbf24;font-weight:700}
+.add{color:#4ade80;font-weight:700}.rm{color:#f87171;font-weight:700}
+.muted{color:#64748b;font-size:12px}
+.chip{display:inline-block;padding:2px 9px;margin:2px 4px 2px 0;border-radius:999px;
+ font-size:12px;background:#1e293b;color:#cbd5e1}
+.chip.add{background:rgba(74,222,128,.14);color:#4ade80}
+.chip.rm{background:rgba(248,113,113,.14);color:#f87171}
+.goal{background:#121a30;border-radius:10px;padding:12px 14px;margin-bottom:6px}
+.goal .lbl{color:#94a3b8;font-size:12px}
+footer{margin-top:26px;color:#475569;font-size:12px;text-align:center}
+</style></head><body>
+<h1>灵梦work · 编排对比报告<span class="verdict">%(verdict)s</span></h1>
+<div class="sub">基线 A: %(ats)s &nbsp;→&nbsp; 对照 B: %(bts)s%(warn)s</div>
+
+<div class="goal"><div class="lbl">目标 A</div><div>%(agoal)s</div></div>
+<div class="goal"><div class="lbl">目标 B</div><div>%(bgoal)s</div></div>
+
+<h2>📊 关键指标</h2>
+<table><thead><tr><th>指标</th><th>A（基线）</th><th>变化</th><th>B（对照）</th></tr></thead>
+<tbody>%(rows)s</tbody></table>
+
+<h2>🤝 伙伴逐项对比</h2>
+<table><thead><tr><th>伙伴</th><th>A 状态</th><th>判定</th><th>B 状态</th></tr></thead>
+<tbody>%(prows)s</tbody></table>
+
+<h2>🧭 路由域变化</h2>
+<div>新增 %(radd)s</div>
+<div>移除 %(rrm)s</div>
+<div style="margin-top:4px">保持 %(rsame)s</div>
+
+<h2>📦 产物变化</h2>
+<div>新增 %(aadd)s</div>
+<div>移除 %(arm)s</div>
+<div style="margin-top:4px">保持 %(asame)s</div>
+
+<footer>由灵梦work 超级 AGENT 自动生成 · A/B 对比</footer>
+</body></html>""" % {
+        "vcolor": vcolor, "verdict": verdict,
+        "ats": e(a.get("ts")), "bts": e(b.get("ts")),
+        "warn": (' <span style="color:#fbbf24">· 两次目标不一致, 对比仅供参考</span>'
+                 if d.get("goal_changed") else ""),
+        "agoal": e(a.get("goal") or "—"), "bgoal": e(b.get("goal") or "—"),
+        "rows": "".join(rows) or '<tr><td colspan="4" class="muted">无指标</td></tr>',
+        "prows": "".join(prows) or '<tr><td colspan="4" class="muted">无伙伴</td></tr>',
+        "radd": chips(rt.get("added") or [], "add"),
+        "rrm": chips(rt.get("removed") or [], "rm"),
+        "rsame": chips(rt.get("same") or [], ""),
+        "aadd": chips(at.get("added") or [], "add"),
+        "arm": chips(at.get("removed") or [], "rm"),
+        "asame": chips(at.get("same") or [], ""),
+    }
+
+
 def _record_review(target, output):
     """把一次 review_code 的 tool_result 归入 _REVIEWS (ring buffer)。返回记录 dict 或 None。"""
     parsed = _parse_code_review(output)
@@ -1411,6 +1529,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_export()
         if p == "/api/superagent/export/bundle":
             return self._superagent_export_bundle()
+        if p == "/api/superagent/diff":
+            return self._superagent_diff()
+        if p == "/api/superagent/diff/report":
+            return self._superagent_diff_report()
         if p == "/api/superagent/queue":
             return self._superagent_queue()
         if p == "/api/superagent/artifacts":
@@ -2223,6 +2345,37 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/zip")
         self.send_header("Content-Disposition",
                          'attachment; filename="lingmeng-orch-%s.zip"' % stamp)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _superagent_diff(self):
+        """GET /api/superagent/diff?a=<ts>&b=<ts> -> 两次编排结构化对比 (Phase 56)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ta = (q.get("a") or [""])[0]
+        tb = (q.get("b") or [""])[0]
+        if not ta or not tb:
+            return self._send_json({"error": "缺少 a/b 两个 ts"}, status=400)
+        d = _sa.diff_runs(ta, tb, base_dir=os.getcwd())
+        if d is None:
+            return self._send_json({"error": "未找到其中一次编排记录"}, status=404)
+        return self._send_json({"ok": True, "diff": d})
+
+    def _superagent_diff_report(self):
+        """GET /api/superagent/diff/report?a=&b= -> 左右分栏 HTML 对比报告 (Phase 56)。"""
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ta = (q.get("a") or [""])[0]
+        tb = (q.get("b") or [""])[0]
+        if not ta or not tb:
+            return self._send_json({"error": "缺少 a/b 两个 ts"}, status=400)
+        d = _sa.diff_runs(ta, tb, base_dir=os.getcwd())
+        if d is None:
+            return self._send_json({"error": "未找到其中一次编排记录"}, status=404)
+        payload = _render_diff_report(d).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)

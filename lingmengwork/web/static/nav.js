@@ -4,6 +4,8 @@
  */
 (function () {
   if (document.getElementById("lmwNav")) return;
+  // 自带侧栏/导航的页面可在 <html> 标记 data-lmw-nonav 跳过注入
+  if (document.documentElement.hasAttribute("data-lmw-nonav")) return;
   var ROUTES = [
     ["/", "对话"],
     ["/superagent", "超级 AGENT"],

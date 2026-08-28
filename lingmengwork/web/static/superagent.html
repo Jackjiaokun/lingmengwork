@@ -204,6 +204,11 @@
   </div>
 
   <div id="result" class="hidden" style="margin-top:14px">
+    <!-- Phase 55: 结构化导出工具条 -->
+    <div class="card" style="margin-bottom:14px">
+      <h3><span class="dot"></span>结构化导出</h3>
+      <div id="exportBar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+    </div>
     <div class="grid">
       <div class="card">
         <h3><span class="dot"></span>目标理解</h3>
@@ -301,8 +306,39 @@ function appendStage(ev){
     '<div class="dt">'+esc(ev.ts)+'</div><div class="de">'+esc(ev.detail)+'</div></div>');
 }
 
+// Phase 55: 当前展示的编排结果 ts(供导出工具栏使用)
+let currentTs = "";
+function renderExportBar(ts){
+  currentTs = ts || "";
+  const bar = document.getElementById("exportBar");
+  if(!bar) return;
+  if(!currentTs){
+    bar.innerHTML = '<span class="muted" style="font-size:12px">当前结果尚未落盘(无 ts)，无法导出</span>';
+    return;
+  }
+  const u = encodeURIComponent(currentTs);
+  const a = (href,label,title)=>'<a href="'+href+'" title="'+title+'" style="text-decoration:none;color:var(--tx);font-size:12px;'+
+    'border:1px solid var(--bd);border-radius:8px;padding:3px 10px">'+label+'</a>';
+  bar.innerHTML =
+    a('/api/superagent/export?ts='+u+'&fmt=md','⬇️ Markdown','导出可读 Markdown 报告')+
+    a('/api/superagent/export?ts='+u+'&fmt=json','⬇️ JSON','导出原始结构化结果')+
+    a('/api/superagent/export/bundle?ts='+u,'📦 ZIP 包','导出 md+json 打包 zip')+
+    a('/api/superagent/report?ts='+u,'📄 HTML 报告','生成可分享 HTML 报告')+
+    '<button onclick="copyOrchMd()" style="font-size:12px;border:1px solid var(--bd);border-radius:8px;'+
+    'padding:3px 10px;background:transparent;color:var(--tx);cursor:pointer">📋 复制 MD</button>';
+}
+async function copyOrchMd(){
+  if(!currentTs){ alert("无可导出的编排记录"); return; }
+  try{
+    const txt = await (await fetch('/api/superagent/export?ts='+encodeURIComponent(currentTs)+'&fmt=md')).text();
+    await navigator.clipboard.writeText(txt);
+    alert("✅ Markdown 报告已复制到剪贴板 (" + txt.length + " 字)");
+  }catch(e){ alert("复制失败: "+e); }
+}
+
 function renderResult(j){
   document.getElementById("result").classList.remove("hidden");
+  renderExportBar(j.ts||"");
   // 目标理解
   const it = j.intent||{};
   const dom = (it.domains||[]).map(d=>'<span class="tag ok">'+esc(d)+'</span>').join("");
@@ -735,6 +771,15 @@ function renderRuns(){
     '<span><a href="/api/superagent/report?ts='+encodeURIComponent(x.ts||"")+'" target="_blank" '+
       'title="生成可分享 HTML 报告" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 10px" '+
       'onclick="event.stopPropagation()">📄 报告</a> '+
+    '<a href="/api/superagent/export?ts='+encodeURIComponent(x.ts||"")+'&fmt=md" '+
+      'title="导出 Markdown 报告" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 8px" '+
+      'onclick="event.stopPropagation()">⬇️ MD</a> '+
+    '<a href="/api/superagent/export?ts='+encodeURIComponent(x.ts||"")+'&fmt=json" '+
+      'title="导出原始 JSON 结果" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 8px" '+
+      'onclick="event.stopPropagation()">⬇️ JSON</a> '+
+    '<a href="/api/superagent/export/bundle?ts='+encodeURIComponent(x.ts||"")+'" '+
+      'title="导出 md+json 打包 zip" style="text-decoration:none;color:var(--tx);font-size:12px;border:1px solid var(--bd);border-radius:8px;padding:2px 8px" '+
+      'onclick="event.stopPropagation()">📦 ZIP</a> '+
     '<span style="color:'+(x.ok?'var(--good)':'var(--bad)')+'">'+(x.ok?'✅':'❌')+' '+(x.partners_ok||0)+'/'+(x.partners_total||0)+'</span></span></div>'
   ).join("") : '<span class="muted">暂无编排记录</span>';
   document.getElementById("runList").innerHTML = html;

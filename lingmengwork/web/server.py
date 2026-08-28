@@ -13,6 +13,7 @@
 启动: python -m lingmengwork.web.server  (默认 127.0.0.1:8318)
 """
 import argparse
+import io
 import json
 import os
 import time
@@ -364,6 +365,83 @@ def _render_orch_report(result):
         '</div></body></html>'
     )
     return html_doc
+
+
+def _render_orch_md(result):
+    """把一次超级 AGENT 编排结果渲染为 Markdown 文档 (Phase 55, 供下载/归档/粘贴)。"""
+    it = result.get("intent") or {}
+    cv = result.get("converge") or {}
+    mem = result.get("memory") or {}
+    usage = result.get("usage") or {}
+    ex = result.get("executions") or {}
+    goal = str(result.get("goal") or "").replace("|", "\\|")
+    lines = [
+        "# 灵梦work · 超级 AGENT 编排报告",
+        "",
+        "- **目标**: %s" % goal,
+        "- **状态**: %s" % ("✅ 成功" if result.get("ok") else "❌ 失败"),
+        "- **耗时**: %ss · **自检分**: %s" % (result.get("elapsed_sec", 0),
+                                             cv.get("selfcheck_score", 100)),
+        "- **路由**: %s" % (" / ".join(result.get("routed") or []) or "—"),
+    ]
+    if result.get("error"):
+        lines.append("- **错误**: %s" % result["error"])
+    lines.append("")
+    lines.append("## 🧭 目标理解")
+    lines.append("- **意图**: %s" % (it.get("intent") or goal))
+    lines.append("- **域**: %s" % (" / ".join(it.get("domains") or []) or "—"))
+    cons = it.get("constraints") or []
+    lines.append("- **约束**: %s" % ("; ".join(str(c) for c in cons) or "无"))
+    lines.append("")
+    lines.append("## 📜 阶段 Trace")
+    lines.append("")
+    lines.append("| # | 阶段 | 时间 | 明细 |")
+    lines.append("|---|------|------|------|")
+    for i, t in enumerate(result.get("trace") or [], 1):
+        stage = str(t.get("stage") or "").replace("|", "\\|")
+        detail = str(t.get("detail") or "").replace("|", "\\|").replace("\n", " ")
+        mark = "✅" if t.get("ok") else "❌"
+        lines.append("| %d | %s %s | %s | %s |" % (i, mark, stage, t.get("ts", ""), detail))
+    lines.append("")
+    lines.append("## 🤝 并行编排")
+    lines.append("")
+    lines.append("| 伙伴 | 域 | 状态 | 产出 |")
+    lines.append("|------|----|------|------|")
+    partners = (result.get("dispatch") or {}).get("partners") or []
+    for p in partners:
+        name = str(p.get("name") or "").replace("|", "\\|")
+        summary = str(p.get("summary") or "(无输出)").replace("|", "\\|").replace("\n", " ")
+        st = "✅ 成功" if p.get("status") == "ok" else ("❌ " + str(p.get("status") or ""))
+        lines.append("| %s | %s | %s | %s |" % (name, p.get("domain", ""), st, summary[:400]))
+    if not partners:
+        lines.append("| — | — | — | — |")
+    lines.append("")
+    guards = cv.get("guards") or []
+    lines.append("## 🛡️ 收敛护栏")
+    lines.append("")
+    if guards:
+        for g in guards:
+            lines.append("- [L%s] [%s] %s" % (g.get("level", "?"), g.get("kind", ""),
+                                              g.get("msg", "")))
+    else:
+        lines.append("- 三级护栏全通过, 无告警")
+    lines.append("")
+    arts = ex.get("artifacts") or []
+    lines.append("## 📦 执行产物")
+    lines.append("")
+    lines.append(("; ".join(str(a) for a in arts)) if arts else "无")
+    lines.append("")
+    lines.append("## 🧠 记忆沉淀 / 💰 用量")
+    lines.append("")
+    lines.append("- 新增实体 %s · 新增关系 %s" % (mem.get("entities_added", 0),
+                                                 mem.get("relations_added", 0)))
+    lines.append("- LLM 调用 %s 次 · %s tokens · ¥%s" % (usage.get("llm_calls", 0),
+                                                         usage.get("est_total_tokens", 0),
+                                                         usage.get("est_cost_cny", 0)))
+    lines.append("")
+    lines.append("---")
+    lines.append("*由灵梦work 超级 AGENT 自动生成*")
+    return "\n".join(lines)
 
 
 def _record_review(target, output):
@@ -1329,6 +1407,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_detail()
         if p == "/api/superagent/report":
             return self._superagent_report()
+        if p == "/api/superagent/export":
+            return self._superagent_export()
+        if p == "/api/superagent/export/bundle":
+            return self._superagent_export_bundle()
         if p == "/api/superagent/queue":
             return self._superagent_queue()
         if p == "/api/superagent/artifacts":
@@ -2074,6 +2156,73 @@ class Handler(SimpleHTTPRequestHandler):
         payload = html_doc.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _superagent_export(self):
+        """GET /api/superagent/export?ts=...&fmt=md|json -> 结构化导出编排结果 (Phase 55)。
+
+        fmt=md  -> text/markdown 附件 (可直接粘贴进文档/IM)
+        fmt=json-> application/json 附件 (原始结构化结果, 供二次消费)
+        缺省 fmt=md。
+        """
+        from .. import superagent as _sa
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        fmt = ((q.get("fmt") or ["md"])[0] or "md").lower()
+        if fmt not in ("md", "json", "markdown"):
+            return self._send_json({"error": "fmt 仅支持 md/json"}, status=400)
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.get_run_detail(ts, base_dir=os.getcwd())
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录"}, status=404)
+        stamp = str(ts).replace(":", "").replace("-", "").replace(" ", "_")[:20] or "run"
+        if fmt == "json":
+            payload = json.dumps(rep, ensure_ascii=False, indent=2).encode("utf-8")
+            ctype, fname = "application/json; charset=utf-8", "lingmeng-orch-%s.json" % stamp
+        else:
+            payload = _render_orch_md(rep).encode("utf-8")
+            ctype, fname = "text/markdown; charset=utf-8", "lingmeng-orch-%s.md" % stamp
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Disposition",
+                         'attachment; filename="%s"' % fname)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _superagent_export_bundle(self):
+        """GET /api/superagent/export/bundle?ts=... -> 单条编排的 md+json 打包 zip (Phase 55)。
+
+        与产物归档不同: 这里只打包"这一次编排"的两种结构化表示, 便于随报告一起交付。
+        """
+        from .. import superagent as _sa
+        import zipfile as _zf
+        q = parse_qs(urlparse(self.path).query)
+        ts = (q.get("ts") or [""])[0]
+        if not ts:
+            return self._send_json({"error": "缺少 ts"}, status=400)
+        rep = _sa.get_run_detail(ts, base_dir=os.getcwd())
+        if rep is None:
+            return self._send_json({"error": "未找到该编排记录"}, status=404)
+        stamp = str(ts).replace(":", "").replace("-", "").replace(" ", "_")[:20] or "run"
+        buf = io.BytesIO()
+        with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as z:
+            z.writestr("orch-%s.md" % stamp, _render_orch_md(rep).encode("utf-8"))
+            z.writestr("orch-%s.json" % stamp,
+                       json.dumps(rep, ensure_ascii=False, indent=2).encode("utf-8"))
+            z.writestr("README.txt",
+                       ("灵梦work 超级 AGENT 编排导出包\n"
+                        "ts: %s\n\n- orch-%s.md    可读 Markdown 报告\n"
+                        "- orch-%s.json  原始结构化结果(供程序消费)\n"
+                        % (ts, stamp, stamp)).encode("utf-8"))
+        payload = buf.getvalue()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition",
+                         'attachment; filename="lingmeng-orch-%s.zip"' % stamp)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)

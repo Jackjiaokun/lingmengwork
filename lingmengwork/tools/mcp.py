@@ -16,6 +16,8 @@ import json
 import os
 import subprocess
 import threading
+import time
+import sys as _sys
 from concurrent.futures import Future
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -51,72 +53,140 @@ class MCPClientError(Exception):
 
 
 class StdioMCPClient:
-    """单个 MCP 服务器的 stdio 客户端 (零依赖)。"""
+    """单个 MCP 服务器的 stdio 客户端 (零依赖)。
+
+    支持断线自动重连 (指数退避): 子进程崩溃后, 下次调用时自动重启并重新握手。
+    """
+
+    # 重连退避参数 (秒)
+    _BACKOFF_BASE = 1.0
+    _BACKOFF_MAX = 30.0
+    _BACKOFF_FACTOR = 2.0
 
     def __init__(self, command, args=None, env=None, cwd=None, timeout=30):
+        # 保存原始配置, 供重连复用
         self.command = command
         self.args = list(args or [])
+        self._env = dict(env or {})
+        self._cwd = cwd
         self.timeout = timeout
         self._id = 0
         self._lock = threading.Lock()
         self._pending = {}          # id -> Future
         self._tools = {}            # name -> tool def
         self._closed = False
+        self._reconnect_attempts = 0  # 连续重连失败计数, 成功则归零
 
-        full_env = dict(os.environ)
-        if env:
-            full_env.update(env)
-        try:
-            if os.name == "nt":
-                # Windows 冻结 exe 子进程句柄继承坑 (PyInstaller):
-                #   普通 stdin=PIPE 会让子进程继承 bootloader 的(无效)控制台 stdin -> 立即 EOF。
-                # 修复: 用 os.pipe() 自建 fd, 再用 os.set_inheritable()(注意不是
-                # set_handle_inheritable —— 后者收 HANDLE 而非 fd, 在 Windows 上静默失效,
-                # 正是此前子进程 stdin 立即 EOF 的根因) 让「子需要的一端」可继承, 其余不可继承。
-                r_fd, w_fd = os.pipe()          # 父->子 stdin: 子读 r_fd, 父写 w_fd
-                r_out, w_out = os.pipe()        # 子->父 stdout: 子写 w_out, 父读 r_out
-                os.set_inheritable(r_fd, True)  # 子 stdin 读端可继承
-                os.set_inheritable(w_out, True) # 子 stdout 写端可继承
-                # r_out / w_fd 保持不可继承 (父持有端, 不应被子继承)
-                self._proc = subprocess.Popen(
-                    [command, *self.args],
-                    stdin=r_fd,
-                    stdout=w_out,
-                    stderr=subprocess.DEVNULL,
-                    env=full_env,
-                    cwd=cwd,
-                    bufsize=1,
-                    text=True,
-                    close_fds=False,
-                )
-                # 父进程关闭「子端」fd 副本 (子已继承自己的独立副本), 避免句柄泄漏
-                os.close(r_fd)
-                os.close(w_out)
-                self._wstdin = os.fdopen(w_fd, "w", buffering=1, encoding="utf-8", errors="replace")
-                self._child_stdout = os.fdopen(r_out, "r", buffering=1, encoding="utf-8", errors="replace")
-            else:
-                self._proc = subprocess.Popen(
-                    [command, *self.args],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    env=full_env,
-                    cwd=cwd,
-                    bufsize=1,
-                    text=True,
-                )
-                self._wstdin = self._proc.stdin
-                self._child_stdout = self._proc.stdout
-        except Exception as e:
-            raise MCPClientError(f"启动 MCP 服务失败 [{command}]: {e}")
+        self._proc = None
+        self._wstdin = None
+        self._child_stdout = None
+        self._reader = None
 
+        self._start_process()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
         try:
             self._handshake()
+            self._reconnect_attempts = 0  # 握手成功, 归零
         except Exception:
             self.close()
             raise
+
+    def _start_process(self):
+        """启动子进程 (从保存的配置重建)。"""
+        full_env = dict(os.environ)
+        if self._env:
+            full_env.update(self._env)
+        if os.name == "nt":
+            r_fd, w_fd = os.pipe()
+            r_out, w_out = os.pipe()
+            os.set_inheritable(r_fd, True)
+            os.set_inheritable(w_out, True)
+            self._proc = subprocess.Popen(
+                [self.command, *self.args],
+                stdin=r_fd, stdout=w_out,
+                stderr=subprocess.DEVNULL,
+                env=full_env, cwd=self._cwd,
+                bufsize=1, text=True, close_fds=False,
+            )
+            os.close(r_fd)
+            os.close(w_out)
+            self._wstdin = os.fdopen(w_fd, "w", buffering=1, encoding="utf-8", errors="replace")
+            self._child_stdout = os.fdopen(r_out, "r", buffering=1, encoding="utf-8", errors="replace")
+        else:
+            self._proc = subprocess.Popen(
+                [self.command, *self.args],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=full_env, cwd=self._cwd,
+                bufsize=1, text=True,
+            )
+            self._wstdin = self._proc.stdin
+            self._child_stdout = self._proc.stdout
+
+    def is_alive(self):
+        """健康检查: 子进程是否仍在运行。纯检查, 不触发重连。"""
+        if self._closed:
+            return False
+        if self._proc is None:
+            return False
+        rc = self._proc.poll()
+        return rc is None
+
+    def _reconnect(self):
+        """断线重连 (指数退避)。返回 True 表示重连成功。
+
+        退避策略: base * factor^attempts, 上限 max。
+        重连成功后 _reconnect_attempts 归零。
+        """
+        if self._closed:
+            return False
+        attempts = self._reconnect_attempts
+        wait = min(self._BACKOFF_BASE * (self._BACKOFF_FACTOR ** attempts), self._BACKOFF_MAX)
+        _sys.stderr.write("MCP reconnect '%s' attempt %d, waiting %.1fs\n" % (self.command, attempts + 1, wait))
+        _sys.stderr.flush()
+        time.sleep(wait)
+        try:
+            self._cleanup_process()
+            self._pending.clear()
+            self._start_process()
+            self._reader = threading.Thread(target=self._read_loop, daemon=True)
+            self._reader.start()
+            self._handshake()
+            self._reconnect_attempts = 0
+            _sys.stderr.write("MCP reconnect '%s' OK\n" % self.command)
+            _sys.stderr.flush()
+            return True
+        except Exception as e:
+            self._reconnect_attempts += 1
+            _sys.stderr.write("MCP reconnect '%s' failed: %s\n" % (self.command, e))
+            _sys.stderr.flush()
+            return False
+
+    def _cleanup_process(self):
+        """清理旧子进程资源 (不抛异常)。"""
+        try:
+            if self._wstdin is not None:
+                self._wstdin.close()
+        except Exception:
+            pass
+        try:
+            if self._child_stdout is not None:
+                self._child_stdout.close()
+        except Exception:
+            pass
+        try:
+            if self._proc is not None:
+                self._proc.terminate()
+                try:
+                    self._proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+        except Exception:
+            pass
+        self._proc = None
+        self._wstdin = None
+        self._child_stdout = None
 
     # ---- 内部: 读取循环 ----
     def _read_loop(self):
@@ -196,10 +266,17 @@ class StdioMCPClient:
     def has_tool(self, name):
         return name in self._tools
 
-    def call_tool(self, name, arguments=None):
+    def call_tool(self, name, arguments=None, auto_reconnect=True):
+        """调用工具。auto_reconnect=True 时, 断线自动重连一次再重试。"""
         if name not in self._tools:
             raise MCPClientError(f"MCP 服务无此工具: {name}")
-        res = self._request("tools/call", {"name": name, "arguments": arguments or {}})
+        try:
+            res = self._request("tools/call", {"name": name, "arguments": arguments or {}})
+        except MCPClientError:
+            if auto_reconnect and self._reconnect():
+                res = self._request("tools/call", {"name": name, "arguments": arguments or {}})
+            else:
+                raise
         content = res.get("content") or []
         parts = []
         for c in content:
@@ -214,27 +291,24 @@ class StdioMCPClient:
         if self._closed:
             return
         self._closed = True
-        try:
-            self._wstdin.close()
-        except Exception:
-            pass
-        try:
-            self._child_stdout.close()
-        except Exception:
-            pass
-        try:
-            self._proc.terminate()
-        except Exception:
-            pass
+        self._cleanup_process()
 
 
 class MCPManager:
-    """进程内 MCP 连接管理器 (单例): 按 config 懒连接所有配置的服务器。"""
+    """进程内 MCP 连接管理器 (单例): 按 config 懒连接所有配置的服务器。
+
+    支持后台健康检查 + 自动重连: 定期检查所有 MCP 子进程, 发现崩溃自动重启。
+    """
+
+    # 健康检查间隔 (秒)
+    _HEALTH_INTERVAL = 15.0
 
     def __init__(self):
         self.servers = {}          # name -> StdioMCPClient
         self._lock = threading.Lock()
         self._connected = False
+        self._health_thread = None
+        self._health_stop = threading.Event()
 
     def connect_all(self, cfg):
         """按 cfg['mcp']['servers'] 启动所有未连接的 MCP 服务。失败单个跳过, 不阻断其他。"""
@@ -267,6 +341,10 @@ class MCPManager:
                     _sys.stderr.write("MCP connect '%s' failed: %s\n" % (name, e))
                     _sys.stderr.flush()
         self._connected = True
+        # 有服务器时启动健康检查
+        if self.servers and self._health_thread is None:
+            self._health_thread = threading.Thread(target=self._health_loop, daemon=True)
+            self._health_thread.start()
 
     def get_tool_server(self, tool_name):
         for s in self.servers.values():
@@ -278,6 +356,10 @@ class MCPManager:
         s = self.get_tool_server(tool_name)
         if not s:
             raise MCPClientError(f"未找到已注册的 MCP 工具: {tool_name}")
+        # 调用时若发现服务器已死, 先尝试重连
+        if not s.is_alive():
+            if not s._reconnect():
+                raise MCPClientError(f"MCP 服务 {tool_name} 已断开且重连失败")
         return s.call_tool(tool_name, arguments)
 
     def tool_schemas(self):
@@ -289,11 +371,35 @@ class MCPManager:
 
     def status(self):
         return [
-            {"name": n, "tools": [t["name"] for t in s.list_tools()]}
+            {"name": n, "alive": s.is_alive(), "tools": [t["name"] for t in s.list_tools()]}
             for n, s in self.servers.items()
         ]
 
+    def _health_loop(self):
+        """后台健康检查循环: 定期检查所有 MCP 子进程, 发现崩溃自动重连。"""
+        while not self._health_stop.is_set():
+            self._health_stop.wait(timeout=self._HEALTH_INTERVAL)
+            if self._health_stop.is_set():
+                break
+            with self._lock:
+                for name, s in list(self.servers.items()):
+                    if not s.is_alive():
+                        _sys.stderr.write("MCP health check: server '%s' dead, reconnecting...\n" % name)
+                        _sys.stderr.flush()
+                        if not s._reconnect():
+                            _sys.stderr.write("MCP health check: server '%s' reconnect failed\n" % name)
+                            _sys.stderr.flush()
+
     def close_all(self):
+        # 先停健康检查线程
+        if self._health_thread is not None:
+            self._health_stop.set()
+            try:
+                self._health_thread.join(timeout=5)
+            except Exception:
+                pass
+            self._health_thread = None
+            self._health_stop.clear()
         with self._lock:
             for s in self.servers.values():
                 try:

@@ -1198,6 +1198,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._superagent_artifact_file()
         if p == "/api/superagent/schedules":
             return self._schedules_get()
+        if p == "/api/superagent/templates":
+            return self._sa_tpl_get()
         # ---- 插件中枢 (Phase 32): Connector/Expert 注册与发现 ----
         if p == "/plugins":
             return self._serve_file("plugin_hub.html")
@@ -1531,6 +1533,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self._schedules_delete()
         if p == "/api/superagent/schedules/run":
             return self._schedules_run_now()
+        # ---- 模板库 (Phase 44): 模板增删改/渲染 ----
+        if p == "/api/superagent/templates/create":
+            return self._sa_tpl_create()
+        if p == "/api/superagent/templates/update":
+            return self._sa_tpl_update()
+        if p == "/api/superagent/templates/delete":
+            return self._sa_tpl_delete()
+        if p == "/api/superagent/templates/render":
+            return self._sa_tpl_render()
         # ---- 插件中枢 (Phase 32): 动态注册 connector/expert ----
         if p == "/api/plugins/connectors/register":
             return self._plugin_connector_register()
@@ -2122,6 +2133,62 @@ class Handler(SimpleHTTPRequestHandler):
                                 "schedule_id": sid,
                                 "error": rep.get("error", ""),
                                 "goal_ok": (rep.get("result") or {}).get("ok")})
+
+    # ---------------------------------------------------------------
+    # 模板库 (Phase 44): 模板 CRUD + 渲染
+    # ---------------------------------------------------------------
+    def _sa_tpl_get(self):
+        """GET /api/superagent/templates -> 模板列表(含占位符字段 fields)。"""
+        from .. import superagent as _sa
+        return self._send_json({"ok": True, "templates": _sa.list_templates(base_dir=os.getcwd())})
+
+    def _sa_tpl_create(self):
+        """POST /api/superagent/templates/create {name, goal_template, description?}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        try:
+            entry = _sa.add_template(body.get("name") or "",
+                                     body.get("goal_template") or "",
+                                     description=body.get("description") or "",
+                                     base_dir=os.getcwd())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, status=400)
+        return self._send_json({"ok": True, "template": entry})
+
+    def _sa_tpl_update(self):
+        """POST /api/superagent/templates/update {id, name?/goal_template?/description?}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        snap = _sa.update_template(tid, body, base_dir=os.getcwd())
+        if snap is None:
+            return self._send_json({"error": "template 不存在"}, status=404)
+        return self._send_json({"ok": True, "template": snap})
+
+    def _sa_tpl_delete(self):
+        """POST /api/superagent/templates/delete {id}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        if not _sa.remove_template(tid, base_dir=os.getcwd()):
+            return self._send_json({"error": "template 不存在"}, status=404)
+        return self._send_json({"ok": True, "removed": tid})
+
+    def _sa_tpl_render(self):
+        """POST /api/superagent/templates/render {id, vars{}} -> {goal, missing}。"""
+        from .. import superagent as _sa
+        body = self._read_json({})
+        tid = (body.get("id") or "").strip()
+        if not tid:
+            return self._send_json({"error": "缺少 id"}, status=400)
+        rep = _sa.use_template(tid, variables=body.get("vars") or {}, base_dir=os.getcwd())
+        if rep is None:
+            return self._send_json({"error": "template 不存在"}, status=404)
+        return self._send_json({"ok": True, **rep})
 
     # ---------------------------------------------------------------
     # 插件中枢 (Phase 32): Connector/Expert 注册/发现/接入

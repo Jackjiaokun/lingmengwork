@@ -745,6 +745,133 @@ def start_scheduler(base_dir=None, llm_call=None, tick_sec=20):
         return True
 
 
+# ------------------------------------------------------------------ Phase 44: 编排模板库(参数化目标 + 一键发起)
+_TPL_LOCK = threading.Lock()
+_TPLS = {}
+_TPLS_LOADED = set()
+_TPL_VAR_RE = re.compile(r"\{\{\s*([A-Za-z_\u4e00-\u9fff][\w\u4e00-\u9fff]*)\s*\}\}")
+
+
+def _tpl_path(base_dir=None):
+    base = base_dir if (base_dir and base_dir != ":memory:" and os.path.isdir(base_dir)) else os.getcwd()
+    return os.path.join(base, "outputs", "superagent_templates.json")
+
+
+def _load_tpls(base_dir=None):
+    path = _tpl_path(base_dir)
+    with _TPL_LOCK:
+        if path in _TPLS_LOADED:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for t in (data.get("templates") or []):
+                if isinstance(t, dict) and t.get("id"):
+                    _TPLS[t["id"]] = t
+        except Exception:
+            pass
+        _TPLS_LOADED.add(path)
+
+
+def _save_tpls(base_dir=None):
+    try:
+        path = _tpl_path(base_dir)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with _TPL_LOCK:
+            data = {"templates": sorted(_TPLS.values(), key=lambda t: t.get("created_at", ""))}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def list_templates(base_dir=None):
+    _load_tpls(base_dir)
+    with _TPL_LOCK:
+        return [dict(t, fields=template_fields(t.get("goal_template", "")))
+                for t in sorted(_TPLS.values(), key=lambda t: t.get("created_at", ""))]
+
+
+def add_template(name, goal_template, description="", base_dir=None):
+    """新建模板。goal_template 支持 {{变量}} 占位符; name/goal_template 必填。"""
+    name = (name or "").strip()
+    goal_template = (goal_template or "").strip()
+    if not name:
+        raise ValueError("模板名称不能为空")
+    if not goal_template:
+        raise ValueError("目标模板不能为空")
+    tid = "t_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
+    entry = {"id": tid, "name": name, "goal_template": goal_template,
+             "description": (description or "").strip(),
+             "created_at": _now(), "use_count": 0, "last_used": ""}
+    with _TPL_LOCK:
+        _TPLS[tid] = entry
+    _save_tpls(base_dir)
+    return dict(entry)
+
+
+def update_template(tid, patch, base_dir=None):
+    """更新模板(白名单键: name/goal_template/description)。不存在返回 None。"""
+    with _TPL_LOCK:
+        t = _TPLS.get(tid)
+        if not t:
+            return None
+        for k in ("name", "goal_template", "description"):
+            if k in patch and patch[k] is not None and str(patch[k]).strip():
+                t[k] = str(patch[k]).strip()
+        snap = dict(t)
+    _save_tpls(base_dir)
+    return snap
+
+
+def remove_template(tid, base_dir=None):
+    with _TPL_LOCK:
+        removed = _TPLS.pop(tid, None) is not None
+    if removed:
+        _save_tpls(base_dir)
+    return removed
+
+
+def template_fields(text):
+    """提取模板中的占位符字段名(保序去重)。"""
+    seen, out = set(), []
+    for m in _TPL_VAR_RE.finditer(text or ""):
+        k = m.group(1)
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+def render_template_text(text, variables=None):
+    """渲染模板: 替换 {{var}}; 缺失/空值的占位符原样保留并列入 missing。"""
+    variables = variables or {}
+    missing = [f for f in template_fields(text)
+               if not str(variables.get(f, "")).strip()]
+    missing_set = set(missing)
+
+    def _sub(m):
+        k = m.group(1)
+        return m.group(0) if k in missing_set else str(variables[k])
+
+    return _TPL_VAR_RE.sub(_sub, text or ""), missing
+
+
+def use_template(tid, variables=None, base_dir=None):
+    """使用模板: 渲染目标 + 累计使用计数。不存在返回 None。"""
+    _load_tpls(base_dir)
+    with _TPL_LOCK:
+        t = _TPLS.get(tid)
+        if not t:
+            return None
+    goal, missing = render_template_text(t["goal_template"], variables)
+    with _TPL_LOCK:
+        t["use_count"] = int(t.get("use_count") or 0) + 1
+        t["last_used"] = _now()
+    _save_tpls(base_dir)
+    return {"id": tid, "name": t["name"], "goal": goal, "missing": missing}
+
+
 class SuperAgent:
     """统一超级 AGENT 内核。"""
 

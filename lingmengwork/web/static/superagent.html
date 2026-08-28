@@ -125,6 +125,23 @@
       </div>
       <div id="schedList" style="margin-top:10px"><span class="muted">加载中…</span></div>
     </div>
+
+    <!-- Phase 44: 模板库 -->
+    <div class="card">
+      <h3><span class="dot"></span>🧩 模板库 <span class="muted" style="font-size:11px;font-weight:400">目标模板支持 {{变量}} 占位符, 一键发起自动填参</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:140px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">模板名称</div>
+          <input id="tplName" placeholder="如: 服务健康巡检">
+        </div>
+        <div style="flex:3;min-width:260px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">目标模板 (用 {{变量}} 标记参数)</div>
+          <textarea id="tplGoal" style="min-height:44px" placeholder="如: 巡检 {{host}} 的 {{service}} 服务并生成健康报告"></textarea>
+        </div>
+        <button onclick="createTemplate()">➕ 保存模板</button>
+      </div>
+      <div id="tplList" style="margin-top:10px"><span class="muted">加载中…</span></div>
+    </div>
   </div>
 
   <div id="result" class="hidden" style="margin-top:14px">
@@ -409,6 +426,67 @@ async function runScheduleNow(id){
     loadRuns();
   }catch(e){ alert("请求异常: "+e); }
 }
+
+// ---------- Phase 44: 模板库 ----------
+async function loadTemplates(){
+  try{
+    const j = await (await fetch("/api/superagent/templates")).json();
+    const tpls = j.templates||[];
+    const box = document.getElementById("tplList");
+    if(!tpls.length){ box.innerHTML = '<span class="muted">暂无模板。保存常用目标模板后可一键发起。</span>'; return; }
+    box.innerHTML = tpls.map(t=>
+      '<div class="run" style="align-items:flex-start">'+
+        '<span><b>'+esc(t.name)+'</b> <span class="muted">'+esc((t.goal_template||"").slice(0,60))+'</span>'+
+          '<br><span class="muted">'+((t.fields||[]).length?('参数: '+t.fields.map(esc).join(" · ")):'无参数')+
+          ' · 已用 '+(t.use_count||0)+' 次'+(t.last_used?(' · 上次 '+esc(t.last_used)):'')+'</span></span>'+
+        '<span>'+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="useTemplate(\''+esc(t.id)+'\')">🚀 一键发起</button> '+
+          '<button class="btn2" style="padding:3px 10px;font-size:12px" onclick="deleteTemplate(\''+esc(t.id)+'\')">删除</button>'+
+        '</span></div>').join("");
+  }catch(e){}
+}
+
+async function createTemplate(){
+  const name = document.getElementById("tplName").value.trim();
+  const goal = document.getElementById("tplGoal").value.trim();
+  if(!name || !goal){ alert("请填写模板名称与目标模板"); return; }
+  try{
+    const r = await fetch("/api/superagent/templates/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name, goal_template: goal})});
+    const j = await r.json();
+    if(!j.ok){ alert("保存失败: "+(j.error||"未知")); return; }
+    document.getElementById("tplName").value = "";
+    document.getElementById("tplGoal").value = "";
+    loadTemplates();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function deleteTemplate(id){
+  if(!confirm("删除该模板?")) return;
+  try{
+    await fetch("/api/superagent/templates/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    loadTemplates();
+  }catch(e){ alert("请求异常: "+e); }
+}
+
+async function useTemplate(id){
+  try{
+    const j = await (await fetch("/api/superagent/templates")).json();
+    const t = (j.templates||[]).find(x=>x.id===id);
+    if(!t){ alert("模板不存在"); return; }
+    const vars = {};
+    for(const f of (t.fields||[])){
+      const v = prompt("请输入参数 ["+f+"]");
+      if(v===null) return;  // 用户取消
+      vars[f] = v;
+    }
+    const r = await (await fetch("/api/superagent/templates/render",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id, vars})})).json();
+    if(!r.ok){ alert("渲染失败: "+(r.error||"未知")); return; }
+    if((r.missing||[]).length){ alert("缺少参数: "+r.missing.join(", ")); return; }
+    document.getElementById("goalInput").value = r.goal;
+    loadTemplates();
+    runSuper();
+  }catch(e){ alert("请求异常: "+e); }
+}
 function renderRuns(){
   document.getElementById("kRuns").textContent = lastRuns.length;
   const cross = lastRuns.filter(x=>(x.routed||[]).length>=2).length;
@@ -442,6 +520,7 @@ async function loadRunDetail(ts){
 
 loadRuns();
 loadSchedules();
+loadTemplates();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
 </script>

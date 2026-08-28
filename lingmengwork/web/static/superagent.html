@@ -148,7 +148,8 @@
 
     <!-- Phase 43/45: 定时编排 -->
     <div class="card">
-      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">手动目标或引用模板, 间隔分钟或每日 HH:MM 到期自动触发</span></h3>
+      <h3><span class="dot"></span>⏰ 定时编排 <span class="muted" style="font-size:11px;font-weight:400">手动目标或引用模板, 间隔分钟或每日 HH:MM 到期自动触发</span>
+        <span id="budgetChip" class="muted" style="font-size:11px;font-weight:400;margin-left:8px"></span></h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <div style="flex:1;min-width:160px">
           <div class="muted" style="font-size:11px;margin-bottom:4px">引用模板(可选)</div>
@@ -598,6 +599,21 @@ function fillDiffSelects(){
     A.value = lastRuns[1].ts || "";
     B.value = lastRuns[0].ts || "";
   }
+}
+
+// ---------- Phase 64: 成本预算护栏 ----------
+async function loadBudget(){
+  const chip = document.getElementById("budgetChip");
+  if(!chip) return;
+  try{
+    const j = await (await fetch("/api/superagent/budget")).json();
+    if(!j.ok) return;
+    if(!j.daily_limit){ chip.textContent = ""; return; }
+    const over = j.today_cost >= j.daily_limit;
+    chip.innerHTML = '💰 今日 ¥'+j.today_cost+' / 预算 ¥'+j.daily_limit+
+      (j.paused? ' <b style="color:var(--warn)">⏸ 定时编排已暂停</b>' :
+       (over? ' <b style="color:var(--bad)">超限</b>' : ''));
+  }catch(e){}
 }
 
 // ---------- Phase 62: 质量告警自动推送开关 ----------
@@ -1281,6 +1297,7 @@ loadWebhooks();
 loadFeedback();
 loadQuality();
 loadQualityAuto();
+loadBudget();
 setInterval(loadRuns, 5000);
 setInterval(loadSchedules, 15000);
 </script>

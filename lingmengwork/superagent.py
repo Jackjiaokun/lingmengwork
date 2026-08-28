@@ -566,6 +566,7 @@ def get_queue_state():
 
 # ------------------------------------------------------------------ Phase 43: 定时编排(调度器 + JSON 持久化)
 _SCHEDS_LOCK = threading.Lock()
+_BUDGET_LOCK = threading.Lock()
 _SCHEDS = {}          # id -> entry
 _SCHEDS_LOADED = set()  # 已加载过的持久化文件路径(幂等)
 _SCHED_THREAD = None
@@ -781,10 +782,18 @@ def _run_inflight_guard(sid, base_dir=None, llm_call=None):
 
 
 def _scheduler_tick(base_dir=None, llm_call=None):
-    """扫描到期计划并逐个派发后台执行(同计划在飞不重复派发) + 每日摘要推送。"""
+    """扫描到期计划并逐个派发后台执行(同计划在飞不重复派发) + 每日摘要推送。
+
+    Phase 64: 单日成本超预算 → 自动暂停定时编排(跳过派发)并推送一次告警;
+    次日成本归零自动恢复。
+    """
     _load_scheds(base_dir)
+    budget_hit = False
     for s in list_schedules(base_dir):
         if not _sched_due(s):
+            continue
+        if _budget_over(base_dir):
+            budget_hit = True
             continue
         with _SCHEDS_LOCK:
             if s["id"] in _INFLIGHT:
@@ -794,6 +803,17 @@ def _scheduler_tick(base_dir=None, llm_call=None):
                              args=(s["id"],), kwargs={"base_dir": base_dir, "llm_call": llm_call},
                              daemon=True)
         t.start()
+    if budget_hit and not _BUDGET.get("paused"):
+        with _BUDGET_LOCK:
+            if not _BUDGET.get("paused"):
+                _BUDGET["paused"] = True
+                _BUDGET["paused_at"] = _now()
+                today = _now()[:10]
+                if _BUDGET.get("alerted_date") != today:
+                    _BUDGET["alerted_date"] = today
+                    threading.Thread(target=_push_budget_alert_safe,
+                                     args=(base_dir,), daemon=True,
+                                     name="budget-alert").start()
     _maybe_push_daily_digest(base_dir)
     # 质量告警自动推送 (Phase 62): 到达间隔才真正发, tick 里只是轻量时间检查
     try:
@@ -1418,7 +1438,24 @@ def _webhook_wrap(entry, payload):
     fmt = entry.get("fmt") or "raw"
     is_digest = payload.get("event") == "digest"
     is_quality = payload.get("event") == "quality"
+    is_budget = payload.get("event") == "budget"
     if fmt == "feishu":
+        if is_budget:
+            card = {
+                "config": {"wide_screen_mode": True},
+                "header": {"title": {"tag": "plain_text",
+                                     "content": "💰 灵梦work 成本预算告警"},
+                           "template": "orange"},
+                "elements": [{"tag": "markdown", "content": _budget_md(payload)}],
+            }
+            link = payload.get("panel_url") or ""
+            if link:
+                card["elements"].append({
+                    "tag": "action",
+                    "actions": [{"tag": "button",
+                                 "text": {"tag": "plain_text", "content": "查看成本看板"},
+                                 "url": link, "type": "primary"}]})
+            return {"msg_type": "interactive", "card": card}
         if is_quality:
             card = {
                 "config": {"wide_screen_mode": True},
@@ -1462,6 +1499,15 @@ def _webhook_wrap(entry, payload):
                              "url": link, "type": "primary"}]})
         return {"msg_type": "interactive", "card": card}
     if fmt == "dingtalk":
+        if is_budget:
+            title = "💰 灵梦work 成本预算告警"
+            text = "### %s\n\n%s" % (title, _budget_md(payload))
+            md = {"msgtype": "markdown", "markdown": {"title": title, "text": text}}
+            link = payload.get("panel_url") or ""
+            if link:
+                md["actionCard"] = {"title": title, "text": text,
+                                    "singleTitle": "查看成本看板", "singleURL": link}
+            return md
         if is_quality:
             title = "🚨 灵梦work 质量告警"
             text = "### %s\n\n%s" % (title, _quality_md(payload))
@@ -1688,7 +1734,7 @@ def add_webhook(url, events="all", secret="", enabled=True, base_dir=None, fmt="
     url = (url or "").strip()
     if not re.match(r"^https?://", url):
         raise ValueError("url 需以 http:// 或 https:// 开头")
-    events = events if events in ("all", "done", "fail", "quality") else "all"
+    events = events if events in ("all", "done", "fail", "quality", "budget") else "all"
     fmt = fmt if fmt in _WEBHOOK_FORMATS else "raw"
     wid = "w_%s_%s" % (time.strftime("%Y%m%d%H%M%S"), os.urandom(3).hex())
     entry = {"id": wid, "url": url, "events": events, "secret": secret or "",
@@ -2933,3 +2979,93 @@ def list_quality_alerts(base_dir=None, days=7, z=_BASELINE_Z,
     alerts.sort(key=lambda a: a["ts"] or "", reverse=True)
     alerts.sort(key=lambda a: not a.pop("high"))
     return alerts[:max(1, int(limit or 50))]
+
+
+# ------------------------------------------------------------------ Phase 64: 编排成本预算护栏(单日超阈值自动暂停定时编排)
+_BUDGET = {"daily_limit": 0.0, "paused": False, "paused_at": "",
+           "alerted_date": ""}
+
+
+def today_cost(base_dir=None):
+    """今日已发生的编排成本(¥, disk-only, 按 ts 前缀匹配今天)。"""
+    today = _now()[:10]
+    total = 0.0
+    for row in _load_persisted(500, base_dir):
+        s = row.get("summary") or {}
+        if str(s.get("ts") or "").startswith(today):
+            total += _bl_f(s.get("est_cost_cny"))
+    return round(total, 6)
+
+
+def set_daily_budget(limit):
+    """设置单日编排成本预算(¥); <=0 视为不限并解除暂停。"""
+    try:
+        v = max(0.0, float(limit))
+    except (TypeError, ValueError):
+        v = 0.0
+    _BUDGET["daily_limit"] = v
+    if v <= 0:
+        _BUDGET["paused"] = False
+        _BUDGET["paused_at"] = ""
+        _BUDGET["alerted_date"] = ""
+    return get_budget_state()
+
+
+def get_budget_state(base_dir=None):
+    """预算状态: limit / today_cost / over / paused / paused_at。"""
+    st = dict(_BUDGET)
+    st["today_cost"] = today_cost(base_dir)
+    st["over"] = bool(_BUDGET["daily_limit"] > 0
+                      and st["today_cost"] >= _BUDGET["daily_limit"])
+    # 新一天成本归零后自动解除暂停
+    if _BUDGET["paused"] and not st["over"]:
+        _BUDGET["paused"] = False
+        _BUDGET["paused_at"] = ""
+        st["paused"] = False
+        st["paused_at"] = ""
+    return st
+
+
+def _budget_over(base_dir=None):
+    return get_budget_state(base_dir).get("over", False)
+
+
+def _budget_md(payload):
+    """预算告警 markdown 正文 (Phase 64)。"""
+    lines = ["**今日编排成本已达预算上限**",
+             "- 预算: **¥%s**" % payload.get("limit"),
+             "- 已花费: **¥%s**" % payload.get("today_cost"),
+             "- 处置: 定时编排已**自动暂停**(次日自动恢复), 手动编排不受限",
+             "- 时间: %s" % payload.get("ts")]
+    link = payload.get("panel_url") or ""
+    if link:
+        lines.append("[💰 查看成本看板](%s)" % link)
+    return "\n".join(lines)
+
+
+def push_budget_alert(base_dir=None):
+    """向启用接收端(events: all|budget)推送预算告警 (Phase 64)。"""
+    st = get_budget_state(base_dir)
+    payload = {"event": "budget", "ts": _now(),
+               "limit": _BUDGET["daily_limit"], "today_cost": st["today_cost"],
+               "panel_url": _panel_url_for("/cost")}
+    targets = [h for h in list_webhooks(base_dir)
+               if h.get("enabled") and h.get("events") in ("all", "budget")]
+    sent, errs = 0, []
+    for h in targets:
+        try:
+            status, err = _webhook_post(h, payload)
+            if status == 200:
+                sent += 1
+            else:
+                errs.append("%s: %s" % (h["url"][:50], err or status))
+        except Exception as e:
+            errs.append(str(e)[:100])
+    return {"ok": True, "event": "budget", "sent": sent, "errors": errs}
+
+
+def _push_budget_alert_safe(base_dir=None):
+    try:
+        push_budget_alert(base_dir=base_dir)
+    except Exception:
+        pass

@@ -1039,6 +1039,8 @@ _SETTINGS_SCHEMA = [
          "label": "质量告警自动推送(偏离基线时)", "restart": False},
         {"key": "agent.quality_auto_interval_h", "section": "agent", "type": "float",
          "label": "自动推送间隔(小时)", "restart": False},
+        {"key": "agent.daily_budget", "section": "agent", "type": "float",
+         "label": "单日编排成本预算 ¥(0=不限, 超限自动暂停定时编排)", "restart": False},
     ]},
 ]
 
@@ -1560,6 +1562,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._quality_alerts()
         if p == "/api/superagent/quality/auto":
             return self._quality_auto_get()
+        if p == "/api/superagent/budget":
+            return self._budget_get()
         if p == "/api/superagent/replays":
             return self._replays_get()
         if p == "/api/superagent/lineage":
@@ -1948,6 +1952,9 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 质量告警自动推送开关 (Phase 62): POST ----
         if p == "/api/superagent/quality/auto":
             return self._quality_auto_post()
+        # ---- 成本预算护栏 (Phase 64): POST ----
+        if p == "/api/superagent/budget":
+            return self._budget_post()
         # ---- 编排日报/周报 (Phase 50): 推送(POST) ----
         if p == "/api/superagent/digest/push":
             return self._digest_push()
@@ -2559,6 +2566,18 @@ class Handler(SimpleHTTPRequestHandler):
         st = _sa.set_quality_auto(body.get("enabled"),
                                   body.get("interval_h") if body.get("interval_h") is not None else 24,
                                   body.get("silence_h"))
+        return self._send_json({"ok": True, **st})
+
+    def _budget_get(self):
+        """GET /api/superagent/budget -> 预算状态 (Phase 64)。"""
+        from .. import superagent as _sa
+        return self._send_json({"ok": True, **_sa.get_budget_state(base_dir=os.getcwd())})
+
+    def _budget_post(self):
+        """POST /api/superagent/budget {daily_limit} -> 设置单日预算 (Phase 64)。"""
+        from .. import superagent as _sa
+        body = self._read_json({}) or {}
+        st = _sa.set_daily_budget(body.get("daily_limit") or 0)
         return self._send_json({"ok": True, **st})
 
     def _annotations_get(self):
@@ -4375,6 +4394,10 @@ class Handler(SimpleHTTPRequestHandler):
                 _cfg_get(_RUNTIME_CONFIG, "agent.quality_auto_interval_h") or 24)
         except Exception:
             pass
+        try:
+            _sa.set_daily_budget(_cfg_get(_RUNTIME_CONFIG, "agent.daily_budget") or 0)
+        except Exception:
+            pass
         # 若改动涉及 MCP, 尝试即时重连 (禁用需重启才能断开旧连接)
         if changed_restart and mode == "form" and any(
                 fld["section"].startswith("mcp") for g in _SETTINGS_SCHEMA
@@ -5641,6 +5664,12 @@ def run_web(host="127.0.0.1", port=PORT, cfg=None):
             _sa.set_quality_auto(
                 bool(_cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.quality_auto_push")),
                 _cfg_get(_RUNTIME_CONFIG or _get_cfg(), "agent.quality_auto_interval_h") or 24)
+        except Exception:
+            pass
+        # 成本预算护栏 (Phase 64): config agent.daily_budget (¥, 0=不限)
+        try:
+            _sa.set_daily_budget(_cfg_get(_RUNTIME_CONFIG or _get_cfg(),
+                                          "agent.daily_budget") or 0)
         except Exception:
             pass
         # llm_call 工厂: 每次调度执行时现取(后端/key 配置可能运行期变化)

@@ -47,7 +47,9 @@ def test_schema_has_notify_group():
     g = groups.get("编排与通知")
     assert g is not None, "应有「编排与通知」组"
     got = {f["key"]: f["type"] for f in g["fields"]}
-    assert got == NEW_KEYS
+    # 后续 Phase 可能往同组加键(如 Phase 64 的 daily_budget), 用子集断言保持向前兼容
+    for k, t in NEW_KEYS.items():
+        assert got.get(k) == t, "缺键或类型不符: %s" % k
     # 全部不需要重启(运行期开关)
     assert all(not f.get("restart") for f in g["fields"])
 

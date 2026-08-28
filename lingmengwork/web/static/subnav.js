@@ -5,6 +5,7 @@
   try {
     var GROUPS = {
       workspace: [
+        { href: "/superagent", ico: "🚀", label: "超级 AGENT" },
         { href: "/notes",      ico: "📝", label: "笔记" },
         { href: "/todos",      ico: "✅", label: "待办清单" },
         { href: "/snippets",   ico: "📎", label: "代码片段" },
@@ -12,6 +13,7 @@
         { href: "/enhance",    ico: "🧠", label: "专家·技能" }
       ],
       security: [
+        { href: "/plugin_hub", ico: "🔌", label: "插件中枢" },
         { href: "/secrets",    ico: "🔐", label: "密钥保险箱" },
         { href: "/backups",    ico: "📦", label: "备份与回滚" },
         { href: "/sandbox",    ico: "🛡️", label: "工作区沙箱" },

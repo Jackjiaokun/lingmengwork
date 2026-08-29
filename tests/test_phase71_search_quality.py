@@ -38,8 +38,8 @@ def test_cost_quality_section():
                 "/api/superagent/quality/baseline", "/api/superagent/quality/alerts"):
         assert tok in html, "cost 页缺: " + tok
     # 位置: 质量基线在预算护栏之后、价目参考之前
-    assert html.index("编排质量基线") > html.index("预算护栏")
-    assert html.index("编排质量基线") < html.index("价目参考")
+    assert html.index('>🧠 编排质量基线') > html.index('>🛡️ 预算护栏')
+    assert html.index('>🧠 编排质量基线') < html.index('>价目参考 (元')
 
 
 def test_cost_quality_refresh_wired():

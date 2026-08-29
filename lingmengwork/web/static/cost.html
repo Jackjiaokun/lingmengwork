@@ -57,6 +57,15 @@
   .empty{padding:30px;text-align:center;color:var(--mut)}
   .pricetbl td.num{font-variant-numeric:tabular-nums}
   .hint{color:var(--mut);font-size:12px;margin-top:8px}
+  /* ---- Phase 77: 二级标签 ---- */
+  .hidden{display:none}
+  .rtabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:18px}
+  .ctab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--mut);
+    padding:8px 16px;border-radius:10px 10px 0 0;font:600 13px/1.4 inherit;font-family:inherit;cursor:pointer}
+  .ctab:hover{color:var(--txt)}
+  .ctab.on{color:var(--txt);background:var(--card);border-color:var(--line)}
+  .cpane{margin-top:6px}
+
   /* 批次17 — 成本预警 */
   .stat-lg.alert{border-color:var(--fail);box-shadow:0 0 0 1px var(--fail) inset}
   .stat-lg.alert .num{color:var(--fail)}
@@ -79,8 +88,14 @@
   <div id="sibnav"></div>
 
 <main>
-  <section>
-    <h2 class="sec-title">进程总计</h2>
+  <nav class="rtabs">
+    <button class="ctab on" data-ct="usage" onclick="showCostTab('usage')">💰 会话用量</button>
+    <button class="ctab" data-ct="orch" onclick="showCostTab('orch')">🤖 编排</button>
+    <button class="ctab" data-ct="price" onclick="showCostTab('price')">📖 价目参考</button>
+  </nav>
+
+  <div id="ctab-usage" class="cpane">
+  <h2 class="sec-title">进程总计</h2>
     <div class="grid top-cards">
       <div class="card stat-lg"><span class="num" id="t-tok">0</span><span class="lab">估算总 Token</span></div>
       <div class="card stat-lg"><span class="num" id="t-in">0</span><span class="lab">输入 Token</span></div>
@@ -89,9 +104,7 @@
     </div>
     <div class="thresh-note" id="thresh-note"></div>
   </section>
-
-  <section>
-    <h2 class="sec-title">各会话用量</h2>
+<h2 class="sec-title">各会话用量</h2>
     <div class="card" style="padding:6px 6px">
       <table>
         <thead><tr>
@@ -104,10 +117,10 @@
       <div id="sess-empty" class="empty" style="display:none">暂无活跃会话。先在控制台发起一次对话, 再回到本页查看用量。</div>
     </div>
   </section>
+  </div>
 
-  <!-- Phase 40: 超级 AGENT 编排 LLM 用量(内存 + 磁盘历史, 重启不丢) -->
-  <section>
-    <h2 class="sec-title">🤖 超级 AGENT 编排用量 (含历史)</h2>
+  <div id="ctab-orch" class="cpane hidden">
+  <h2 class="sec-title">🤖 超级 AGENT 编排用量 (含历史)</h2>
     <div class="grid top-cards" id="sa-cards">
       <div class="card stat-lg"><span class="num" id="sa-runs">0</span><span class="lab">编排次数</span></div>
       <div class="card stat-lg"><span class="num" id="sa-calls">0</span><span class="lab">LLM 调用</span></div>
@@ -115,10 +128,7 @@
       <div class="card stat-lg"><span class="num" id="sa-cost">¥0</span><span class="lab">估算总成本</span></div>
     </div>
   </section>
-
-  <!-- Phase 64/67: 成本预算护栏 -->
-  <section>
-    <h2 class="sec-title">🛡️ 预算护栏 (单日编排成本)</h2>
+<h2 class="sec-title">🛡️ 预算护栏 (单日编排成本)</h2>
     <div class="card">
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
         <div class="stat-lg">
@@ -142,10 +152,7 @@
       </div>
     </div>
   </section>
-
-  <!-- Phase 71: 编排质量基线 -->
-  <section>
-    <h2 class="sec-title">🧠 编排质量基线</h2>
+<h2 class="sec-title">🧠 编排质量基线</h2>
     <div class="card">
       <div class="grid top-cards" id="q-cards">
         <div class="card stat-lg"><span class="num" id="q-runs">0</span><span class="lab">近30天编排</span></div>
@@ -157,9 +164,10 @@
       <div class="hint">基线 = 同目标多次运行的统计分布；偏离告警详情见 <a href="/superagent" style="color:var(--acc)">超级 AGENT 工作台 · 洞察</a>。</div>
     </div>
   </section>
+  </div>
 
-  <section>
-    <h2 class="sec-title">价目参考 (元 / 千 token)</h2>
+  <div id="ctab-price" class="cpane hidden">
+  <h2 class="sec-title">价目参考 (元 / 千 token)</h2>
     <div class="card" style="padding:6px 6px">
       <table class="pricetbl">
         <thead><tr><th>模型</th><th>档位</th><th class="num">输入</th><th class="num">输出</th></tr></thead>
@@ -168,6 +176,7 @@
       <div class="hint">价格为估算量级 (接口多不返回 usage, 走字符数 × 系数), 仅用于成本认知, 非精确账单。</div>
     </div>
   </section>
+  </div>
 </main>
 <script>
 function $(s){return document.querySelector(s)}
@@ -279,6 +288,22 @@ async function loadQualityBase(){
     }
   }catch(e){}
 }
+// ---- Phase 77: 成本页二级标签 ----
+function showCostTab(t){
+  document.querySelectorAll('#ctab-usage, #ctab-orch, #ctab-price').forEach(function(p){
+    p.classList.toggle('hidden', p.id !== 'ctab-'+t);
+  });
+  document.querySelectorAll('.ctab').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-ct') === t);
+  });
+  try{ localStorage.setItem('lmw_cost_tab', t); }catch(e){}
+}
+(function(){
+  var t = 'usage';
+  try{ t = localStorage.getItem('lmw_cost_tab') || 'usage'; }catch(e){}
+  showCostTab(t);
+})();
+
 function start(){stop();load();loadBudget();loadQualityBase();if($("#auto").checked)timer=setInterval(function(){load();loadBudget();loadQualityBase();},5000)}
 function stop(){if(timer)clearInterval(timer)}
 $("#auto").addEventListener("change",start);

@@ -31,8 +31,9 @@ def test_cost_page_has_budget_section():
                 "saveBudget", "loadBudget", "/api/superagent/budget", "次日自动恢复"):
         assert tok in html, "cost 页缺: " + tok
     # 预算区应在编排用量之后、价目参考之前
-    assert html.index("预算护栏") < html.index("价目参考")
-    assert html.index("预算护栏") > html.index("超级 AGENT 编排用量")
+    # Phase 77: tab 化后用 section 精确定位(导航按钮文本不再干扰)
+    assert html.index('>🛡️ 预算护栏') > html.index('>🤖 超级 AGENT 编排用量')
+    assert html.index('>🛡️ 预算护栏') < html.index('>价目参考 (元')
 
 
 def test_cost_budget_js_wiring():

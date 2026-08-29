@@ -146,6 +146,7 @@
     padding:7px 15px;border-radius:10px 10px 0 0;font:600 12.5px/1.4 inherit;font-family:inherit;box-shadow:none}
   .rtab:hover{color:var(--tx)}
   .rtab.on{color:var(--tx);background:var(--panel2);border-color:var(--bd)}
+  .ipane{margin-top:14px}
   .run .rmeta{display:inline-flex;gap:10px;align-items:center;font-size:12px}
   .run .chev{color:var(--mut);font-size:15px;line-height:1}
 
@@ -294,8 +295,17 @@
   </section>
 
 <section id="tab-insight" class="tabpane hidden">
+  
   <header class="pane-head"><h2>洞察</h2><p>趋势 · A/B 对比 · 质量基线 · 反馈自优化 —— 让每次编排都比上次更好。</p></header>
   
+  
+  <nav class="rtabs">
+    <button class="itab on" data-it="data" onclick="showInsightTab('data')">📈 分析</button>
+    <button class="itab" data-it="quality" onclick="showInsightTab('quality')">🧪 质量与优化</button>
+    <button class="itab" data-it="annos" onclick="showInsightTab('annos')">📚 批注总览</button>
+  </nav>
+
+  <div id="itab-data" class="ipane">
   <div class="grid">
     <div class="card">
       <h3><span class="dot"></span>📈 编排趋势 <span class="muted" style="font-size:11px;font-weight:400">按日成功/失败堆叠柱 · 悬停看详情</span></h3>
@@ -320,7 +330,9 @@
       <div id="diffBox" style="margin-top:12px"><span class="muted">选择两次编排后点击「对比」</span></div>
     </div>
   </div>
+  </div>
 
+  <div id="itab-quality" class="ipane hidden">
   <div class="grid">
     <div class="card">
       <h3><span class="dot"></span>📏 质量基线 <span class="muted" style="font-size:11px;font-weight:400">同目标多次运行的统计分布 · 偏离自动告警</span>
@@ -336,7 +348,9 @@
       <div id="feedbackBox"><span class="muted">加载中…</span></div>
     </div>
   </div>
+  </div>
 
+  <div id="itab-annos" class="ipane hidden">
   <!-- Phase 70: 批注总览 -->
   <div class="card" style="margin-top:14px">
     <h3><span class="dot"></span>📚 批注总览 <span class="muted" style="font-size:11px;font-weight:400">跨编排全部批注 · 点击时间回看编排</span>
@@ -349,7 +363,8 @@
       </h3>
     <div id="annoAllBox"><span class="muted">加载中…</span></div>
   </div>
-  </section>
+  </div>
+</section>
 
 <section id="tab-auto" class="tabpane hidden">
   <header class="pane-head"><h2>自动化</h2><p>定时编排(带预算护栏) · 目标模板 · 通知 Webhook · 日报周报。</p></header>
@@ -664,9 +679,20 @@ async function saveAnnoEdit(id){
   }catch(e){ alert("请求异常: "+e); }
 }
 
+// ---- Phase 76: 洞察页二级标签 ----
+function showInsightTab(t){
+  document.querySelectorAll('#tab-insight .ipane').forEach(function(p){
+    p.classList.toggle('hidden', p.id !== 'itab-'+t);
+  });
+  document.querySelectorAll('.itab').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-it') === t);
+  });
+  try{ localStorage.setItem('lmw_sa_itab', t); }catch(e){}
+}
+
 // ---- Phase 75: 结果区二级标签 ----
 function showResultTab(t){
-  document.querySelectorAll('.rpane').forEach(function(p){
+  document.querySelectorAll('#result .rpane').forEach(function(p){
     p.classList.toggle('hidden', p.id !== 'rst-'+t);
   });
   document.querySelectorAll('.rtab').forEach(function(b){
@@ -1600,6 +1626,11 @@ function showTab(t){
   };
   if(REFRESH[t]) { try{ REFRESH[t](); }catch(e){} }
 }
+(function(){
+  var it = 'data';
+  try{ it = localStorage.getItem('lmw_sa_itab') || 'data'; }catch(e){}
+  showInsightTab(it);
+})();
 (function(){
   var t = 'orch';
   try{ t = localStorage.getItem('lmw_sa_tab') || 'orch'; }catch(e){}

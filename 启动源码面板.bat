@@ -1,7 +1,8 @@
 @echo off
 chcp 65001 >nul
-REM 灵梦work 源码面板启动器 (Windows) — 含 Phase 15~19 全量 (自动化/活动/审计/自愈)
-REM 双击此文件用源码 python 起 Web 面板并自动打开浏览器, 进程落在你自己的会话, 宿主可达
+REM 灵梦work 源码面板启动器 v2 (2026-08-29) — 含 Phase 15~77 全量
+REM 双击此文件用源码 python 起 Web 面板并自动打开浏览器
+REM v2: 受管 venv 优先 / 端口统一 8318 / 清理僵尸监听(含 pythonw) / 探活 /superagent
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
@@ -15,39 +16,47 @@ if exist ".env" (
   echo [env] 已从 .env 载入环境变量
 )
 
-set PY=C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe
+REM ---- python 选择: 受管 venv 优先, 系统 3.11 兜底 ----
+set PY=C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe
+set PYSRC=受管 venv (3.13, 含全部依赖)
 if not exist "%PY%" (
-  echo [错误] 未找到 %PY%
+  set PY=C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe
+  set PYSRC=系统 Python 3.11
+)
+if not exist "%PY%" (
+  echo [错误] 未找到可用的 python (受管 venv 与系统 3.11 均缺失)
   pause
   exit /b 1
 )
+echo [py] %PYSRC%
 
-set PORT=8320
+set PORT=8318
 set HOST=127.0.0.1
 
-REM 先释放目标端口, 避免上一次残留进程占用导致打不开
-powershell -NoProfile -Command "try { $c = Get-NetTCPConnection -LocalPort %PORT% -ErrorAction SilentlyContinue; if ($c) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; Write-Host '已释放端口 %PORT%' } } catch {}" >nul 2>&1
+REM ---- 清理 8318 上的残留监听者 (含 pythonw 僵尸: 只监听不服务) ----
+powershell -NoProfile -Command "try { $c = Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue; if ($c) { $c | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p) { Write-Host ('[清理] 杀掉残留监听 pid=' + $_ + ' (' + $p.ProcessName + ')'); Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } } } else { Write-Host '端口 %PORT% 空闲' } } catch {}"
 timeout /t 1 >nul
 
-echo 灵梦work 源码面板 (含 Phase 19 全量)
+echo 灵梦work 源码面板 (含 Phase 77 全量)
 echo   端口: %PORT%   地址: http://%HOST%:%PORT%/
 echo.
 
 start "灵梦work 源码" cmd /k "%PY%" -m lingmengwork.web.server --host %HOST% --port %PORT%
 
-REM 等待 server 起来再开浏览器
+REM ---- 等待服务起来再开浏览器 (探活 /superagent) ----
 set /a waits=0
 :waitloop
 timeout /t 1 >nul
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/api/meta' -UseBasicParsing -TimeoutSec 1; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/superagent' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if %errorlevel%==0 (
-  start "" "http://%HOST%:%PORT%/"
+  echo [ok] 面板已就绪, 打开浏览器...
+  start "" "http://%HOST%:%PORT%/superagent"
   goto :done
 )
 set /a waits+=1
 if %waits% lss 20 goto :waitloop
 echo [警告] 20 秒内未检测到服务, 请检查上面的窗口是否有报错。
-start "" "http://%HOST%:%PORT%/"
+start "" "http://%HOST%:%PORT%/superagent"
 
 :done
 endlocal

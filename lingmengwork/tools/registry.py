@@ -7,7 +7,7 @@ import datetime
 import collections
 
 from .common import ToolError
-from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision, dev, office, backup_tools, template_tools, secret_tools, snippet_tools, note_tools, todo_tools, suite_extended, suite_knowledge, suite_productivity, suite_automation, suite_rnd, suite_phase96, suite_phase97, suite_phase98, suite_phase99, suite_phase100, suite_phase101, suite_phase102, suite_phase103, suite_phase104, suite_phase105, suite_phase106, suite_phase107, suite_phase108
+from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision, dev, office, backup_tools, template_tools, secret_tools, snippet_tools, note_tools, todo_tools, suite_extended, suite_knowledge, suite_productivity, suite_automation, suite_rnd, suite_phase96, suite_phase97, suite_phase98, suite_phase99, suite_phase100, suite_phase101, suite_phase102, suite_phase103, suite_phase104, suite_phase105, suite_phase106, suite_phase107, suite_phase108, suite_phase109
 from .undo import get_default_stack, SnapshotStack
 
 # 主题 A — 工具结果缓存 (批次4): 只读搜索类工具同查询的内存缓存 (进程级共享)
@@ -1080,6 +1080,41 @@ TOOL_SCHEMAS = [
         "description": "按技术栈生成 .gitignore (python/node/go/java/rust/generic).",
         "parameters": {"stacks": "技术栈, 逗号或空格分隔, 如 python,node,go"},
     },
+    {
+        "name": "jwt_decode",
+        "description": "JWT 解码 (header/payload/过期检查, 不校验签名).",
+        "parameters": {"token": "JWT 令牌文本"},
+    },
+    {
+        "name": "url_parse",
+        "description": "URL 结构化解析 (协议/主机/端口/路径/查询串, 密码自动掩码).",
+        "parameters": {"url": "URL 文本"},
+    },
+    {
+        "name": "markdown_toc",
+        "description": "Markdown 目录生成 (跳过代码块, GitHub 风格锚点).",
+        "parameters": {"markdown": "Markdown 文本", "max_level": "最大标题层级(可选, 默认 3)"},
+    },
+    {
+        "name": "text_stats",
+        "description": "文本统计 (字符/行数/英文词/中日韩字/UTF-8 字节/高频词 top10).",
+        "parameters": {"text": "待统计文本"},
+    },
+    {
+        "name": "csv_to_markdown",
+        "description": "CSV 转 Markdown 表格 (对齐方式可配).",
+        "parameters": {"csv": "CSV 文本", "align": "对齐 left/center/right(可选, 默认 left)", "delimiter": "分隔符(可选, 默认 ,)"},
+    },
+    {
+        "name": "env_lint",
+        "description": ".env 语法检查 (重复键/非法键名/空值/未引号空格/行内注释).",
+        "parameters": {"env": ".env 文本内容"},
+    },
+    {
+        "name": "requirements_diff",
+        "description": "依赖清单差分 (新增/移除/版本变更).",
+        "parameters": {"a": "旧依赖清单文本", "b": "新依赖清单文本"},
+    },
 ]
 
 # 名称 -> 实现函数 (签名: func(args, ctx) -> str)
@@ -1305,6 +1340,13 @@ _IMPLS = {
     "env_to_json": suite_phase108.env_to_json,
     "dockerfile_lint": suite_phase108.dockerfile_lint,
     "gitignore_gen": suite_phase108.gitignore_gen,
+    "jwt_decode": suite_phase109.jwt_decode,
+    "url_parse": suite_phase109.url_parse,
+    "markdown_toc": suite_phase109.markdown_toc,
+    "text_stats": suite_phase109.text_stats,
+    "csv_to_markdown": suite_phase109.csv_to_markdown,
+    "env_lint": suite_phase109.env_lint,
+    "requirements_diff": suite_phase109.requirements_diff,
 }
 
 
@@ -1360,7 +1402,7 @@ def _tool_undo(args, ctx):
 # plan            : 仅只读探查 (list/read/grep/glob/diff_view), 禁写/编辑/执行
 # acceptEdits     : 允许文件读写/编辑(diff_view 预览仍建议), 但 run_command 默认拦截
 # bypassPermissions: 全放开 (等同 dangerously, 由 deny_patterns 仍拦危险命令)
-_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs", "lint_code", "db_run", "read_pdf", "read_office", "data_table", "backup_list", "template_list", "template_get", "secret_list", "secret_get", "snippet_list", "snippet_get", "note_list", "note_get", "todo_list", "translate", "summarize", "pdf_extract", "data_analysis", "db_query", "deep_review", "clipboard", "code_metrics", "text_compare", "db_schema_doc", "form_validate", "code_search_semantic", "webhook_sign", "db_diff", "code_search_ast", "json_query", "env_check", "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "password_generate", "sql_explain", "csv_to_json", "hash_file", "cron_parse", "text_diff", "yaml_query", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "secret_audit", "dep_check", "license_check", "perm_diff", "xml_query", "toml_query", "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph", "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_schema_lint", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv", "json_schema_to_go", "json_schema_to_java", "markdown_table_to_csv", "sql_to_json", "env_to_json", "dockerfile_lint", "gitignore_gen"}
+_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs", "lint_code", "db_run", "read_pdf", "read_office", "data_table", "backup_list", "template_list", "template_get", "secret_list", "secret_get", "snippet_list", "snippet_get", "note_list", "note_get", "todo_list", "translate", "summarize", "pdf_extract", "data_analysis", "db_query", "deep_review", "clipboard", "code_metrics", "text_compare", "db_schema_doc", "form_validate", "code_search_semantic", "webhook_sign", "db_diff", "code_search_ast", "json_query", "env_check", "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "password_generate", "sql_explain", "csv_to_json", "hash_file", "cron_parse", "text_diff", "yaml_query", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "secret_audit", "dep_check", "license_check", "perm_diff", "xml_query", "toml_query", "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph", "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_schema_lint", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv", "json_schema_to_go", "json_schema_to_java", "markdown_table_to_csv", "sql_to_json", "env_to_json", "dockerfile_lint", "gitignore_gen", "jwt_decode", "url_parse", "markdown_toc", "text_stats", "csv_to_markdown", "env_lint", "requirements_diff"}
 _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo", "format_code", "make_doc", "backup_create", "backup_rollback", "backup_delete", "template_save", "template_delete", "secret_set", "secret_delete", "snippet_save", "snippet_delete", "note_save", "note_delete", "todo_add", "todo_done", "todo_delete",
     "git_checkout", "git_stash", "git_pr_draft", "image_generate", "tts", "transcribe", "video_generate", "make_ppt", "make_xlsx", "make_pdf", "schedule_task", "notify", "mindmap", "markdown_to_docx",
     "diagram", "chart", "email_compose", "calendar_event", "knowledge_search", "pdf_make",

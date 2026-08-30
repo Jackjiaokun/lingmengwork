@@ -46,6 +46,93 @@ DOMAINS = {
 
 DOMAIN_ORDER = ["code", "audio", "image", "video"]
 
+# 各域装配的工具组合 (Phase 90)。
+#
+# 设计原则:
+# 1) 共用底座: read_file / list_dir / glob / think / todo / memory 任何创作都要用。
+# 2) 域差异体现在「执行手段」上, 而不是简单的增删读写:
+#    - code : 能跑能测能评审 —— 执行类 + 静态检查 + 版本 + 代码智能
+#    - image: 素材盘点 + 提示词/说明产出 —— 读素材(含 pdf/office) + 文档表格
+#    - audio: 脚本/字幕/参数 —— 文本处理 + 片段库(存 TTS 文本与音色参数)
+#    - video: 分镜 + 工程备份 + 外部命令(ffmpeg 之类) —— 比音频多执行与备份
+# 3) 工具名必须与 tools/registry.py 的 _IMPLS / 特殊工具一致,
+#    由 tests/test_phase90_domain_modes.py 校验, 防止写了不存在的工具名。
+_SHARED = ["read_file", "list_dir", "glob", "think", "todo", "memory"]
+
+DOMAIN_TOOLS = {
+    "code": _SHARED + [
+        "write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files",
+        "diff_view", "grep",
+        "run_command", "auto_test", "lint_code", "format_code", "run_server",
+        "repo_map", "symbol_search", "semantic_search", "review_code",
+        "git_commit", "git_status", "git_diff", "git_log", "git_branch",
+        "git_checkout", "git_stash", "git_pr_draft",
+        "impact_analysis", "compare_options",
+        "web_fetch", "http_request", "test_gen", "explain_code", "security_scan",
+        "mindmap", "translate", "summarize", "pdf_extract", "markdown_to_docx", "data_analysis", "db_query",
+        "diagram", "chart", "api_test", "email_compose", "calendar_event", "knowledge_search", "pdf_make",
+        "flow_runner", "formatter", "deep_review", "local_llm_route", "screenshot", "clipboard", "csv_convert",
+        "code_metrics", "agent_team", "db_migrate", "pdf_merge", "pdf_split", "form_to_pdf", "text_compare",
+        "agent_team_run", "pdf_redact", "db_schema_doc", "form_validate", "release_notes", "code_search_semantic", "template_render", "webhook_sign", "db_diff", "changelog_update", "code_search_ast", "csv_merge", "json_query", "env_check", "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "password_generate", "webhook_emit", "sql_explain", "csv_to_json", "hash_file", "cron_parse", "text_diff", "yaml_query", "webhook_dispatch", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "secret_audit", "dep_check", "license_check", "perm_diff", "json_to_csv", "xml_query", "toml_query", "xml_to_json", "json_to_sql", "toml_to_json", "json_patch", "secret_mask", "sbom_gen", "dep_graph",
+        "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_schema_lint", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv",
+
+        "undo", "subagent",
+    ],
+    "image": _SHARED + [
+        "write_file", "make_doc", "make_ppt", "make_pdf", "data_table",
+        "read_pdf", "read_office",
+        "image_generate", "image_understand", "ocr",
+        "mindmap", "markdown_to_docx", "pdf_extract", "summarize",
+        "diagram", "chart", "pdf_make", "knowledge_search",
+        "note_save", "note_list", "snippet_save", "snippet_list",
+        "flow_runner", "formatter", "deep_review", "local_llm_route", "screenshot", "clipboard", "csv_convert",
+        "db_migrate", "pdf_merge", "pdf_split", "form_to_pdf", "text_compare",
+        "db_schema_doc", "form_validate", "release_notes", "code_search_semantic", "template_render", "db_diff", "csv_merge", "json_query", "env_check", "code_search_ast", "changelog_update", "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "webhook_dispatch", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph",
+        "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_schema_lint", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv",
+    ],
+    "audio": _SHARED + [
+        "write_file", "make_doc", "data_table",
+        "tts", "transcribe",
+        "translate", "summarize",
+        "email_compose", "calendar_event", "pdf_make", "knowledge_search",
+        "note_save", "note_list", "note_get",
+        "snippet_save", "snippet_list", "snippet_get",
+        "formatter", "deep_review", "local_llm_route", "clipboard", "csv_convert",
+        "code_metrics", "db_migrate", "pdf_merge", "pdf_split", "form_to_pdf", "text_compare",
+        "form_validate", "release_notes", "template_render", "code_search_semantic", "json_query", "env_check", "db_diff", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "webhook_dispatch", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph",
+        "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_schema_lint", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv",
+    ],
+    "video": _SHARED + [
+        "write_file", "edit_file", "make_doc", "make_ppt", "data_table",
+        "run_command",
+        "video_generate",
+        "mindmap", "summarize",
+        "diagram", "chart", "pdf_make", "knowledge_search",
+        "email_compose", "calendar_event",
+        "backup_create", "backup_list",
+        "note_save", "note_list",
+        "flow_runner", "formatter", "deep_review", "local_llm_route", "screenshot", "clipboard", "csv_convert",
+        "code_metrics", "agent_team", "db_migrate", "pdf_merge", "pdf_split", "form_to_pdf", "text_compare",
+        "agent_team_run", "db_schema_doc", "form_validate", "release_notes", "code_search_semantic", "template_render", "db_diff", "csv_merge", "json_query", "env_check", "code_search_ast", "changelog_update", "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "webhook_dispatch", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph",
+        "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_schema_lint", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv",
+    ],
+}
+
+
+def tools_for_domain(domain):
+    """返回该域装配的工具名列表(顺序稳定); 未知域返回 None(表示不过滤)。"""
+    return list(DOMAIN_TOOLS.get(domain) or []) or None
+
+
+def list_modes():
+    """四种工作模式完整信息(域元信息 + 装配的工具组合), 供前端模式选择器使用。"""
+    out = []
+    for d in DOMAIN_ORDER:
+        m = dict(DOMAINS[d])
+        m["tools"] = tools_for_domain(d) or []
+        out.append(m)
+    return out
+
 # 各域的 LLM 系统提示词: 把用户 brief 转成该域「可执行的创作蓝图 / 脚本 / 提示词」
 _PROMPTS = {
     "code": (

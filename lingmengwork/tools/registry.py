@@ -7,7 +7,7 @@ import datetime
 import collections
 
 from .common import ToolError
-from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision, dev, office, backup_tools, template_tools, secret_tools, snippet_tools, note_tools, todo_tools
+from . import fs, shell, patch, agent_tools, memory, advanced, review, semantic, decision, dev, office, backup_tools, template_tools, secret_tools, snippet_tools, note_tools, todo_tools, suite_extended, suite_knowledge, suite_productivity, suite_automation, suite_rnd, suite_phase96, suite_phase97, suite_phase98, suite_phase99, suite_phase100, suite_phase101, suite_phase102, suite_phase103, suite_phase104, suite_phase105, suite_phase106, suite_phase107
 from .undo import get_default_stack, SnapshotStack
 
 # 主题 A — 工具结果缓存 (批次4): 只读搜索类工具同查询的内存缓存 (进程级共享)
@@ -17,6 +17,15 @@ _CACHEABLE_TOOLS = {
     "fs_read", "list_dir", "diff_view", "semantic_search",
     "generate_project_docs", "impact_analysis",
     "read_office", "data_table",
+    "image_understand", "ocr", "explain_code", "security_scan",
+    "summarize", "pdf_extract", "data_analysis", "deep_review",
+    "code_metrics", "text_compare", "db_schema_doc", "form_validate", "code_search_semantic",
+    "db_diff", "code_search_ast", "json_query", "env_check",
+    "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "password_generate",
+    "sql_explain", "csv_to_json", "hash_file", "cron_parse", "text_diff", "yaml_query", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify",
+    "secret_audit", "dep_check", "license_check", "perm_diff", "xml_query", "toml_query",
+    "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph",
+    "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify",
 }
 _RESULT_CACHE = {}  # {(name, args_json): (value, expire_ts)}
 
@@ -344,6 +353,698 @@ TOOL_SCHEMAS = [
         "description": "删除一条待办。id=待办 ID(必填)。",
         "parameters": {"id": "待办 ID"},
     },
+    # ===== 联网与 API (对标 豆包/千问/dsh 联网) =====
+    {
+        "name": "web_fetch",
+        "description": "抓取网页 URL 并抽取可读正文(去脚本/样式/标签)。离线/沙箱限制时返回失败提示。url 必填。",
+        "parameters": {"url": "目标网页 URL(http/https)", "max_chars?": "截断上限(默认20000)"},
+    },
+    {
+        "name": "web_search",
+        "description": "联网搜索(零依赖 DuckDuckGo lite 抓取), 返回标题/摘要/链接。无网络时优雅降级。query 必填。对标豆包/千问联网搜索。",
+        "parameters": {"query": "搜索关键词", "limit?": "结果条数(默认8)"},
+    },
+    {
+        "name": "http_request",
+        "description": "调用任意 REST API(任意方法)。method 默认 GET; 支持 headers/body/json, 返回状态+响应。对标工作流集成。",
+        "parameters": {"url": "接口地址", "method?": "GET|POST|PUT|DELETE", "headers?": "请求头 dict", "body?": "请求体(字符串/字节)", "json?": "JSON 请求体", "max_chars?": "响应截断(默认4000)"},
+    },
+    # ===== 完整 Git 工作流 (对标 Claude Code / Codex) =====
+    {
+        "name": "git_status",
+        "description": "查看工作区状态(分支+改动清单), 仿 git status --short -b。非仓库返回提示。",
+        "parameters": {},
+    },
+    {
+        "name": "git_diff",
+        "description": "查看差异。cached=true 看暂存区; path 限定文件; stat=true 仅统计。非仓库返回提示。",
+        "parameters": {"cached?": "true 看暂存区", "path?": "限定文件", "stat?": "true 仅统计", "max_chars?": "截断(默认20000)"},
+    },
+    {
+        "name": "git_log",
+        "description": "查看提交历史(oneline 格式)。n 限制条数(默认20)。",
+        "parameters": {"n?": "条数(默认20)"},
+    },
+    {
+        "name": "git_branch",
+        "description": "列出分支。a=true 含远程分支。",
+        "parameters": {"a?": "true 含远程"},
+    },
+    {
+        "name": "git_checkout",
+        "description": "切换/新建分支。ref 必填; create=true 新建。改动前先 git_status 看清楚。",
+        "parameters": {"ref": "分支名/commit", "create?": "true 新建分支"},
+    },
+    {
+        "name": "git_stash",
+        "description": "贮藏工作区。action=push(默认)|list|pop|show。临时切换分支前先 stash。",
+        "parameters": {"action?": "push|list|pop|show", "message?": "push 备注"},
+    },
+    {
+        "name": "git_pr_draft",
+        "description": "生成 PR 草稿(标题/改动范围/提交列表/差异摘要), 不推送。可选 path 落盘 markdown。对标 Codex PR 草稿。",
+        "parameters": {"base?": "对比基线(默认 main)", "path?": "落盘 markdown 路径"},
+    },
+    # ===== 多模态真实生成 (对标 豆包/千问 图文音视频) =====
+    {
+        "name": "image_generate",
+        "description": "文生图/图生图/超分。委托适配层: 有图生成 key 走远程真生成, 否则本地 Pillow 真实信息图。prompt 必填; mode=gen|inpaint|upscale; image_path 参考图。",
+        "parameters": {"prompt": "画面描述", "mode?": "gen|inpaint|upscale", "image_path?": "参考图(用于 inpaint/upscale)"},
+    },
+    {
+        "name": "image_understand",
+        "description": "图像理解(零依赖): 抽取尺寸/格式/主色等元信息 + 启发式描述。path 必填。接入视觉 LLM 后可得语义描述。",
+        "parameters": {"path": "图像路径"},
+    },
+    {
+        "name": "tts",
+        "description": "语音合成(TTS)。委托适配层: 优先 edge_tts 真实 MP3, 否则降级文字稿+声波占位图。text 必填; voice/rate/pitch 语音参数。",
+        "parameters": {"text": "要朗读的文本", "voice?": "音色", "rate?": "语速", "pitch?": "音高"},
+    },
+    {
+        "name": "transcribe",
+        "description": "语音转写(STT)。需本地引擎(whisper/SpeechRecognition), 缺失则优雅提示。path 必填。对标豆包/千问语音转写。",
+        "parameters": {"path": "音频文件路径", "language?": "语言(默认 zh-CN)"},
+    },
+    {
+        "name": "video_generate",
+        "description": "文生视频/图生视频/剪辑合成。委托适配层: 有视频 key 走远程 MP4, 否则本地 Pillow 真实 GIF 动图。prompt 必填; mode=gen|img2video|clips。",
+        "parameters": {"prompt": "视频描述", "mode?": "gen|img2video|clips", "image_path?": "参考图/图序列(逗号分隔)"},
+    },
+    # ===== 文档全家桶 (对标 千问办公/豆包 文档) =====
+    {
+        "name": "make_ppt",
+        "description": "生成 PPTX 演示文稿(零依赖 zip+XML 构建)。slides=[{title,bullets}] 或 body 分页 markdown。path 必填。",
+        "parameters": {"path": "输出 .pptx 路径", "title?": "标题", "slides?": "幻灯片列表", "body?": "分页 markdown"},
+    },
+    {
+        "name": "make_xlsx",
+        "description": "生成 XLSX 表格(零依赖 zip+XML)。data=二维数组或对象列表。path/sheet 可选。对标 Excel 生成。",
+        "parameters": {"path": "输出 .xlsx 路径", "data": "二维数组或对象列表", "sheet?": "表名(默认 Sheet1)"},
+    },
+    {
+        "name": "make_pdf",
+        "description": "生成 PDF 文档(零依赖最小 PDF, 多页文本)。title/body(markdown 或纯文本)。path 必填。对标 PDF 导出。",
+        "parameters": {"path": "输出 .pdf 路径", "title?": "标题", "body": "正文(markdown/纯文本)"},
+    },
+    {
+        "name": "ocr",
+        "description": "OCR 图片转文字。需 tesseract/pytesseract, 缺失优雅提示。path 必填; lang 默认 chi_sim+eng。",
+        "parameters": {"path": "图片路径", "lang?": "语言(默认 chi_sim+eng)"},
+    },
+    # ===== 自动化与集成 (对标 dsh 工作流/定时) =====
+    {
+        "name": "schedule_task",
+        "description": "创建定时/自动化任务(写入工作区 .lmw_schedules.json)。name/prompt 必填; rrule 调度表达式(默认 once)。对标 dsh 定时任务。",
+        "parameters": {"name": "任务名", "prompt": "任务指令", "rrule?": "调度表达式(默认 once)", "enabled?": "是否启用(默认 true)"},
+    },
+    {
+        "name": "webhook_send",
+        "description": "向外部 webhook 推送 JSON(payload 任意对象)。url 必填。对标工作流集成/回调。",
+        "parameters": {"url": "webhook 地址", "payload?": "推送的 JSON 对象"},
+    },
+    {
+        "name": "notify",
+        "description": "发送通知(落盘工作区 .lmw_notifications.json + 尽力触发系统 toast)。title/message 必填。对标系统通知。",
+        "parameters": {"title": "标题", "message": "内容", "level?": "info|warn|error"},
+    },
+    # ===== 代码智能增强 (领先一代) =====
+    {
+        "name": "test_gen",
+        "description": "为源文件生成 pytest 单元测试脚手架(零依赖 AST 解析顶层函数/类)。path 或 code 必填; path_out 可选落盘。",
+        "parameters": {"path?": "源文件路径", "code?": "内联代码", "path_out?": "落盘测试文件路径"},
+    },
+    {
+        "name": "explain_code",
+        "description": "代码解释(零依赖 AST 摘要): 行数/顶层定义/导入/调用。path 或 code 必填。对标代码解读。",
+        "parameters": {"path?": "源文件路径", "code?": "内联代码"},
+    },
+    {
+        "name": "security_scan",
+        "description": "仓库安全扫描(零依赖静态规则): 危险函数/硬编码密钥/SQL 拼接/命令注入等。path 限定目录。对标安全门禁。",
+        "parameters": {"path?": "限定目录/文件(默认当前根)"},
+    },
+    # —— 知识办公 (Phase 92, 对标 豆包/千问 办公) ——
+    {
+        "name": "mindmap",
+        "description": "生成 Mermaid 脑图/思维导图: topic+items 或 markdown 文本 -> .mmd 源(可渲染 SVG)。对标思维导图。",
+        "parameters": {"topic?": "中心主题", "items?": "分支列表[分支,[子项]]", "text?": "markdown 文本(按标题层级成图)", "path?": "输出 .mmd 路径"},
+    },
+    {
+        "name": "translate",
+        "description": "多语翻译(零依赖 MyMemory 免费 API, 无网降级)。text 必填; to 目标语(默认 zh-CN), from 源语(默认 en)。对标多语翻译。",
+        "parameters": {"text": "待翻译文本", "to?": "目标语言(zh-CN/en/ja/ko...)", "from?": "源语言(默认 en)"},
+    },
+    {
+        "name": "summarize",
+        "description": "长文摘要(零依赖抽取式, 词频打分选关键句+关键词, 无需 LLM)。text 必填; sentences 提取句数(默认 5)。",
+        "parameters": {"text": "待摘要文本", "sentences?": "提取句数(默认 5)"},
+    },
+    {
+        "name": "pdf_extract",
+        "description": "从 PDF 抽取文本(PyPDF2 优先, pdftotext 回退, 均无则提示)。path 必填; path_out 落盘。对标 PDF 读取。",
+        "parameters": {"path": "PDF 文件路径", "path_out?": "提取文本输出路径"},
+    },
+    {
+        "name": "markdown_to_docx",
+        "description": "Markdown 转 Word(.docx, 零依赖 OOXML)。path 输出 .docx; md 内容或 src markdown 文件。对标文档写作。",
+        "parameters": {"path": "输出 .docx 路径", "md?": "markdown 内容", "src?": "markdown 源文件", "title?": "文档标题"},
+    },
+    {
+        "name": "data_analysis",
+        "description": "CSV 数据分析(零依赖): 列概览(数值/类别统计)、数值列相关性、首列直方图; 产出 md+html 图表。对标表格洞察。",
+        "parameters": {"path": "CSV 文件路径"},
+    },
+    {
+        "name": "db_query",
+        "description": "SQLite 查询(标准库 sqlite3)。db 必填; sql 为空列出表, 否则执行(SELECT 返回表格, 其他返回影响行数)。对标数据查询。",
+        "parameters": {"db": "sqlite 数据库路径", "sql?": "SQL 语句(空则列出表)"},
+    },
+    {
+        "name": "diagram",
+        "description": "生成 Mermaid 图(零依赖): kind=flowchart/sequence/class/state/gantt; 直接给 spec(mermaid 正文)或结构化 nodes+edges。产出 .mmd(有 mmdc 渲染 SVG)。对标 draw.io/语雀绘图。",
+        "parameters": {"kind?": "图类型(flowchart/sequence/class/state/gantt)", "spec?": "直接 mermaid 正文", "nodes?": "节点字典{id:标签}", "edges?": "边列表(['A-->B: 说明'])", "title?": "图标题", "out?": "输出 .mmd 路径"},
+    },
+    {
+        "name": "chart",
+        "description": "数据→SVG 图表(零依赖): type=line/bar/pie; data=JSON({labels, series:[{name,values}]} 或饼图 {labels,values})。产出 .svg+.html 预览。对标数据可视化/QuickChart。",
+        "parameters": {"type": "图表类型(line/bar/pie)", "data": "JSON 数据", "title?": "标题", "out?": "输出 .svg 路径"},
+    },
+    {
+        "name": "api_test",
+        "description": "多接口测试(零依赖 urllib): cases=[{name,method,url,headers?,body?,asserts?}]; asserts={status?,contains?,json_path?,equals?}。产出报告。对标 Postman/接口测试。",
+        "parameters": {"cases": "用例 JSON 列表", "base_url?": "基础 URL 前缀", "out?": "报告路径(默认 api_test_report.md)"},
+    },
+    {
+        "name": "email_compose",
+        "description": "撰写邮件草稿(标准库, 输出 .eml); 提供 smtp{host,port,user,pass}+send=true 可发送。对标邮件客户端。",
+        "parameters": {"to": "收件人", "subject": "主题", "body": "正文", "from?": "发件人", "cc?": "抄送", "smtp?": "SMTP 配置", "send?": "是否发送(bool)", "out?": "草稿 .eml 路径"},
+    },
+    {
+        "name": "calendar_event",
+        "description": "生成日历事件(标准 ICS 2.0): title+start(ISO); end?/duration?(分钟)/location?/description?/alarm?(提前分钟)。对标日历/日程。",
+        "parameters": {"title": "事件标题", "start": "开始时间(ISO8601)", "end?": "结束时间", "duration?": "时长(分钟, 与 end 二选一)", "location?": "地点", "description?": "描述", "alarm?": "提前提醒分钟", "out?": "输出 .ics 路径"},
+    },
+    {
+        "name": "knowledge_search",
+        "description": "本地知识检索(零依赖 TF-IDF): action=index(path) 建索引(存 .lmw_kb_index.json); action=query(query,limit?) 检索返回相似文档。对标 RAG/语义检索。",
+        "parameters": {"action?": "index|query(默认 query)", "path?": "建索引目录", "query?": "检索词", "limit?": "返回条数(默认5)", "index?": "索引文件路径"},
+    },
+    {
+        "name": "pdf_make",
+        "description": "文本/Markdown→PDF: 优先 reportlab 完整排版, 否则零依赖最小 PDF。input(文件) 或 text/markdown。对标文档导出。",
+        "parameters": {"text?": "正文/Markdown", "input?": "输入文件", "title?": "PDF 标题", "out?": "输出 .pdf 路径"},
+    },
+    {
+        "name": "flow_runner",
+        "description": "工作流编排(轻量 n8n/Actions): spec(JSON) 或 file 定义 steps, 支持 run/set/echo/if/http/write 步骤与 ${var} 变量替换, 串行执行产出报告。对标自动化编排。",
+        "parameters": {"spec?": "JSON 工作流定义字符串", "file?": "工作流文件路径", "report?": "报告输出路径"},
+    },
+    {
+        "name": "formatter",
+        "description": "多语言代码格式化: 自动识别语言, 委托 black/autopep8(python)、jsbeautifier(js/css/html)、gofmt(go), JSON 零依赖美化。引擎缺失优雅提示。对标代码美化。",
+        "parameters": {"path": "目标文件", "lang?": "强制语言(默认按扩展名)"},
+    },
+    {
+        "name": "deep_review",
+        "description": "深度评审(零依赖 AST): 统计函数/类/行数, 扫描危险模式(eval/os.system/SQL 拼接/明文密码等), 每文件概览, 产出 markdown 报告。对标代码评审。",
+        "parameters": {"path?": "文件或目录(默认当前根)", "report?": "报告输出路径(默认 deep_review.md)"},
+    },
+    {
+        "name": "local_llm_route",
+        "description": "本地 LLM 路由: 调用 Ollama(/api/generate) 或 OpenAI 兼容端点(llama.cpp 等 /v1/chat/completions)。本地服务未运行优雅降级。对标私有化大模型。",
+        "parameters": {"prompt": "提示词", "base_url?": "默认 http://localhost:11434", "model?": "默认 llama3", "backend?": "ollama|openai"},
+    },
+    {
+        "name": "screenshot",
+        "description": "网页/桌面截图: 优先 playwright, 其次 selenium, 无引擎优雅提示安装。对标可视化/截图能力。",
+        "parameters": {"url?": "网页 URL", "file?": "本地文件", "out?": "输出 .png 路径(默认 screenshot.png)"},
+    },
+    {
+        "name": "clipboard",
+        "description": "剪贴板读写: pyperclip 优先, Windows 下 PowerShell 降级。action=read|write, write 需 text。对标剪贴板集成。",
+        "parameters": {"action?": "read|write(默认 read)", "text?": "写入内容(write 时)"},
+    },
+    {
+        "name": "csv_convert",
+        "description": "CSV 格式转换: 转 JSON / Markdown 表格 / XLSX(openpyxl)。json/markdown 零依赖。对标表格处理。",
+        "parameters": {"path": "CSV 文件", "to?": "json|markdown|xlsx(默认 json)", "out?": "输出路径"},
+    },
+    {
+        "name": "code_metrics",
+        "description": "AST 代码指标(零依赖): 目录或单文件统计 LOC/SLOC/注释/空行、函数数、类数、方法数、圈复杂度(合计/均值/峰值), 输出 Top 文件清单与 code_metrics.json。对标代码健康度。",
+        "parameters": {"path?": "目录或 .py 文件(默认当前根)"},
+    },
+    {
+        "name": "agent_team",
+        "description": "多 Agent 编排(零依赖): spec(JSON) 定义 agents(role+task) 与 strategy(parallel/sequential/debate)+aggregator, 产出团队调度清单 .lmw_team/team_*.json。对标多智能体协作。",
+        "parameters": {"spec?": "JSON 编排定义字符串", "file?": "编排文件路径"},
+    },
+    {
+        "name": "db_migrate",
+        "description": "SQLite 迁移运行器(标准库): action=init/create/status/up/down, 基于 migrations 目录与 lmw_migrations 表跟踪。对标数据库版本管理。",
+        "parameters": {"db": "sqlite 数据库路径", "action?": "init|create|status|up|down(默认 status)", "dir?": "迁移目录(默认 migrations)", "name?": "迁移名/create 用", "pages?": "pdf_split 用"},
+    },
+    {
+        "name": "pdf_merge",
+        "description": "多 PDF 合并: 优先 PyPDF2/pypdf 真实合并, 无库优雅降级提示。files 为待合并列表, out 为目标文件。对标文档合并。",
+        "parameters": {"files": "待合并 PDF 路径列表", "out?": "输出 .pdf 路径(默认 merged.pdf)"},
+    },
+    {
+        "name": "pdf_split",
+        "description": "PDF 按页拆分: 优先 PyPDF2/pypdf, 无库优雅降级。file 源文件, pages 可选范围(如 1-3,5), out_dir 输出目录。对标文档拆分。",
+        "parameters": {"file": "源 PDF 路径", "pages?": "页范围(如 1-3,5)", "out_dir?": "输出目录(默认 split)"},
+    },
+    {
+        "name": "form_to_pdf",
+        "description": "表单/字段清单→PDF(零依赖, 内嵌系统 CJK 字体支持中文): title + fields(标签/值/类型) 生成多页表单 PDF。对标表单/文档生成。",
+        "parameters": {"title?": "表单标题", "fields?": "字段列表(对象含 label/value/type 或字符串)", "out?": "输出 .pdf 路径(默认 form.pdf)"},
+    },
+    {
+        "name": "text_compare",
+        "description": "双文本差异与相似度(零依赖 difflib): 行级 unified diff + 相似度百分比 + 增删行统计, 支持 file_a/file_b 读文件。对标对比/查重。",
+        "parameters": {"a?": "文本 A", "b?": "文本 B", "file_a?": "文本 A 文件", "file_b?": "文本 B 文件", "out?": "报告输出路径"},
+    },
+    {
+        "name": "agent_team_run",
+        "description": "执行 agent_team 生成的团队清单: 落盘各 agent 派发 prompt + 调度计划(parallel/sequential/debate), 供主控 AgentLoop 派发子 Agent。对标多 Agent 编排落地。",
+        "parameters": {"team?": "团队清单 json 路径(默认 .lmw_team 最新)", "spec?": "直接传团队 spec", "rounds?": "debate 回合数(默认 2)"},
+    },
+    {
+        "name": "pdf_redact",
+        "description": "PDF 脱敏: 遮盖指定关键词/正则(优先 pypdf redact, 无库优雅降级)。file 源文件, terms 关键词列表, regex 是否正则, out 输出。对标文档合规脱敏。",
+        "parameters": {"file": "源 PDF 路径", "terms?": "待遮盖关键词列表", "regex?": "true 时 terms 作正则", "out?": "输出 .pdf(默认 redacted.pdf)"},
+    },
+    {
+        "name": "db_schema_doc",
+        "description": "SQLite schema 文档生成(标准库 sqlite3, 零依赖): 输出每张表的列/类型/约束/索引/外键, 支持 md/json。对标数据库文档。",
+        "parameters": {"db": "sqlite 数据库路径", "format?": "md|json(默认 md)", "out?": "文档输出路径"},
+    },
+    {
+        "name": "form_validate",
+        "description": "表单/数据校验(零依赖规则引擎): required/type/pattern/enum/min/max, 输出通过/失败明细与未声明字段。对标数据校验。",
+        "parameters": {"data": "待校验数据对象(JSON)", "schema": "校验规则(字段->{type,pattern,enum,min,max} 或 {required,fields})", "out?": "结果输出路径"},
+    },
+    {
+        "name": "release_notes",
+        "description": "发布说明生成(零依赖): 按 feat/fix/perf/.. 分类汇总 changes, 或读取 CHANGELOG.md/changes.txt。对标版本发布文档。",
+        "parameters": {"version?": "版本号(默认 unreleased)", "changes?": "变更清单(对象/字符串列表)", "out?": "发布说明输出路径"},
+    },
+    {
+        "name": "code_search_semantic",
+        "description": "语义代码搜索(零依赖 TF-IDF 跨文件): 按查询词返回相关文件与相似度+代码片段, 支持 ext 过滤与 top_k。对标语义检索。",
+        "parameters": {"query": "查询文本", "path?": "代码根(默认 cwd)", "ext?": "扩展名过滤", "top_k?": "返回条数(默认 5)"},
+    },
+    {
+        "name": "template_render",
+        "description": "模板渲染(零依赖): 支持 {{var}} 与 {% for x in items %}...{% endfor %} 循环, 输出渲染文本或写文件。对标模板引擎。",
+        "parameters": {"template?": "模板文本", "template_file?": "模板文件路径", "vars?": "变量对象(JSON)", "out?": "渲染结果输出路径"},
+    },
+    {
+        "name": "webhook_sign",
+        "description": "计算 webhook 签名(HMAC-SHA256, 含时间戳防重放): 返回 timestamp 与 X-Signature 头值, 用于发送/校验 webhook。",
+        "parameters": {"secret": "签名密钥", "payload": "待签名内容(文本/JSON)", "timestamp?": "时间戳(默认当前)"},
+    },
+    {
+        "name": "db_diff",
+        "description": "对比两个 SQLite 库: 表结构(列差异)与行差异, 返回可读差异报告。",
+        "parameters": {"a": "库A路径", "b": "库B路径", "tables?": "仅对比指定表"},
+    },
+    {
+        "name": "changelog_update",
+        "description": "按 Keep a Changelog 格式在 CHANGELOG.md 顶部插入新版本块(支持 Added/Changed 等小节)。",
+        "parameters": {"file?": "CHANGELOG 路径(默认 CHANGELOG.md)", "version": "版本号", "date?": "日期(默认今天)", "changes": "变更条目(数组/多行文本)", "section?": "小节(默认 Added)"},
+    },
+    {
+        "name": "code_search_ast",
+        "description": "基于 AST 搜索 Python 代码: 查找 def/class/call/import/name, 非 Python 正则兜底。",
+        "parameters": {"path": "代码路径(文件或目录)", "kind?": "def|class|call|import|name(默认 def)", "name?": "标识符过滤", "pattern?": "子串过滤"},
+    },
+    {
+        "name": "csv_merge",
+        "description": "合并多个 CSV: 纵向 concat(按首表头) 或 横向 join(on 键)。",
+        "parameters": {"files": "CSV 路径列表", "out?": "输出路径(默认 merged.csv)", "how?": "concat|join(默认 concat)", "keys?": "join 键列"},
+    },
+    {
+        "name": "json_query",
+        "description": "轻量 JSONPath 查询(零依赖): 支持 $.a.b / $.x[*].y / $.a[0], 文件或内联数据。",
+        "parameters": {"path?": "JSON 文件路径", "data?": "内联 JSON", "jsonpath": "查询路径(如 $.a.b)"},
+    },
+    {
+        "name": "env_check",
+        "description": "校验必需环境变量是否设置, 或对比 .env 模板与当前环境, 返回缺失/已设置清单。",
+        "parameters": {"required?": "必需变量名(数组/逗号分隔)", "template?": "env 模板文件路径", "env_file?": "env 文件路径(覆盖当前环境)"},
+    },
+    {
+        "name": "webhook_verify",
+        "description": "验证 webhook 签名 (HMAC-SHA256, 可选时间戳防重放), 返回签名有效性与重放风险。",
+        "parameters": {"payload": "待验证的 payload(字符串/JSON)", "secret": "共享密钥", "signature": "收到的签名(可带 sha256= 前缀)", "timestamp?": "发送方时间戳(秒)", "tolerance?": "重放容差秒数(默认300)"},
+    },
+    {
+        "name": "sql_format",
+        "description": "轻量 SQL 格式化(零依赖): 关键字折行 + 括号层级缩进, 支持内联或文件。",
+        "parameters": {"sql?": "内联 SQL", "file?": "SQL 文件路径"},
+    },
+    {
+        "name": "csv_diff",
+        "description": "对比两个 CSV: 按 key 列对齐输出新增/删除/修改报告, 无 key 则按行号。",
+        "parameters": {"a": "CSV A 路径", "b": "CSV B 路径", "key?": "对齐键列名"},
+    },
+    {
+        "name": "json_schema_validate",
+        "description": "校验 JSON 是否符合简化 schema(type/required/properties/enum/items), 数据或 schema 可来自文件。",
+        "parameters": {"data?": "内联 JSON", "file?": "JSON 数据文件", "schema?": "内联 schema", "schema_file?": "schema 文件"},
+    },
+    {
+        "name": "release_tag",
+        "description": "semver 解析/校验/比较/递增(major.minor.patch)。",
+        "parameters": {"version": "版本号(x.y.z)", "bump?": "递增段 major/minor/patch", "compare?": "用于比较的另一版本"},
+    },
+    {
+        "name": "log_tail",
+        "description": "读日志尾部 N 行, 支持关键字过滤(grep), 零依赖。",
+        "parameters": {"file": "日志文件路径", "n?": "取末尾行数(默认50)", "grep?": "关键字过滤", "ignore_case?": "忽略大小写(bool)"},
+    },
+    {
+        "name": "password_generate",
+        "description": "生成强密码/口令(secrets 安全随机), 可选可读模式排除易混淆字符。",
+        "parameters": {"length?": "长度(默认16)", "count?": "生成数量(默认1)", "lower?": "含小写(bool)", "upper?": "含大写(bool)", "digit?": "含数字(bool)", "symbol?": "含符号(bool)", "readable?": "可读模式(排除易混淆字符)"},
+    },
+    {
+        "name": "webhook_emit",
+        "description": "发送 webhook (POST, 超时保护, 支持 HMAC 签名与 dry_run 预演), 零依赖.",
+        "parameters": {"url": "目标 URL", "body?": "请求体(dict|list|str)", "method?": "方法(默认POST)", "headers?": "附加请求头(dict)", "content_type?": "Content-Type(默认application/json)", "secret?": "HMAC 签名密钥", "timeout?": "超时秒(默认8)", "dry_run?": "仅预演不真正发送(bool)"},
+    },
+    {
+        "name": "sql_explain",
+        "description": "提取 SQL 操作类型/表/列 (轻量正则解析, 非完整引擎).",
+        "parameters": {"sql": "SQL 语句"},
+    },
+    {
+        "name": "csv_to_json",
+        "description": "CSV -> JSON 数组 (每行一个对象), 支持自定义分隔符.",
+        "parameters": {"file": "CSV 路径", "delimiter?": "分隔符(默认,)", "encoding?": "编码(默认utf-8-sig)"},
+    },
+    {
+        "name": "hash_file",
+        "description": "计算文件多算法哈希 (md5/sha1/sha256/sha512, 分块读取).",
+        "parameters": {"file": "文件路径", "algorithms?": "算法列表(默认sha256)"},
+    },
+    {
+        "name": "cron_parse",
+        "description": "解析 cron 表达式(5段), 产出中文描述与下次运行时间.",
+        "parameters": {"expression": "cron 表达式(分 时 日 月 周)"},
+    },
+    {
+        "name": "text_diff",
+        "description": "两文本行级统一 diff (difflib), 统计 +/- 行数.",
+        "parameters": {"a": "文本A(或行列表)", "b": "文本B", "name_a?": "A 名称", "name_b?": "B 名称"},
+    },
+    {
+        "name": "yaml_query",
+        "description": "极简 YAML 路径查询 (a.b.c / a.list[0]), 支持 file 或 text.",
+        "parameters": {"file?": "YAML 文件", "text?": "YAML 文本", "query?": "路径(如 a.b.c)"},
+    },
+    {
+        "name": "webhook_dispatch",
+        "description": "按事件路由到多目标 webhook 并发发送 (urllib POST, 可选 HMAC 签名, dry_run 预演).",
+        "parameters": {"event": "事件名", "routes": "{event:url} 路由表", "body?": "请求体", "secret?": "HMAC 密钥", "timeout?": "超时秒", "dry_run?": "仅预演"},
+    },
+    {
+        "name": "sql_lint",
+        "description": "轻量 SQL 静态检查 (SELECT */缺 WHERE/INSERT 未指定列/关键字大小写/缺 LIMIT).",
+        "parameters": {"sql": "SQL 语句"},
+    },
+    {
+        "name": "json_schema_gen",
+        "description": "由样本 JSON 推断 JSON Schema (type/required/properties/items).",
+        "parameters": {"text?": "JSON 文本", "file?": "JSON 文件"},
+    },
+    {
+        "name": "cron_next_n",
+        "description": "cron 表达式 -> 接下来 N 次运行时间 (默认 5).",
+        "parameters": {"expression": "5 段 cron", "count?": "次数"},
+    },
+    {
+        "name": "diff_patch",
+        "description": "将统一 diff 应用到文本, 产出打补丁后文本 (可选写文件).",
+        "parameters": {"original": "原始文本/行列表", "patch": "统一 diff", "out_file?": "写出文件"},
+    },
+    {
+        "name": "yaml_merge",
+        "description": "两份 YAML 深度合并 (a 基底, b 覆盖/扩展, 可选写 JSON).",
+        "parameters": {"a?": "YAML a", "b?": "YAML b", "file_a?": "文件a", "file_b?": "文件b", "out_file?": "写出"},
+    },
+    {
+        "name": "hash_verify",
+        "description": "校验文件哈希是否与期望值一致 (md5/sha1/sha256/sha512).",
+        "parameters": {"file": "文件路径", "expected": "期望哈希", "algo?": "算法(默认sha256)"},
+    },    {
+        "name": "secret_audit",
+        "description": "扫描目录/文件中的硬编码密钥 (API key/token/密码).",
+        "parameters": {"path": "文件或目录", "recursive?": "是否递归(默认true)", "max_find?": "最多命中数"},
+    },
+    {
+        "name": "dep_check",
+        "description": "检查依赖清单 (requirements.txt/package.json) 的版本钉固与风险.",
+        "parameters": {"path": "目录或依赖文件"},
+    },
+    {
+        "name": "license_check",
+        "description": "识别项目许可证类型 (LICENSE 文件关键字匹配).",
+        "parameters": {"path": "目录或许可证文件"},
+    },
+    {
+        "name": "perm_diff",
+        "description": "比较两个目录树的文件存在性/大小差异.",
+        "parameters": {"a": "目录a", "b": "目录b", "recursive?": "是否递归", "max?": "最多列出差异"},
+    },
+    {
+        "name": "json_to_csv",
+        "description": "JSON 数组 -> CSV (写出文件).",
+        "parameters": {"json?": "JSON字符串", "file?": "JSON文件", "out_file": "输出CSV"},
+    },
+    {
+        "name": "xml_query",
+        "description": "极简 XPath 式 XML 查询 (取文本或属性).",
+        "parameters": {"file?": "XML文件", "xml?": "XML字符串", "query": "路径查询", "max?": "最多条数"},
+    },
+    {
+        "name": "toml_query",
+        "description": "TOML 路径查询 (a.b.c / a.list[0].c).",
+        "parameters": {"file?": "TOML文件", "toml?": "TOML字符串", "path": "点分路径"},
+    },
+    {
+        "name": "xml_to_json",
+        "description": "XML -> JSON (可写出文件).",
+        "parameters": {"file?": "XML文件", "xml?": "XML字符串", "out_file?": "输出JSON"},
+    },
+    {
+        "name": "json_to_sql",
+        "description": "JSON 数组 -> SQL INSERT (写出文件).",
+        "parameters": {"json?": "JSON字符串", "file?": "JSON文件", "table?": "表名", "out_file?": "输出SQL"},
+    },
+    {
+        "name": "toml_to_json",
+        "description": "TOML -> JSON (可写出文件).",
+        "parameters": {"file?": "TOML文件", "toml?": "TOML字符串", "out_file?": "输出JSON"},
+    },
+    {
+        "name": "json_patch",
+        "description": "应用 JSON Patch (add/replace/remove/test/move/copy).",
+        "parameters": {"json?": "JSON字符串", "file?": "JSON文件", "patch": "操作数组JSON", "out_file?": "输出JSON"},
+    },
+    {
+        "name": "secret_mask",
+        "description": "敏感信息掩码 (可写出文件).",
+        "parameters": {"text?": "文本", "file?": "文件", "out_file?": "输出文件"},
+    },
+    {
+        "name": "sbom_gen",
+        "description": "软件物料清单 (SBOM) 生成.",
+        "parameters": {"path": "目录", "out_file?": "输出JSON"},
+    },
+    {
+        "name": "dep_graph",
+        "description": "Python 模块依赖图生成.",
+        "parameters": {"path": "目录或py文件", "out_file?": "输出JSON"},
+    },
+    {
+        "name": "yaml_to_json",
+        "description": "YAML(极简缩进式子集)转 JSON.",
+        "parameters": {"text?": "YAML文本", "file?": "YAML文件"},
+    },
+    {
+        "name": "json_to_yaml",
+        "description": "JSON 转 YAML(缩进式).",
+        "parameters": {"text?": "JSON文本", "file?": "JSON文件"},
+    },
+    {
+        "name": "xml_to_csv",
+        "description": "XML 转 CSV(按重复同名子元素展平).",
+        "parameters": {"text?": "XML文本", "file?": "XML文件", "row_tag?": "行元素标签"},
+    },
+    {
+        "name": "toml_to_yaml",
+        "description": "TOML 转 YAML.",
+        "parameters": {"text?": "TOML文本", "file?": "TOML文件"},
+    },
+    {
+        "name": "license_compat",
+        "description": "许可证兼容矩阵检查.",
+        "parameters": {"licenses?": "许可证列表(逗号/换行)", "primary?": "主许可证", "deps?": "依赖许可证列表"},
+    },
+    {
+        "name": "dep_outdated",
+        "description": "依赖过时/未固定离线启发式检查.",
+        "parameters": {"path": "依赖清单(requirements/pyproject/package.json)"},
+    },
+    {
+        "name": "file_classify",
+        "description": "文件类型分类(魔数签名).",
+        "parameters": {"file": "文件路径"},
+    },
+    {
+        "name": "json_pointer",
+        "description": "JSON Pointer (RFC6901) 取值.",
+        "parameters": {"json": "JSON 文本", "pointer": "指针如 /a/b/0"},
+    },
+    {
+        "name": "csv_to_xml",
+        "description": "CSV 转 XML.",
+        "parameters": {"csv": "CSV 文本", "root": "根元素名(默认 root)", "row": "行元素名(默认 row)"},
+    },
+    {
+        "name": "yaml_to_toml",
+        "description": "YAML 转 TOML.",
+        "parameters": {"yaml": "YAML 文本"},
+    },
+    {
+        "name": "ini_query",
+        "description": "INI 配置读取/查询.",
+        "parameters": {"ini": "INI 文本", "section": "段名(可选)", "key": "键名(可选)"},
+    },
+    {
+        "name": "ini_to_json",
+        "description": "INI 转 JSON.",
+        "parameters": {"ini": "INI 文本"},
+    },
+    {
+        "name": "license_list",
+        "description": "常见开源许可证清单与兼容性速查.",
+        "parameters": {"category": "筛选类别(permissive/weak-copyleft/copyleft, 可选)", "query": "关键字(可选)", "format": "json 则返回 JSON"},
+    },
+    {
+        "name": "json_schema_lint",
+        "description": "JSON Schema 语法基础校验.",
+        "parameters": {"schema": "Schema JSON 文本"},
+    },
+
+    {
+        "name": "json_to_xml",
+        "description": "JSON 转 XML (嵌套/数组/文本, 可指定根与数组元素标签).",
+        "parameters": {"json": "JSON 文本", "root": "根标签(可选, 默认 root)", "item": "数组元素标签(可选, 默认 item)"},
+    },
+    {
+        "name": "csv_to_yaml",
+        "description": "CSV 转 YAML (首行表头, 余下为记录).",
+        "parameters": {"csv": "CSV 文本", "delimiter": "分隔符(可选, 默认 ,)"},
+    },
+    {
+        "name": "yaml_to_ini",
+        "description": "YAML 转 INI (顶层映射, 每键为段).",
+        "parameters": {"yaml": "YAML 文本"},
+    },
+    {
+        "name": "toml_to_xml",
+        "description": "TOML 转 XML (嵌套表/数组表).",
+        "parameters": {"toml": "TOML 文本", "root": "根标签(可选, 默认 root)"},
+    },
+    {
+        "name": "json_schema_compile",
+        "description": "JSON Schema 合并编译 ($ref / definitions 内联, allOf 展开).",
+        "parameters": {"schema": "Schema JSON 文本"},
+    },
+    {
+        "name": "xml_to_yaml",
+        "description": "XML 转 YAML (元素/文本, 同名子元素聚合为数组).",
+        "parameters": {"xml": "XML 文本"},
+    },
+    {
+        "name": "json_schema_docs",
+        "description": "JSON Schema 字段文档生成 (字段/类型/必填/描述, 嵌套深入一层).",
+        "parameters": {"schema": "Schema JSON 文本"},
+    },
+    {
+        "name": "json_to_ini",
+        "description": "JSON 转 INI (顶层映射每键为段).",
+        "parameters": {"json": "JSON 文本"},
+    },
+    {
+        "name": "csv_to_ini",
+        "description": "CSV 转 INI (可指定列作段名, 否则 rowN).",
+        "parameters": {"csv": "CSV 文本", "key": "用作段名的列名(可选)", "delimiter": "分隔符(可选, 默认 ,)"},
+    },
+    {
+        "name": "xml_to_toml",
+        "description": "XML 转 TOML (嵌套元素转表, 同名子元素聚合为数组).",
+        "parameters": {"xml": "XML 文本"},
+    },
+    {
+        "name": "yaml_to_xml",
+        "description": "YAML 转 XML (嵌套/数组, 可指定根标签).",
+        "parameters": {"yaml": "YAML 文本", "root": "根标签(可选, 默认 root)"},
+    },
+    {
+        "name": "json_schema_to_ts",
+        "description": "JSON Schema 转 TypeScript interface (含嵌套对象内联).",
+        "parameters": {"schema": "Schema JSON 文本", "name": "接口名(可选, 默认 Root)"},
+    },
+    {
+        "name": "ini_to_yaml",
+        "description": "INI 转 YAML (段转映射, 保留键大小写).",
+        "parameters": {"ini": "INI 文本"},
+    },
+    {
+        "name": "json_to_toml",
+        "description": "JSON 转 TOML (嵌套对象/标量数组/数组表).",
+        "parameters": {"json": "JSON 文本"},
+    },
+    {
+        "name": "xml_to_ini",
+        "description": "XML 转 INI (子元素为段, 孙元素文本为键).",
+        "parameters": {"xml": "XML 文本"},
+    },
+    {
+        "name": "toml_to_ini",
+        "description": "TOML 转 INI (表为段).",
+        "parameters": {"toml": "TOML 文本"},
+    },
+    {
+        "name": "csv_to_toml",
+        "description": "CSV 转 TOML (每行为一个数组表项).",
+        "parameters": {"csv": "CSV 文本", "table": "数组表名(可选, 默认 rows)", "delimiter": "分隔符(可选, 默认 ,)"},
+    },
+    {
+        "name": "json_schema_to_python",
+        "description": "JSON Schema 转 Python dataclass / TypedDict (嵌套类前置定义).",
+        "parameters": {"schema": "Schema JSON 文本", "name": "类名(可选, 默认 Model)", "style": "dataclass(默认) 或 typed_dict"},
+    },
+    {
+        "name": "yaml_to_csv",
+        "description": "YAML 转 CSV (映射列表, 键并集为列).",
+        "parameters": {"yaml": "YAML 文本"},
+    },
+    {
+        "name": "ini_to_xml",
+        "description": "INI 转 XML (段为元素, 键为子元素).",
+        "parameters": {"ini": "INI 文本", "root": "根标签(可选, 默认 root)"},
+    },
+    {
+        "name": "toml_to_csv",
+        "description": "TOML 转 CSV (数组表为行, 键并集为列).",
+        "parameters": {"toml": "TOML 文本", "table": "数组表名(可选, 自动探测)"},
+    },
 ]
 
 # 名称 -> 实现函数 (签名: func(args, ctx) -> str)
@@ -413,7 +1114,157 @@ _IMPLS = {
     "todo_add": todo_tools.todo_add,
     "todo_done": todo_tools.todo_done,
     "todo_delete": todo_tools.todo_delete,
+    # —— 联网与 API ——
+    "web_fetch": suite_extended.web_fetch,
+    "web_search": suite_extended.web_search,
+    "http_request": suite_extended.http_request,
+    # —— 完整 Git 工作流 ——
+    "git_status": suite_extended.git_status,
+    "git_diff": suite_extended.git_diff,
+    "git_log": suite_extended.git_log,
+    "git_branch": suite_extended.git_branch,
+    "git_checkout": suite_extended.git_checkout,
+    "git_stash": suite_extended.git_stash,
+    "git_pr_draft": suite_extended.git_pr_draft,
+    # —— 多模态真实生成 ——
+    "image_generate": suite_extended.image_generate,
+    "image_understand": suite_extended.image_understand,
+    "tts": suite_extended.tts,
+    "transcribe": suite_extended.transcribe,
+    "video_generate": suite_extended.video_generate,
+    # —— 文档全家桶 ——
+    "make_ppt": suite_extended.make_ppt,
+    "make_xlsx": suite_extended.make_xlsx,
+    "make_pdf": suite_extended.make_pdf,
+    "ocr": suite_extended.ocr,
+    # —— 自动化与集成 ——
+    "schedule_task": suite_extended.schedule_task,
+    "webhook_send": suite_extended.webhook_send,
+    "notify": suite_extended.notify,
+    # —— 代码智能增强 ——
+    "test_gen": suite_extended.test_gen,
+    "explain_code": suite_extended.explain_code,
+    "security_scan": suite_extended.security_scan,
+    # —— 知识办公 (Phase 92, 对标 豆包/千问 办公) ——
+    "mindmap": suite_knowledge.mindmap,
+    "translate": suite_knowledge.translate,
+    "summarize": suite_knowledge.summarize,
+    "pdf_extract": suite_knowledge.pdf_extract,
+    "markdown_to_docx": suite_knowledge.markdown_to_docx,
+    "data_analysis": suite_knowledge.data_analysis,
+    "db_query": suite_knowledge.db_query,
+    # —— 生产力 (Phase 93, 对标 绘图/可视化/接口测试/邮件/日历/RAG/文档导出) ——
+    "diagram": suite_productivity.diagram,
+    "chart": suite_productivity.chart,
+    "api_test": suite_productivity.api_test,
+    "email_compose": suite_productivity.email_compose,
+    "calendar_event": suite_productivity.calendar_event,
+    "knowledge_search": suite_productivity.knowledge_search,
+    "pdf_make": suite_productivity.pdf_make,
+    # —— 自动化与本地智能 (Phase 94) ——
+    "flow_runner": suite_automation.flow_runner,
+    "formatter": suite_automation.formatter,
+    "deep_review": suite_automation.deep_review,
+    "local_llm_route": suite_automation.local_llm_route,
+    "screenshot": suite_automation.screenshot,
+    "clipboard": suite_automation.clipboard,
+    "csv_convert": suite_automation.csv_convert,
+    # —— 研发效能/文档/协作 (Phase 95) ——
+    "code_metrics": suite_rnd.code_metrics,
+    "agent_team": suite_rnd.agent_team,
+    "db_migrate": suite_rnd.db_migrate,
+    "pdf_merge": suite_rnd.pdf_merge,
+    "pdf_split": suite_rnd.pdf_split,
+    "form_to_pdf": suite_rnd.form_to_pdf,
+    "text_compare": suite_rnd.text_compare,
+    # —— 协作/运维/文档增强 (Phase 96) ——
+    "agent_team_run": suite_phase96.agent_team_run,
+    "pdf_redact": suite_phase96.pdf_redact,
+    "db_schema_doc": suite_phase96.db_schema_doc,
+    "form_validate": suite_phase96.form_validate,
+    "release_notes": suite_phase96.release_notes,
+    "code_search_semantic": suite_phase96.code_search_semantic,
+    "template_render": suite_phase96.template_render,
+    "webhook_sign": suite_phase97.webhook_sign,
+    "db_diff": suite_phase97.db_diff,
+    "changelog_update": suite_phase97.changelog_update,
+    "code_search_ast": suite_phase97.code_search_ast,
+    "csv_merge": suite_phase97.csv_merge,
+    "json_query": suite_phase97.json_query,
+    "env_check": suite_phase97.env_check,
+    "webhook_verify": suite_phase98.webhook_verify,
+    "sql_format": suite_phase98.sql_format,
+    "csv_diff": suite_phase98.csv_diff,
+    "json_schema_validate": suite_phase98.json_schema_validate,
+    "release_tag": suite_phase98.release_tag,
+    "log_tail": suite_phase98.log_tail,
+    "password_generate": suite_phase98.password_generate,
+    "webhook_emit": suite_phase99.webhook_emit,
+    "sql_explain": suite_phase99.sql_explain,
+    "csv_to_json": suite_phase99.csv_to_json,
+    "hash_file": suite_phase99.hash_file,
+    "cron_parse": suite_phase99.cron_parse,
+    "text_diff": suite_phase99.text_diff,
+    "yaml_query": suite_phase99.yaml_query,
+    "webhook_dispatch": suite_phase100.webhook_dispatch,
+    "sql_lint": suite_phase100.sql_lint,
+    "json_schema_gen": suite_phase100.json_schema_gen,
+    "cron_next_n": suite_phase100.cron_next_n,
+    "diff_patch": suite_phase100.diff_patch,
+    "yaml_merge": suite_phase100.yaml_merge,
+    "hash_verify": suite_phase100.hash_verify,
+    "secret_audit": suite_phase101.secret_audit,
+    "dep_check": suite_phase101.dep_check,
+    "license_check": suite_phase101.license_check,
+    "perm_diff": suite_phase101.perm_diff,
+    "json_to_csv": suite_phase101.json_to_csv,
+    "xml_query": suite_phase101.xml_query,
+    "toml_query": suite_phase101.toml_query,
+    "xml_to_json": suite_phase102.xml_to_json,
+    "json_to_sql": suite_phase102.json_to_sql,
+    "toml_to_json": suite_phase102.toml_to_json,
+    "json_patch": suite_phase102.json_patch,
+    "secret_mask": suite_phase102.secret_mask,
+    "sbom_gen": suite_phase102.sbom_gen,
+    "dep_graph": suite_phase102.dep_graph,
+    "yaml_to_json": suite_phase103.yaml_to_json,
+    "json_to_yaml": suite_phase103.json_to_yaml,
+    "xml_to_csv": suite_phase103.xml_to_csv,
+    "toml_to_yaml": suite_phase103.toml_to_yaml,
+    "license_compat": suite_phase103.license_compat,
+    "dep_outdated": suite_phase103.dep_outdated,
+    "file_classify": suite_phase103.file_classify,
+
+    "json_pointer": suite_phase104.json_pointer,
+    "csv_to_xml": suite_phase104.csv_to_xml,
+    "yaml_to_toml": suite_phase104.yaml_to_toml,
+    "ini_query": suite_phase104.ini_query,
+    "ini_to_json": suite_phase104.ini_to_json,
+    "license_list": suite_phase104.license_list,
+    "json_schema_lint": suite_phase104.json_schema_lint,
+    "json_to_xml": suite_phase105.json_to_xml,
+    "csv_to_yaml": suite_phase105.csv_to_yaml,
+    "yaml_to_ini": suite_phase105.yaml_to_ini,
+    "toml_to_xml": suite_phase105.toml_to_xml,
+    "json_schema_compile": suite_phase105.json_schema_compile,
+    "xml_to_yaml": suite_phase105.xml_to_yaml,
+    "json_schema_docs": suite_phase105.json_schema_docs,
+    "json_to_ini": suite_phase106.json_to_ini,
+    "csv_to_ini": suite_phase106.csv_to_ini,
+    "xml_to_toml": suite_phase106.xml_to_toml,
+    "yaml_to_xml": suite_phase106.yaml_to_xml,
+    "json_schema_to_ts": suite_phase106.json_schema_to_ts,
+    "ini_to_yaml": suite_phase106.ini_to_yaml,
+    "json_to_toml": suite_phase106.json_to_toml,
+    "xml_to_ini": suite_phase107.xml_to_ini,
+    "toml_to_ini": suite_phase107.toml_to_ini,
+    "csv_to_toml": suite_phase107.csv_to_toml,
+    "json_schema_to_python": suite_phase107.json_schema_to_python,
+    "yaml_to_csv": suite_phase107.yaml_to_csv,
+    "ini_to_xml": suite_phase107.ini_to_xml,
+    "toml_to_csv": suite_phase107.toml_to_csv,
 }
+
 
 
 def _tool_think(args, ctx):
@@ -467,9 +1318,14 @@ def _tool_undo(args, ctx):
 # plan            : 仅只读探查 (list/read/grep/glob/diff_view), 禁写/编辑/执行
 # acceptEdits     : 允许文件读写/编辑(diff_view 预览仍建议), 但 run_command 默认拦截
 # bypassPermissions: 全放开 (等同 dangerously, 由 deny_patterns 仍拦危险命令)
-_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs", "lint_code", "db_run", "read_pdf", "read_office", "data_table", "backup_list", "template_list", "template_get", "secret_list", "secret_get", "snippet_list", "snippet_get", "note_list", "note_get", "todo_list"}
-_WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo", "format_code", "make_doc", "backup_create", "backup_rollback", "backup_delete", "template_save", "template_delete", "secret_set", "secret_delete", "snippet_save", "snippet_delete", "note_save", "note_delete", "todo_add", "todo_done", "todo_delete"}
-_EXEC_TOOLS = {"run_command", "auto_test", "git_commit", "run_server"}
+_READONLY_TOOLS = {"read_file", "list_dir", "glob", "grep", "diff_view", "repo_map", "symbol_search", "review_code", "semantic_search", "impact_analysis", "compare_options", "generate_project_docs", "lint_code", "db_run", "read_pdf", "read_office", "data_table", "backup_list", "template_list", "template_get", "secret_list", "secret_get", "snippet_list", "snippet_get", "note_list", "note_get", "todo_list", "translate", "summarize", "pdf_extract", "data_analysis", "db_query", "deep_review", "clipboard", "code_metrics", "text_compare", "db_schema_doc", "form_validate", "code_search_semantic", "webhook_sign", "db_diff", "code_search_ast", "json_query", "env_check", "webhook_verify", "sql_format", "csv_diff", "json_schema_validate", "release_tag", "log_tail", "password_generate", "sql_explain", "csv_to_json", "hash_file", "cron_parse", "text_diff", "yaml_query", "sql_lint", "json_schema_gen", "cron_next_n", "diff_patch", "yaml_merge", "hash_verify", "secret_audit", "dep_check", "license_check", "perm_diff", "xml_query", "toml_query", "xml_to_json", "toml_to_json", "json_patch", "sbom_gen", "dep_graph", "yaml_to_json", "json_to_yaml", "xml_to_csv", "toml_to_yaml", "license_compat", "dep_outdated", "file_classify", "json_pointer", "csv_to_xml", "yaml_to_toml", "ini_query", "ini_to_json", "license_list", "json_to_xml", "csv_to_yaml", "yaml_to_ini", "toml_to_xml", "json_schema_compile", "xml_to_yaml", "json_schema_docs", "json_schema_lint", "json_to_ini", "csv_to_ini", "xml_to_toml", "yaml_to_xml", "json_schema_to_ts", "ini_to_yaml", "json_to_toml", "xml_to_ini", "toml_to_ini", "csv_to_toml", "json_schema_to_python", "yaml_to_csv", "ini_to_xml", "toml_to_csv"}
+_WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "insert_at", "replace_in_files", "undo", "format_code", "make_doc", "backup_create", "backup_rollback", "backup_delete", "template_save", "template_delete", "secret_set", "secret_delete", "snippet_save", "snippet_delete", "note_save", "note_delete", "todo_add", "todo_done", "todo_delete",
+    "git_checkout", "git_stash", "git_pr_draft", "image_generate", "tts", "transcribe", "video_generate", "make_ppt", "make_xlsx", "make_pdf", "schedule_task", "notify", "mindmap", "markdown_to_docx",
+    "diagram", "chart", "email_compose", "calendar_event", "knowledge_search", "pdf_make",
+    "formatter", "screenshot", "csv_convert", "agent_team", "db_migrate",
+    "pdf_merge", "pdf_split", "form_to_pdf", "agent_team_run", "pdf_redact", "release_notes", "template_render",     "changelog_update", "csv_merge", "json_to_csv", "json_to_sql", "secret_mask"}
+_EXEC_TOOLS = {"run_command", "auto_test", "git_commit", "run_server", "http_request", "webhook_send", "webhook_emit", "api_test",
+    "flow_runner", "local_llm_route", "webhook_dispatch"}
 
 
 # —— 全球领先破坏性操作护栏 (批次7) ——
@@ -574,7 +1430,8 @@ class Registry:
         if mode == "plan":
             if name in _READONLY_TOOLS:
                 return True, ""
-            return False, f"当前为「计划模式」, 禁止 {name} (只读探查工具可用: read/list/grep/glob/diff_view)。"
+            return False, (f"当前为「计划模式」, 禁止 {name} "
+                           f"(只读工具可用, 如 read_file / list_dir / grep / glob / diff_view)。")
         if mode == "acceptEdits":
             if name in _READONLY_TOOLS or name in _WRITE_TOOLS:
                 return True, ""

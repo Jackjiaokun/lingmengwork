@@ -1062,6 +1062,9 @@ _SETTINGS_SCHEMA = [
          "label": "写操作审计日志", "restart": True},
         {"key": "agent.security.read_project_docs", "section": "agent.security", "type": "bool",
          "label": "启动读取项目文档(CLAUDE.md 等)", "restart": True},
+        {"key": "agent.permission_mode", "section": "agent", "type": "string",
+         "options": ["bypassPermissions", "plan", "acceptEdits"], "label": "默认权限模式", "restart": False,
+         "desc": "完全访问=所有工具可用; 计划模式=仅只读探查(写/执行被拒); 自动接受编辑=可写但禁 run_command。单次请求仍可用 body.mode 覆盖。"},
         {"key": "agent.security.dangerously_run_commands", "section": "agent.security", "type": "bool",
          "label": "允许危险命令(关闭拦截)", "restart": True},
     ]},
@@ -4030,7 +4033,8 @@ class Handler(SimpleHTTPRequestHandler):
                        "不要重复已做过的调用, 直接朝着最终结论或交付物推进, 直到真正完成。")
         history = body.get("history") or []
         backend_override = body.get("backend") or None
-        mode = body.get("mode") or "bypassPermissions"  # plan | acceptEdits | bypassPermissions
+        # 权限模式 mode 在下方 cfg 就绪后再计算 —— 以便回落到 config 的 agent.permission_mode
+        # (plan | acceptEdits | bypassPermissions)
         # 主题 F — 专家/技能 提示词增强: 本轮激活的条目(名称列表, 可空)
         req_experts = body.get("experts") or []
         req_skills = body.get("skills") or []
@@ -4039,6 +4043,12 @@ class Handler(SimpleHTTPRequestHandler):
         # 尊重 config.toml 的 backend 配置 (本地 Ollama / 云端 / mock 均支持)
         backend = backend_override or cfg["llm"].get("backend", "ollama")
         client = build_client(backend, cfg=cfg)
+        # 权限模式: 单次请求 body.mode 优先; 未指定则回落到 config 的 agent.permission_mode
+        # (设置中心可改, 让"权限预设"真实生效)。三选一:
+        #   bypassPermissions 完全访问(所有工具)
+        #   plan              计划模式(仅只读探查, 写/执行被拒)
+        #   acceptEdits       自动接受编辑(可写, 禁 run_command)
+        mode = body.get("mode") or (cfg["agent"].get("permission_mode") or "bypassPermissions")
         registry = build_registry(cfg, permission_mode=mode)
 
         # 主题 F — 合并「库默认激活项」与「本轮用户选择」, 去重后注入系统提示

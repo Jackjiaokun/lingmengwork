@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -60,8 +60,12 @@
     border-radius:12px;padding:18px;color:#bfe;font-size:12px}
   @media(max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:88px 70px 1fr}.row .c-src,.row .c-kind{display:none}}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <div class="wrap">
   <div class="head">
     <div class="brand">🛡️ 操作审计</div>
@@ -128,8 +132,7 @@ function render(rows){
     el.onclick = ()=>showData(rows.find(r=>r.id==el.dataset.id));
   });
 }
-function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
+function esc(s){ return LMW.esc(s); }
 function showData(ev){
   document.getElementById('popData').textContent = JSON.stringify(ev, null, 2);
   document.getElementById('pop').classList.add('show');
@@ -165,5 +168,7 @@ setInterval(load, 4000);
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

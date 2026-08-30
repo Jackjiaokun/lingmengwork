@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -45,8 +45,12 @@
   .toast.show{opacity:1}
   .empty{color:var(--mut);text-align:center;padding:30px 0}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
   <header>
     <a class="btn ghost" href="/">← 返回面板</a>
     <h1>📐 计划<span class="ac">书</span> · 任务清单</h1>
@@ -67,9 +71,9 @@
   <div class="toast" id="toast"></div>
 
 <script>
-const $=(s)=>document.querySelector(s);
-function toast(m,ok=true){const t=$("#toast");t.textContent=m;t.style.borderColor=ok?"var(--ok)":"var(--fail)";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
-async function api(u,o){const r=await fetch(u,o);const d=await r.json().catch(()=>({error:"解析失败"}));if(d.error)throw new Error(d.error);return d;}
+const $ = LMW.$;
+function toast(m, ok){ return LMW.toast(m, ok); }
+async function api(u, o){ return LMW.api(u, o); }
 let cur=null;
 async function loadList(){
   const d=await api("/api/plans"); const box=$("#plist"); box.innerHTML="";
@@ -80,7 +84,7 @@ async function loadList(){
     c.onclick=()=>openPlan(p.id); box.appendChild(c);
   });
 }
-function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function esc(s){ return LMW.esc(s); }
 async function openPlan(id){
   const d=await api("/api/plans"); const p=(d.plans||[]).find(x=>x.id===id); if(!p)return;
   const full=await fetch("/api/plans?id="+id).then(r=>r.json());
@@ -112,5 +116,7 @@ loadList();
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

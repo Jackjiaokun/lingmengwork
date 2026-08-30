@@ -98,6 +98,11 @@ class PluginHub:
     def __init__(self):
         self.connectors = OrderedDict()
         self.experts = OrderedDict()
+        # 用户手动停用的连接器名集合(仿 DSH 式"插件启停")。
+        # 与 Connector.check() 的 env 自动降级是相互独立的两层:
+        #   available = 环境是否具备(缺 key 自动降级)
+        #   enabled   = 用户是否启用(手动开关, 持久化在 config [plugins].disabled)
+        self.disabled = set()
 
     # ---------------------------------------------------------------- 注册
     def register_connector(self, name, **kwargs):
@@ -114,6 +119,24 @@ class PluginHub:
               e.to_dict())
         return e
 
+    # ---------------------------------------------------------------- 启停(仿 DSH 插件开关)
+    def set_disabled(self, names):
+        """按名字集合整批设置停用(由 server 从 config [plugins].disabled 同步)。
+
+        只保留当前已注册的连接器名 —— 避免 config 里的历史残名让集合无限膨胀。
+        """
+        want = set(n for n in (names or []) if isinstance(n, str))
+        self.disabled = set(n for n in want if n in self.connectors)
+        return sorted(self.disabled)
+
+    def set_enabled(self, name, enabled=True):
+        """启用/停用单个连接器; 返回最终的 enabled 状态。"""
+        if enabled:
+            self.disabled.discard(name)
+        else:
+            self.disabled.add(name)
+        return name not in self.disabled
+
     # ---------------------------------------------------------------- 查询
     def list_connectors(self, category=None, available_only=False):
         out = []
@@ -123,6 +146,8 @@ class PluginHub:
                 continue
             if available_only and not d["available"]:
                 continue
+            # enabled = 用户是否启用(与 available 的环境判定相互独立)
+            d["enabled"] = (c.name not in self.disabled)
             out.append(d)
         return out
 
@@ -216,19 +241,28 @@ class PluginHub:
         - connectors → 注入 superagent._plugin_connectors, execute 阶段可按名调用
         """
         wired = {"experts": [], "connectors": [], "downgraded": []}
+        disabled_seen = []
         for name, e in self.experts.items():
             hint = e.domain
             if hint:
                 wired["experts"].append({"name": name, "domain": hint})
         for name, c in self.connectors.items():
+            if name in self.disabled:   # 用户手动停用 -> 不参与接入
+                disabled_seen.append({"name": name})
+                continue
             chk = c.check()
             if chk["available"]:
                 wired["connectors"].append(c.to_dict())
             else:
                 wired["downgraded"].append({"name": name, "missing_env": chk["missing_env"]})
+        # 仅当真有停用项时才附加这个键 —— 保持 wire() 返回结构向后兼容
+        # (否则会让依赖 wired 既有键集合的下游断言失败)
+        if disabled_seen:
+            wired["disabled"] = disabled_seen
         if hasattr(superagent, "plugin_connectors"):
             superagent.plugin_connectors = {
-                n: c for n, c in self.connectors.items() if c.check()["available"]}
+                n: c for n, c in self.connectors.items()
+                if c.check()["available"] and n not in self.disabled}
         _emit("plugin", "wire", "插件接入超级 AGENT: experts %d / connectors %d / 降级 %d"
               % (len(wired["experts"]), len(wired["connectors"]), len(wired["downgraded"])),
               wired, audit=True)

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -71,8 +71,12 @@
     box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;transition:opacity .2s ease;pointer-events:none;z-index:80}
   .toast.show{opacity:1}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <header>
   <a class="btn ghost" href="/">← 返回面板</a>
   <h1>📝 <span class="ac">笔记</span></h1>
@@ -114,10 +118,10 @@
 const $ = (s, r=document) => r.querySelector(s);
 let editingId = null;
 
-function esc(s){ return (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+function esc(s){ return LMW.esc(s); }
 function showResult(msg, ok){ const el=$("#result"); el.textContent=msg; el.className=ok?"ok":"err"; }
 function clearResult(){ $("#result").className=""; $("#result").textContent=""; }
-function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1600); }
+function toast(m, ok){ return LMW.toast(m, ok); }
 async function copyText(txt){ try{ await navigator.clipboard.writeText(txt); toast("已复制笔记正文"); }catch{ toast("复制失败"); } }
 
 async function loadList(){
@@ -197,5 +201,7 @@ loadList();
   <script src="/static/subnav.js"></script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

@@ -131,6 +131,7 @@
   .obs-nav button:hover{color:var(--txt)}
   .obs-nav button.on{color:var(--txt);background:var(--card);border-color:var(--line)}
 </style>
+  <script src="/static/common.js"></script>
 </head>
 <body>
 <header>
@@ -230,12 +231,10 @@
 <script>
 const API_STATS = "/api/stats";
 const API_HEALTH = "/api/health/full";
-const $ = (s)=>document.querySelector(s);
-
+const $ = LMW.$;
 function statusColor(s){return s==="ok"?"var(--ok)":s==="warn"?"var(--warn)":s==="fail"?"var(--fail)":"var(--mut)";}
-function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-function fmtTime(ts){if(!ts)return "—";try{return new Date(ts*1000).toLocaleTimeString();}catch(e){return "—";}}
-
+function esc(s){ return LMW.esc(s); }
+function fmtTime(ts){ return LMW.fmtTime(ts); }
 async function loadAll(){
   try{
     const [stats, health] = await Promise.all([
@@ -468,5 +467,6 @@ function showObsTab(t){
 
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -53,8 +53,12 @@
   .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   @media(max-width:760px){.grid,.split,.kpis{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <div class="wrap">
   <h1>🧠 长期记忆图谱</h1>
   <p class="sub">Phase 26 · 实体-关系知识图谱：任务沉淀（决策/约定/故障/接口/项目）→ 跨会话召回 → 注入历史经验。隐私优先，真密钥永不入图。</p>
@@ -99,7 +103,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
+function toast(m, ok){ return LMW.toast(m, ok); }
 const TYPE_LABEL={project:"项目",decision:"决策",api:"接口",bug:"故障",convention:"约定",fact:"事实"};
 
 async function refresh(){
@@ -125,8 +129,7 @@ async function refresh(){
     }).join("") : '<div class="muted">暂无关系。</div>';
   }catch(e){ /* 静默 */ }
 }
-function esc(s){return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-
+function esc(s){ return LMW.esc(s); }
 $("absorbBtn").onclick=async()=>{
   const goal=$("absorbGoal").value.trim();const result=$("absorbResult").value.trim();
   if(!goal&&!result){toast("请填写目标或结果");return;}
@@ -156,5 +159,7 @@ setInterval(refresh,8000);
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

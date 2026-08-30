@@ -140,6 +140,52 @@
   .guard{border-left:3px solid var(--warn);background:rgba(251,191,36,.08);padding:8px 12px;
     border-radius:0 8px 8px 0;margin:6px 0;font-size:12.5px;color:var(--warn)}
 
+  /* ---------- Phase 80: 右侧产物预览容器 ---------- */
+  .preview-dock{display:none;flex:0 0 480px;width:480px;flex-direction:column;height:100vh;
+    position:sticky;top:0;background:var(--panel);border-left:1px solid var(--bd);
+    backdrop-filter:blur(12px);overflow:hidden}
+  .preview-dock.open{display:flex}
+  .pd-tabs{display:flex;gap:4px;padding:6px 8px 0;overflow-x:auto;flex:0 0 auto;
+    border-bottom:1px solid var(--bd);background:rgba(9,12,22,.35)}
+  .pd-tab{display:flex;align-items:center;gap:5px;max-width:170px;padding:5px 9px;
+    border:1px solid var(--bd);border-bottom:none;border-radius:8px 8px 0 0;
+    background:var(--bg0);color:var(--sub);font-size:11.5px;cursor:pointer;white-space:nowrap}
+  .pd-tab.active{background:var(--panel2);color:var(--tx);border-color:var(--accent2)}
+  .pd-tab-ico{flex:0 0 auto;font-size:12px;line-height:1}
+  .pd-tab-name{overflow:hidden;text-overflow:ellipsis}
+  .pd-tab-x{margin-left:2px;opacity:.55;font-size:10px;flex:0 0 auto}
+  .pd-tab-x:hover{opacity:1;color:#ff6b6b}
+  .pd-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:10px 12px;border-bottom:1px solid var(--bd);background:rgba(9,12,22,.5);flex:0 0 auto}
+  .pd-title{display:flex;align-items:center;gap:8px;min-width:0}
+  .pd-title b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pd-badge{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--panel2);
+    color:var(--accent2);border:1px solid var(--bd);white-space:nowrap;flex:0 0 auto}
+  .pd-actions{display:flex;gap:4px;flex:0 0 auto}
+  .pd-actions button{background:transparent;border:1px solid var(--bd);color:var(--sub);
+    border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:13px;line-height:1}
+  .pd-actions button:hover{color:var(--tx);background:var(--panel2)}
+  .pd-body{flex:1;min-height:0;overflow:auto;position:relative;background:var(--bg0)}
+  .pd-empty{color:var(--mut);font-size:12.5px;padding:28px 24px;text-align:center;line-height:1.8}
+  .pd-body iframe{width:100%;height:100%;min-height:480px;border:none;background:#fff}
+  .pd-body img{max-width:100%;display:block;margin:0 auto;background:#fff}
+  .pd-body pre{margin:0;padding:14px;font:12.5px/1.6 ui-monospace,Menlo,Consolas,monospace;
+    white-space:pre-wrap;word-break:break-word;color:var(--tx)}
+  .pd-body .md{padding:16px 20px;color:var(--tx);font-size:13px;line-height:1.7}
+  .pd-body .md h1,.pd-body .md h2,.pd-body .md h3{margin:14px 0 8px;line-height:1.3;color:var(--tx)}
+  .pd-body .md h1{font-size:19px}.pd-body .md h2{font-size:16px}.pd-body .md h3{font-size:14px}
+  .pd-body .md code{background:var(--bg2);padding:1px 5px;border-radius:5px;font-family:ui-monospace,monospace;font-size:12px}
+  .pd-body .md pre{background:var(--bg2);border-radius:10px;padding:12px;margin:8px 0;overflow:auto;color:var(--tx)}
+  .pd-body .md pre code{background:none;padding:0}
+  .pd-body .md a{color:var(--accent2)}
+  .pd-body .md ul,.pd-body .md ol{margin:8px 0;padding-left:22px}
+  .pd-fab{position:fixed;right:14px;bottom:18px;z-index:60;display:none;
+    padding:9px 15px;border-radius:999px;border:1px solid var(--bd);
+    background:var(--grad);color:#fff;font:600 12.5px/1 inherit;cursor:pointer;
+    box-shadow:0 6px 22px rgba(139,92,246,.45)}
+  .pd-fab.show{display:block}
+  .preview-dock.open + .pd-fab{display:none}
+
   /* 结果区二级标签 */
   .rtabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--bd);margin-bottom:14px}
   .rtab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--mut);
@@ -155,6 +201,7 @@
   ::-webkit-scrollbar-thumb:hover{background:rgba(140,150,210,.36)}
   ::-webkit-scrollbar-track{background:transparent}
 </style>
+  <script src="/static/common.js"></script>
 </head>
 <body>
 
@@ -180,17 +227,30 @@
   </div>
 </aside>
 <main class="sb-main">
-<section id="tab-orch" class="tabpane">
+  <section id="tab-orch" class="tabpane">
   <header class="pane-head"><h2>编排</h2><p>一句话目标 → 多智能体并行 → 产物交付。点击历史条目回看详情; 导出 / 回放 / 批注都在结果区。</p></header>
-  
+
+  <div class="trae-search" id="traeSearch" role="button" tabindex="0" title="按 Ctrl/Cmd+K 唤起命令面板" onclick="LMW.cmd&amp;&amp;LMW.cmd.open()">
+    <span>🔍</span>
+    <span class="ph">搜索页面或执行命令…</span>
+    <span class="kbd">⌘ K</span>
+  </div>
+
   <div class="grid">
     <div class="card">
       <h3><span class="dot"></span>目标入口</h3>
-      <textarea id="goalInput" placeholder="输入一个模糊目标, 如: 做段产品介绍视频并写发布文案、准备上线部署"></textarea>
-      <div class="row">
-        <button id="runBtn" onclick="runSuper()">🚀 启动超级 AGENT 编排</button>
-        
-        <span class="muted" id="elapsed"></span>
+      <div class="trae-compose">
+        <div class="trae-compose-toolbar">
+          <button class="trae-tool" type="button" title="选择 prompt 模板 / 插入参考">＋</button>
+          <button class="trae-tool" type="button" title="权限模式">🔓 Full access ▾</button>
+          <div class="trae-spacer"></div>
+          <button class="trae-tool" type="button" id="modelPickBtn" title="切换 LLM 后端">🧠 SenseNova-6.8-Flash-Lite ▾</button>
+        </div>
+        <textarea id="goalInput" placeholder="输入一个模糊目标, 如: 做段产品介绍视频并写发布文案、准备上线部署"></textarea>
+        <div class="trae-compose-actions">
+          <span class="muted" id="elapsed"></span>
+          <button id="runBtn" class="trae-send" type="button" title="启动超级 AGENT 编排" onclick="runSuper()">↑</button>
+        </div>
       </div>
       <p class="muted" style="margin-top:10px">内核自动: ① 用 LLM(可选)抽取意图/域/约束 ② 联邦路由到 1..N 伙伴并行派发 ③ 三级护栏收敛 ④ 系统自检质量门 ⑤ 结论沉淀进记忆图谱。</p>
     </div>
@@ -472,16 +532,30 @@
     <div class="card">
       <h3><span class="dot"></span>📦 产物中心 <span class="muted" style="font-size:11px;font-weight:400">outputs/superagent/</span><button class="btn2" style="padding:2px 10px;font-size:11px;margin-left:8px" onclick="archiveArtifacts()">🗜️ 归档30天前产物</button></h3>
       <div id="artList"><span class="muted">加载中…</span></div>
-      <pre id="artPreview" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
     </div>
   </div>
   </section>
 </main>
 
+<!-- ===== Phase 80: 右侧产物预览容器 (仿 Cursor/Claude/v0/Devin 右栏) ===== -->
+<aside class="preview-dock" id="previewDock" aria-hidden="true">
+  <header class="pd-head">
+    <div class="pd-title"><span id="pdType" class="pd-badge">预览</span><b id="pdName">产物预览</b></div>
+    <div class="pd-actions">
+      <button id="pdNew" title="新窗口打开">⧉</button>
+      <button id="pdClose" title="关闭">✕</button>
+    </div>
+  </header>
+  <div class="pd-tabs" id="pdTabs"></div>
+  <div class="pd-body" id="pdBody">
+    <div class="pd-empty">点击任意「预览」按钮，在此实时查看产物。<br>支持 HTML 渲染 · 图片 · Markdown · 代码/文本。</div>
+  </div>
+</aside>
+<button class="pd-fab show" id="pdFab" title="产物预览">👁 预览</button>
+
 <script>
 let lastRuns = [];
-function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
-
+function esc(s){ return LMW.esc(s); }
 // Phase 38: SSE 流式编排 — 每阶段完成即实时上屏, done 后渲染完整结果
 async function runSuper(){
   const goal = document.getElementById("goalInput").value.trim();
@@ -756,8 +830,21 @@ function renderResult(j){
     const name = (a||"").split(/[\\/]/).pop();
     const ext = (name.split(".").pop()||"").toLowerCase();
     const label = {py:"python",js:"javascript",sh:"bash",json:"json",md:"markdown"}[ext]||ext;
-    return '<span class="exchip"><span class="fn">'+esc(name)+'</span><span class="ft">'+esc(label)+'</span></span>';
+    const p = esc(a).replace(/"/g,"&quot;"); // data-prev 属性内安全转义
+    return '<span class="exchip" data-prev="'+p+'" style="cursor:pointer" title="点击在右侧预览"><span class="fn">'+esc(name)+'</span><span class="ft">'+esc(label)+'</span></span>';
   }
+  // Phase 80: 委托点击 [data-prev] -> 右侧预览容器
+  document.addEventListener("click", function(ev){
+    var t = ev.target;
+    while(t && t !== document){
+      if(t.getAttribute && t.getAttribute("data-prev")){
+        ev.preventDefault();
+        if(window.LMWW && LMWW.preview) LMWW.preview({path: t.getAttribute("data-prev")});
+        return;
+      }
+      t = t.parentNode;
+    }
+  });
   if(!exs.length){
     document.getElementById("execBox").innerHTML = '<span class="muted">无执行产物</span>';
   }else{
@@ -1264,7 +1351,11 @@ async function archiveArtifacts(){
 }
 
 async function previewArtifact(path){
+  // Phase 80: 路由到右侧预览容器 (dock)
+  if(window.LMWW && LMWW.preview){ LMWW.preview({path:path}); return; }
+  // 兜底: 旧文本框
   const box = document.getElementById("artPreview");
+  if(!box) return;
   try{
     const j = await (await fetch("/api/superagent/artifacts/file?mode=preview&path="+encodeURIComponent(path))).json();
     if(!j.ok){ alert("预览失败: "+(j.error||"未知")); return; }
@@ -1606,8 +1697,7 @@ loadAllAnnos();
 loadQualityAuto();
 loadBudget();
 setInterval(loadRuns, 5000);
-setInterval(loadSchedules, 15000);
-</script>
+  setInterval(loadSchedules, 15000);
   
 
 // ---- UI v2: 功能分组页签 ----
@@ -1638,9 +1728,10 @@ function showTab(t){
 })();
 
 </script>
-  
-</script>
+
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+  <script src="/static/preview.js?v=81"></script>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

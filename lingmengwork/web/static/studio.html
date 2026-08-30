@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -59,8 +59,12 @@
   .md-sp{height:6px}
   .status{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <div class="wrap">
   <header>
     <h1>统一创作工作台</h1>
@@ -90,12 +94,11 @@
 </div>
 
 <script>
-const $ = (s) => document.querySelector(s);
+const $ = LMW.$;
 const DOM = { domain: "code" };
 let lastRes = null, lastBrief = "";
 
-function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
+function esc(s){ return LMW.esc(s); }
 async function loadDomains(){
   try{
     const r = await fetch("/api/creation/domains");
@@ -202,5 +205,7 @@ loadDomains();
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

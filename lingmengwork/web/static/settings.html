@@ -1,172 +1,422 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>⚙️ 设置中心 · 灵梦work</title>
+<link rel="stylesheet" href="/static/ds.css">
 <style>
-  :root{
-    --bg:#070a14; --card:rgba(20,27,48,.62); --card2:#1a2238; --line:rgba(126,146,210,.16);
-    --txt:#e9edf8; --mut:#828caa; --acc:#7c5cff; --ok:#34e0a1; --fail:#ff5c7c;
-    --warn:#ffb454; --brand2:#4dd0e1;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5;
-    background:
-      radial-gradient(1100px 700px at 10% -10%, rgba(124,92,255,.14), transparent 60%),
-      radial-gradient(900px 700px at 100% 0%, rgba(77,208,225,.10), transparent 55%),
-      var(--bg);
-    background-attachment:fixed}
-  header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
-    background:rgba(14,20,36,.7);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);position:relative}
-  header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
-    background:linear-gradient(90deg,transparent,rgba(124,92,255,.6),transparent)}
-  header h1{margin:0;font-size:18px}
-  header .path{color:var(--mut);font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .tabs{padding:10px 20px 0;display:flex;gap:8px}
-  .tab{background:var(--card);border:1px solid var(--line);border-bottom:none;color:var(--mut);padding:8px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-size:13px}
-  .tab.active{color:var(--txt);background:var(--card2)}
-  main{padding:16px 20px 40px;max-width:920px;margin:0 auto}
-  .view{display:none}
-  .view.active{display:block}
-  .grp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
-  .grp h3{margin:0 0 10px;font-size:13px;color:var(--acc);letter-spacing:.5px}
-  .fld{display:flex;align-items:flex-start;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}
-  .fld:last-child{border-bottom:none}
-  .lbl{flex:0 0 220px;color:var(--txt);font-size:13px;display:flex;align-items:center;gap:6px;padding-top:4px}
-  .ctl{flex:1;display:flex}
-  .ctl input[type=text],.ctl input[type=number],.ctl select,.ctl textarea{
-    background:var(--card2);border:1px solid var(--line);color:var(--txt);
-    border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;width:100%}
-  .ctl textarea{resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:12px}
-  .restag{background:rgba(210,153,34,.15);color:var(--warn);border:1px solid var(--warn);border-radius:6px;font-size:10px;padding:1px 6px;font-weight:600;white-space:nowrap}
-  .sw{position:relative;display:inline-block;width:42px;height:24px}
-  .sw input{opacity:0;width:0;height:0}
-  .sw span{position:absolute;inset:0;background:var(--card2);border:1px solid var(--line);border-radius:24px;transition:.2s}
-  .sw span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:2px;background:var(--mut);border-radius:50%;transition:.2s}
-  .sw input:checked+span{background:rgba(63,185,80,.3);border-color:var(--ok)}
-  .sw input:checked+span:before{transform:translateX(18px);background:var(--ok)}
-  .actions{display:flex;gap:10px;margin:6px 0 14px}
-  button{background:linear-gradient(135deg,#7c5cff,#5b8bff);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(124,92,255,.3);transition:transform .14s ease,filter .2s ease}
-  button.ghost{background:transparent;color:var(--mut);border:1px solid var(--line)}
-  button:hover{filter:brightness(1.08)}
-  .result{margin:10px 0;padding:10px 14px;border-radius:8px;font-size:13px;display:none}
-  .result.ok{display:block;background:rgba(63,185,80,.12);color:var(--ok);border:1px solid rgba(63,185,80,.4)}
-  .result.err{display:block;background:rgba(248,81,73,.12);color:var(--fail);border:1px solid rgba(248,81,73,.4)}
-  textarea#raw{width:100%;min-height:460px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical}
-  .hint{color:var(--mut);font-size:12px;margin:4px 0 12px}
-  .badge{display:inline-block;background:var(--card2);border:1px solid var(--line);color:var(--mut);border-radius:6px;padding:2px 8px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+/* Phase 85 · 设置中心 dsh 化: 左栏分组导航 + 右主区多 section 堆叠, 控件贴右 */
+.lmw-set-app{display:flex;flex-direction:column;height:100vh;background:var(--bg0)}
+.lmw-set-bar{padding:14px 22px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:14px;background:rgba(9,12,22,.65);backdrop-filter:blur(14px);position:relative;flex:0 0 auto}
+.lmw-set-bar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.55}
+.lmw-set-bar h1{margin:0;font-size:16px;font-weight:700;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lmw-set-bar .ver{color:var(--mut);font-size:11.5px;background:var(--panel2);border:1px solid var(--bd);padding:2px 8px;border-radius:6px;font-family:ui-monospace,Menlo,monospace}
+.lmw-set-bar .spacer{flex:1}
+.lmw-set-bar .barbtn{background:var(--panel2);border:1px solid var(--bd2);color:var(--sub);border-radius:var(--r-md);padding:6px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.lmw-set-bar .barbtn:hover{color:var(--tx);background:var(--panel);border-color:var(--bd2)}
+.lmw-set-bar .close{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:transparent;border:none;color:var(--mut);font-size:20px;cursor:pointer;line-height:1;padding:0}
+.lmw-set-bar .close:hover{color:var(--tx);background:var(--panel2)}
+
+.lmw-set-body{flex:1;display:flex;min-height:0;overflow:hidden}
+.lmw-set-nav{width:208px;flex:0 0 208px;padding:18px 10px;background:rgba(9,12,22,.5);border-right:1px solid var(--bd);overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.lmw-set-nav .nitem{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:var(--r-md);color:var(--sub);font-size:13px;cursor:pointer;border:none;background:transparent;text-align:left;width:100%;font-family:inherit;transition:.12s}
+.lmw-set-nav .nitem:hover{background:var(--panel2);color:var(--tx)}
+.lmw-set-nav .nitem.on{background:var(--panel2);color:var(--tx);box-shadow:inset 2px 0 0 var(--grad)}
+.lmw-set-nav .nitem .ico{width:18px;text-align:center;font-size:14px}
+
+.lmw-set-main{flex:1;min-width:0;overflow-y:auto;padding:24px 32px 60px;max-width:780px;width:100%}
+.lmw-set-main .grp-h{margin:4px 0 6px;font-size:11px;color:var(--mut);letter-spacing:.8px;text-transform:uppercase;font-weight:700}
+.lmw-set-main .grp-sub{color:var(--mut);font-size:12.5px;margin:0 0 10px;line-height:1.55}
+
+.lmw-set-section{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:15px 0;border-bottom:1px solid var(--bd)}
+.lmw-set-section:last-child{border-bottom:none}
+.lmw-set-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.lmw-set-info .title{color:var(--tx);font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px}
+.lmw-set-info .desc{color:var(--mut);font-size:12px;line-height:1.5}
+.lmw-set-ctl{flex:0 0 auto;min-width:200px;display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.lmw-set-ctl select,.lmw-set-ctl input[type=text],.lmw-set-ctl input[type=number]{background:var(--bg1);border:1px solid var(--bd2);color:var(--tx);border-radius:var(--r-md);padding:7px 10px;font-size:13px;font-family:inherit;min-width:180px}
+.lmw-set-ctl textarea{resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:280px;min-height:64px;width:100%;background:var(--bg1);border:1px solid var(--bd2);color:var(--tx);border-radius:var(--r-md);padding:10px}
+.lmw-set-ctl .sw{position:relative;display:inline-block;width:42px;height:24px;flex:0 0 auto}
+.lmw-set-ctl .sw input{opacity:0;width:0;height:0}
+.lmw-set-ctl .sw span{position:absolute;inset:0;background:var(--bg1);border:1px solid var(--bd2);border-radius:24px;transition:.2s}
+.lmw-set-ctl .sw span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:2px;background:var(--mut);border-radius:50%;transition:.2s}
+.lmw-set-ctl .sw input:checked+span{background:rgba(63,185,80,.3);border-color:var(--good)}
+.lmw-set-ctl .sw input:checked+span:before{transform:translateX(18px);background:var(--good)}
+.restag{background:rgba(251,191,36,.15);color:var(--warn);border:1px solid rgba(251,191,36,.4);border-radius:6px;font-size:10px;padding:1px 6px;font-weight:600;white-space:nowrap}
+
+/* 三选卡片 (外观主题等) */
+.lmw-choose{display:flex;gap:8px}
+.lmw-choose .citem{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;background:var(--bg1);border:1px solid var(--bd2);border-radius:var(--r-md);color:var(--sub);cursor:pointer;font-family:inherit;font-size:12px;transition:.15s;min-width:64px}
+.lmw-choose .citem:hover{color:var(--tx);border-color:var(--bd2);background:var(--panel2)}
+.lmw-choose .citem.on{color:var(--tx);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 18px rgba(139,92,246,.22);background:var(--panel2)}
+.lmw-choose .citem .ci{font-size:18px;line-height:1}
+
+.lmw-set-actions{margin:22px 0 0;display:flex;gap:10px;align-items:center}
+.lmw-set-actions button{padding:8px 18px;border-radius:var(--r-md);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid var(--bd2);background:var(--panel2);color:var(--tx)}
+.lmw-set-actions button:hover{background:var(--panel);color:var(--tx)}
+.lmw-set-actions .primary{background:var(--grad);color:#fff;border:none;box-shadow:0 4px 16px rgba(139,92,246,.32)}
+.lmw-set-actions .primary:hover{filter:brightness(1.1)}
+.lmw-set-actions .ghost{background:transparent;color:var(--sub)}
+.lmw-set-actions .ghost:hover{color:var(--tx);background:var(--panel2)}
+
+.lmw-set-result{margin:10px 0;padding:9px 14px;border-radius:var(--r-md);font-size:12.5px;display:none}
+.lmw-set-result.ok{display:block;background:rgba(52,211,153,.1);color:var(--good);border:1px solid rgba(52,211,153,.4)}
+.lmw-set-result.err{display:block;background:rgba(248,113,113,.1);color:var(--bad);border:1px solid rgba(248,113,113,.4)}
+
+/* 原始 TOML 视图 */
+.lmw-raw-view{display:none;padding:24px 32px;max-width:920px;width:100%;overflow-y:auto}
+.lmw-raw-view.on{display:block}
+.lmw-raw-view textarea{width:100%;min-height:480px;background:var(--bg1);color:var(--tx);border:1px solid var(--bd);border-radius:var(--r-md);padding:14px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.6;resize:vertical}
+.lmw-raw-view .hint{color:var(--mut);font-size:12.5px;margin:0 0 12px;line-height:1.55}
+
+@media (max-width: 720px){
+  .lmw-set-body{flex-direction:column}
+  .lmw-set-nav{width:100%;flex:0 0 auto;max-height:160px;flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:10px}
+  .lmw-set-nav .nitem{flex:0 0 auto}
+  .lmw-set-main,.lmw-raw-view{padding:18px 16px}
+}
 </style>
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
-<header>
-  <h1>⚙️ 设置中心</h1>
-  <span class="path" id="path">…</span>
-  <span class="badge" id="ver"></span>
-</header>
-  <div id="sibnav"></div>
-
-<div class="tabs">
-  <div class="tab active" data-view="form" onclick="switchTab('form')">表单视图</div>
-  <div class="tab" data-view="raw" onclick="switchTab('raw')">高级 · 原始 TOML</div>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
+<div class="lmw-set-app">
+  <div class="lmw-set-bar">
+    <h1>⚙️ 设置中心</h1>
+    <span class="ver" id="ver"></span>
+    <div class="spacer"></div>
+    <button class="barbtn" id="openConfigBtn" onclick="showRaw()" title="直接编辑 config.toml">打开配置文件</button>
+    <button class="close" title="关闭并返回" onclick="location.href='/superagent'">×</button>
+  </div>
+  <div class="lmw-set-body">
+    <nav class="lmw-set-nav" id="nav" aria-label="设置分组"></nav>
+    <div class="lmw-set-main" id="mainView">
+      <div id="form"></div>
+      <div class="lmw-set-actions">
+        <button class="primary" onclick="saveForm()">保存改动</button>
+        <button class="ghost" onclick="load()">重新加载</button>
+      </div>
+      <div class="lmw-set-result" id="result"></div>
+    </div>
+    <div class="lmw-raw-view" id="rawView">
+      <p class="hint">直接编辑 config.toml 原始文本, 保存时校验 TOML 语法。适合修改多路 LLM providers / MCP 服务器列表 / deny_patterns 等数组/嵌套结构, 以及新增尚未纳入表单的段。</p>
+      <textarea id="raw" spellcheck="false"></textarea>
+      <div class="lmw-set-actions">
+        <button class="primary" onclick="saveRaw()">保存原始配置</button>
+        <button class="ghost" onclick="showForm()">← 返回表单视图</button>
+        <button class="ghost" onclick="load()">重新加载</button>
+      </div>
+      <div class="lmw-set-result" id="result2"></div>
+    </div>
+  </div>
 </div>
-<main>
-  <div class="view active" id="formView">
-    <p class="hint">可视化调整常用开关。标量改动即时软重载生效；标「需重启」的项（后端/安全/MCP）保存后需重启面板完全生效。数组类配置（多路 providers、MCP 服务器列表）请切到「原始 TOML」编辑。</p>
-    <div id="form"></div>
-    <div class="actions">
-      <button onclick="saveForm()">保存改动</button>
-      <button class="ghost" onclick="load()">重新加载</button>
-    </div>
-    <div class="result" id="result"></div>
-  </div>
-  <div class="view" id="rawView">
-    <p class="hint">直接编辑 config.toml 原始文本，保存时校验 TOML 语法。适合修改多路 LLM providers、MCP 服务器列表、deny_patterns 等数组/嵌套结构。</p>
-    <textarea id="raw" spellcheck="false"></textarea>
-    <div class="actions">
-      <button onclick="saveRaw()">保存原始配置</button>
-      <button class="ghost" onclick="load()">重新加载</button>
-    </div>
-    <div class="result" id="result2"></div>
-  </div>
-</main>
 <script>
-const $=s=>document.querySelector(s);
-let STATE={schema:[],values:{},raw:""};
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+const $ = LMW.$;
+const esc = LMW.esc;
+let STATE = {schema:[], values:{}, raw:""};
+let ACTIVE_GROUP = 0;
+
 function findField(k){for(const g of STATE.schema)for(const f of g.fields)if(f.key===k)return f;return{};}
+function isThemeKey(k){return k==='ui.theme';}
+
 async function load(){
-  const r=await fetch('/api/settings'); const d=await r.json();
-  STATE.schema=d.schema||[]; STATE.values=d.values||{}; STATE.raw=d.raw||'';
-  $('#path').textContent=d.path||'(内置默认)';
-  $('#ver').textContent='v'+(d.version||'');
+  const r = await fetch('/api/settings');
+  const d = await r.json();
+  STATE.schema = d.schema || [];
+  STATE.values = d.values || {};
+  STATE.raw = d.raw || '';
+  $('#ver').textContent = 'v' + (d.version || '');
+  renderNav();
   renderForm();
-  $('#raw').value=STATE.raw;
+  $('#raw').value = STATE.raw;
   hideResult();
 }
+
+function renderNav(){
+  const nav = $('#nav'); nav.innerHTML = '';
+  const icos = ['🌗','🧠','⚙️','🛡️','🔌','📦','🗂️','🚀','🎛️','🧩'];
+  STATE.schema.forEach((g, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'nitem' + (i === ACTIVE_GROUP ? ' on' : '');
+    b.innerHTML = '<span class="ico">' + (icos[i] || '·') + '</span>' + esc(g.title || '');
+    b.onclick = () => { ACTIVE_GROUP = i; renderNav(); renderForm(); };
+    nav.appendChild(b);
+  });
+}
+
+function groupSub(i){
+  const subs = [
+    '整体主题与界面语言; 主题改完即时生效, 跟随系统按系统深浅色自动切换。',
+    '智能体后端 / 模型 / 温度等基础配置; 改后端需重启。',
+    '循环 / 并发 / 截断 / 缓存 / 压缩 / 配额 / 脱敏等治理参数, 即时软重载。',
+    '破坏性操作护栏与审计; 改后需重启加载安全模块。',
+    'MCP 工具中枢开关, 改后需重启连接。',
+    '自动推送 / 成本预算 / 定时重试, 即时软重载。',
+  ];
+  return subs[i] || '本组配置项, 保存后即时软重载。';
+}
+
 function renderForm(){
-  const wrap=$('#form'); wrap.innerHTML='';
-  for(const g of STATE.schema){
-    const box=document.createElement('div'); box.className='grp';
-    box.innerHTML='<h3>'+esc(g.title)+'</h3>';
-    for(const f of g.fields){
-      const cur=STATE.values[f.key];
-      const row=document.createElement('div'); row.className='fld';
-      let ctrl='';
-      if(f.type==='bool'){
-        ctrl='<label class="sw"><input type="checkbox" data-key="'+f.key+'" '+(cur?'checked':'')+'><span></span></label>';
-      }else if(f.options){
-        ctrl='<select data-key="'+f.key+'">'+f.options.map(o=>'<option value="'+o+'" '+(String(cur)===o?'selected':'')+'>'+o+'</option>').join('')+'</select>';
-      }else if(f.key==='agent.system_prompt'){
-        ctrl='<textarea data-key="'+f.key+'" rows="3">'+esc(cur==null?'':cur)+'</textarea>';
-      }else if(f.type==='int'){
-        ctrl='<input type="number" data-key="'+f.key+'" value="'+(cur==null?'':cur)+'">';
-      }else{
-        ctrl='<input type="text" data-key="'+f.key+'" value="'+esc(cur==null?'':cur)+'">';
-      }
-      row.innerHTML='<label class="lbl">'+esc(f.label)+(f.restart?'<span class="restag">需重启</span>':'')+'</label><div class="ctl">'+ctrl+'</div>';
-      box.appendChild(row);
-    }
-    wrap.appendChild(box);
+  const wrap = $('#form'); wrap.innerHTML = '';
+  const g = STATE.schema[ACTIVE_GROUP];
+  if(!g){ wrap.innerHTML = '<p class="grp-sub">暂无配置组</p>'; return; }
+  const h = document.createElement('h2'); h.className = 'grp-h'; h.textContent = g.title || '';
+  wrap.appendChild(h);
+  const sub = document.createElement('p'); sub.className = 'grp-sub';
+  sub.textContent = groupSub(ACTIVE_GROUP);
+  wrap.appendChild(sub);
+  for(const f of (g.fields || [])){
+    const cur = STATE.values[f.key];
+    const row = document.createElement('div'); row.className = 'lmw-set-section';
+    const info = document.createElement('div'); info.className = 'lmw-set-info';
+    info.innerHTML = '<div class="title">' + esc(f.label || f.key)
+      + (f.restart ? '<span class="restag">需重启</span>' : '') + '</div>'
+      + (f.desc ? '<div class="desc">' + esc(f.desc) + '</div>' : '');
+    row.appendChild(info);
+    const ctl = document.createElement('div'); ctl.className = 'lmw-set-ctl';
+    ctl.appendChild(buildControl(f, cur));
+    row.appendChild(ctl);
+    wrap.appendChild(row);
   }
 }
+
+function isPresetKey(k){return k === 'agent.preset';}
+function buildPresetGrid(f, cur){
+  const wrap = document.createElement('div'); wrap.className = 'lmw-preset-grid';
+  const meta = {
+    standard:  {ico:'⚡', name:'标准模式', desc:'功能完整的编码 Agent, 支持文件编辑、Shell、文件与网页检索、skills、计划、目标、子代理和工作流。', tag:'内置'},
+    fullstack: {ico:'🔧', name:'PTC 模式',  desc:'具备标准模式的全部能力, 并通过 Code Mode SDK 实现工具, 让模型用一个 TypeScript 程序组合多步操作。', tag:'内置'},
+    minimal:   {ico:'🌱', name:'极简模式', desc:'仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。', tag:'内置'},
+    custom:    {ico:'✨', name:'创造模式', desc:'用于创建自定义 Agent preset: 具备标准模式的全部能力, 并提供运行时检查、插件实验和 preset 创作指导。', tag:'内置'},
+  };
+  f.options.forEach(o => {
+    const m = meta[o] || {ico:'·', name:o, desc:'', tag:''};
+    const c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'lmw-preset-card' + (String(cur) === o ? ' on' : '');
+    c.dataset.val = o;
+    c.innerHTML = '<div class="hd"><span class="ti">' + m.ico + '</span><b>' + esc(m.name) + '</b>' + (m.tag ? '<span class="tg">' + esc(m.tag) + '</span>' : '') + '</div><div class="dc">' + esc(m.desc) + '</div>';
+    c.onclick = () => {
+      wrap.querySelectorAll('.lmw-preset-card').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+      const h = wrap.querySelector('input[data-key="' + f.key + '"]');
+      if(h) h.value = o;
+    };
+    wrap.appendChild(c);
+  });
+  // 隐藏 input 供 collectForm
+  const h = document.createElement('input');
+  h.type = 'hidden'; h.dataset.key = f.key;
+  h.value = (cur == null ? '' : cur);
+  wrap.appendChild(h);
+  // 虚线圆角创建按钮 (trae 标志性的「用创造模式创建自定义预设」)
+  const cb = document.createElement('button');
+  cb.type = 'button'; cb.className = 'lmw-preset-create';
+  cb.innerHTML = '<span class="ci">＋</span><span>用「创造模式」创建自定义预设</span>';
+  cb.onclick = () => { if(window.LMW && LMW.toast) LMW.toast('自定义预设创建向导: 待 v2 接入', false); };
+  wrap.appendChild(cb);
+  return wrap;
+}
+
+function isBackendKey(k){return k === 'llm.backend';}
+function buildProviderCards(f, cur){
+  const wrap = document.createElement('div');
+  const meta = {
+    sensenova: {ico:'🧠', name:'SenseNova（商汤）', desc:'默认后端 · token.sensenova.cn · 模型 sensenova-6.8-flash-lite · 走 SENSENOVA_API_KEY'},
+    openai:    {ico:'🤖', name:'OpenAI 兼容', desc:'任意 OpenAI 兼容端点（DeepSeek / 通义 / 智谱 / 硅基流动 …）· 走对应 *_API_KEY'},
+    ollama:    {ico:'🦙', name:'Ollama 本地', desc:'本机 Ollama 服务 · 完全离线 · 需先启动 ollama serve'},
+    mock:      {ico:'🧪', name:'Mock 模拟', desc:'不发真实请求 · 用于演示 / 离线测试 / 压测'},
+    auto:      {ico:'✨', name:'自动选择', desc:'按可用性与优先级自动挑选后端（含故障转移 FailoverClient）'},
+  };
+  const list = document.createElement('div'); list.className = 'lmw-provider-list';
+  f.options.forEach(o => {
+    const m = meta[o] || {ico:'·', name:o, desc:''};
+    const c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'lmw-provider-card' + (String(cur) === o ? ' on' : '');
+    c.dataset.val = o;
+    c.innerHTML = '<span class="dot"></span><span class="body"><b>' + esc(m.name) + '</b><span class="dc">' + esc(m.desc) + '</span></span>';
+    c.onclick = () => {
+      list.querySelectorAll('.lmw-provider-card').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+      const h = list.querySelector('input[data-key="' + f.key + '"]');
+      if(h) h.value = o;
+    };
+    list.appendChild(c);
+  });
+  // 隐藏 input 供 collectForm
+  const h = document.createElement('input');
+  h.type = 'hidden'; h.dataset.key = f.key;
+  h.value = (cur == null ? '' : cur);
+  list.appendChild(h);
+  wrap.appendChild(list);
+  // 两个虚线添加按钮(trae 标志): 多路 provider 是数组配置, 表单表达不了 -> 引导到原始 TOML
+  const add = document.createElement('div'); add.className = 'lmw-provider-add';
+  const b1 = document.createElement('button'); b1.type = 'button';
+  b1.innerHTML = '<span class="ci">＋</span><span>添加提供方</span>';
+  b1.onclick = () => hintRaw('添加提供方');
+  const b2 = document.createElement('button'); b2.type = 'button';
+  b2.innerHTML = '<span class="ci">＋</span><span>添加自定义提供方</span>';
+  b2.onclick = () => hintRaw('添加自定义提供方');
+  add.appendChild(b1); add.appendChild(b2);
+  wrap.appendChild(add);
+  return wrap;
+}
+function hintRaw(what){
+  // 多路 providers 是 [[llm.providers]] 数组, 标量表单改不了, 诚实引导到原始 TOML
+  if(window.LMW && LMW.toast) LMW.toast(what + '为数组配置([[llm.providers]]), 已切到原始 TOML', true);
+  showRaw();
+}
+
+function buildControl(f, cur){
+  // LLM 后端提供方卡片列表 (trae 风)
+  if(isBackendKey(f.key) && Array.isArray(f.options) && f.options.length >= 2){
+    return buildProviderCards(f, cur);
+  }
+  // Agent 预设 2x2 卡片网格 (trae 风)
+  if(isPresetKey(f.key) && Array.isArray(f.options) && f.options.length >= 2){
+    return buildPresetGrid(f, cur);
+  }
+  // 主题三选卡
+  if(isThemeKey(f.key) && Array.isArray(f.options) && f.options.length >= 2){
+    const box = document.createElement('div'); box.className = 'lmw-choose';
+    const icoMap = {dark:'🌙', light:'☀️', auto:'🖥'};
+    const labMap = {dark:'深色', light:'浅色', auto:'跟随系统'};
+    f.options.forEach(o => {
+      const it = document.createElement('button');
+      it.type = 'button';
+      it.className = 'citem' + (String(cur) === o ? ' on' : '');
+      it.innerHTML = '<span class="ci">' + (icoMap[o] || '·') + '</span>' + esc(labMap[o] || o);
+      it.dataset.val = o;
+      it.onclick = () => {
+        box.querySelectorAll('.citem').forEach(x => x.classList.remove('on'));
+        it.classList.add('on');
+        const hidden = document.querySelector('#form input[data-key="' + f.key + '"]');
+        if(hidden) hidden.value = o;
+      };
+      box.appendChild(it);
+    });
+    // 隐藏 input 供 collectForm
+    const h = document.createElement('input');
+    h.type = 'hidden'; h.dataset.key = f.key;
+    h.value = (cur == null ? '' : cur);
+    box.appendChild(h);
+    return box;
+  }
+  if(f.type === 'bool'){
+    const lab = document.createElement('label'); lab.className = 'sw';
+    lab.innerHTML = '<input type="checkbox" data-key="' + f.key + '"' + (cur ? ' checked' : '') + '><span></span>';
+    return lab;
+  }
+  if(Array.isArray(f.options)){
+    const sel = document.createElement('select'); sel.dataset.key = f.key;
+    f.options.forEach(o => {
+      const op = document.createElement('option');
+      op.value = o; op.textContent = o;
+      if(String(cur) === o) op.selected = true;
+      sel.appendChild(op);
+    });
+    return sel;
+  }
+  if(f.key === 'agent.system_prompt'){
+    const t = document.createElement('textarea'); t.dataset.key = f.key; t.rows = 3;
+    t.value = (cur == null ? '' : cur);
+    return t;
+  }
+  if(f.type === 'int' || f.type === 'float'){
+    const i = document.createElement('input'); i.type = 'number';
+    if(f.type === 'float') i.step = 'any';
+    i.dataset.key = f.key; i.value = (cur == null ? '' : cur);
+    return i;
+  }
+  const i = document.createElement('input'); i.type = 'text';
+  i.dataset.key = f.key; i.value = (cur == null ? '' : cur);
+  return i;
+}
+
 function collectForm(){
-  const v={};
-  document.querySelectorAll('#form [data-key]').forEach(el=>{
-    const k=el.dataset.key, f=findField(k);
-    if(f.type==='bool') v[k]=el.checked;
-    else if(f.type==='int') v[k]=parseInt(el.value||'0',10)||0;
-    else v[k]=el.value;
+  const v = {};
+  document.querySelectorAll('#form [data-key]').forEach(el => {
+    const k = el.dataset.key, f = findField(k);
+    if(!f || !f.type) v[k] = el.value;
+    else if(f.type === 'bool') v[k] = el.checked;
+    else if(f.type === 'int') v[k] = parseInt(el.value || '0', 10) || 0;
+    else if(f.type === 'float') v[k] = parseFloat(el.value || '0') || 0;
+    else v[k] = el.value;
   });
   return v;
 }
+
 function showResult(el, d){
-  if(d.error){el.className='result err'; el.textContent='✗ '+d.error;}
-  else{el.className='result ok'; el.textContent='✓ 已保存 '+d.bytes+' 字节'+(d.require_restart?' · ⚠ 部分改动需重启面板完全生效':'');}
+  if(d.error){
+    el.className = 'lmw-set-result err';
+    el.textContent = '✗ ' + d.error;
+  } else {
+    el.className = 'lmw-set-result ok';
+    el.textContent = '✓ 已保存 ' + (d.bytes || 0) + ' 字节' + (d.require_restart ? ' · ⚠ 部分改动需重启面板完全生效' : '');
+  }
 }
+
+function applyTheme(val){
+  try{
+    var html = document.documentElement;
+    if(val === 'auto') html.removeAttribute('data-theme');
+    else if(val === 'light' || val === 'dark') html.setAttribute('data-theme', val);
+    try { localStorage.setItem('lmw_theme', val); } catch(e) {}
+    var btn = document.getElementById('lmwThemeBtn');
+    if(btn){
+      btn.textContent = (val === 'light') ? '🌙' : (val === 'dark') ? '☀️' : '🖥';
+    }
+  } catch(e) {}
+}
+
 async function saveForm(){
-  const v=collectForm();
-  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'form',values:v})});
-  const d=await r.json();
+  const v = collectForm();
+  const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mode:'form', values:v})});
+  const d = await r.json();
   showResult($('#result'), d);
+  if(d.ok){
+    // 主题改了立即应用, 不必刷新
+    if('ui.theme' in v && v['ui.theme']){
+      applyTheme(v['ui.theme']);
+    }
+    Object.assign(STATE.values, v);
+  }
 }
+
 async function saveRaw(){
-  const t=$('#raw').value;
-  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'raw',text:t})});
-  const d=await r.json();
-  if(d.ok) STATE.raw=t;
+  const t = $('#raw').value;
+  const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mode:'raw', text:t})});
+  const d = await r.json();
+  if(d.ok) STATE.raw = t;
   showResult($('#result2'), d);
 }
-function switchTab(v){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
-  $('#formView').classList.toggle('active',v==='form');
-  $('#rawView').classList.toggle('active',v==='raw');
+
+function showRaw(){
+  $('#mainView').style.display = 'none';
+  $('#rawView').classList.add('on');
+  $('#openConfigBtn').style.display = 'none';
 }
-function hideResult(){$('#result').className='result';$('#result2').className='result';}
+function showForm(){
+  $('#mainView').style.display = '';
+  $('#rawView').classList.remove('on');
+  $('#openConfigBtn').style.display = '';
+}
+
+function hideResult(){
+  $('#result').className = 'lmw-set-result';
+  $('#result2').className = 'lmw-set-result';
+}
+
 load();
 </script>
   <script src="/static/subnav.js"></script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

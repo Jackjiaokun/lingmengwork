@@ -77,7 +77,9 @@ def test_cli_invocation():
     """CLI 入口应 exit 0 并打印健康分。"""
     proc = subprocess.run(
         [sys.executable, "-m", "lingmengwork.selfcheck"],
-        cwd=pkg_root, capture_output=True, text=True, timeout=120,
+        cwd=pkg_root, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=120,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
     assert proc.returncode == 0, proc.stderr[:500]
     assert "健康分" in proc.stdout

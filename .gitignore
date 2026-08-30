@@ -62,3 +62,7 @@ logs/
 code/
 outputs/
 outputs/superagent_runs.jsonl
+
+# ===== 演示/探针残留 & 损坏仓库备份 (绝不入库) =====
+.demo*.json
+.git.corrupted-*/

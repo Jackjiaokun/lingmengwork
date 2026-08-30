@@ -1,1 +1,0 @@
-{"server":"fs","tool":"fs_write","arguments":{"path":"D:/lmw_closure/mathlib.py","content":"def add(a, b):\n    # BUG: 误用减号, 应为加号\n    return a - b\n"}}

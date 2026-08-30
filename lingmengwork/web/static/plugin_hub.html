@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -48,8 +48,12 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .note{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:12px;color:var(--good)}
 .pre{white-space:pre-wrap;word-break:break-word;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px;font-size:12px;color:var(--sub);max-height:180px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <div class="wrap">
   <h1><span class="g">插件中枢</span> · Connector / Expert 注册与接入</h1>
   <p class="sub">Phase 32 · 连接器注册(env 可用性自动降级)/ 专家画像注入路由 hint / 目录扫描发现 / 一键接入超级 AGENT。零三方依赖, 无 key 全程可用。</p>
@@ -81,8 +85,11 @@ button:disabled{opacity:.5;cursor:not-allowed}
         <button class="active" data-filter="all" onclick="filterConn('all',this)">全部</button>
         <button data-filter="available" onclick="filterConn('available',this)">可用</button>
         <button data-filter="downgraded" onclick="filterConn('downgraded',this)">已降级</button>
+        <button data-filter="off" onclick="filterConn('off',this)">已停用</button>
       </div>
-      <table class="ctable"><thead><tr><th>名称</th><th>分类</th><th>状态</th><th>说明</th></tr></thead><tbody id="connBody"></tbody></table>
+      <input id="connSearch" class="lmw-plugin-search" placeholder="🔍 搜索连接器(名称/分类/说明)…" oninput="render()">
+      <div class="lmw-plugin-grid" id="connBody"></div>
+      <div id="connCount" class="muted" style="font-size:11px;margin-top:8px"></div>
       <div style="margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px">
         <div class="row"><input id="regCName" placeholder="名称(标识符)"><input id="regCCat" placeholder="分类"><input id="regCEnv" placeholder="env_required (逗号分隔)"></div>
         <textarea id="regCDesc" placeholder="说明" style="margin-top:8px"></textarea>
@@ -103,7 +110,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 </div>
 <script>
 let connectors=[], experts=[], filterMode="all";
-function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function esc(s){ return LMW.esc(s); }
 async function loadPlugins(){
   const j = await (await fetch("/api/plugins")).json();
   connectors = j.connectors||[]; experts = j.experts||[];
@@ -116,13 +123,36 @@ function render(){
   document.getElementById("kConnOk").textContent = ok;
   document.getElementById("kExp").textContent = experts.length;
   document.getElementById("kDown").textContent = down;
-  const list = filterMode==="available" ? connectors.filter(c=>c.available)
-    : filterMode==="downgraded" ? connectors.filter(c=>!c.available) : connectors;
-  document.getElementById("connBody").innerHTML = list.map(c=>
-    '<tr><td><b>'+esc(c.name)+'</b></td><td><span class="tag">'+esc(c.category)+'</span></td>'+
-    '<td><span class="pill '+(c.available?'ok':'warn')+'">'+(c.available?'✅ 可用':'⚠️ '+esc((c.missing_env||[]).join(",")))+'</span></td>'+
-    '<td style="max-width:280px">'+esc(c.description)+'</td></tr>'
-  ).join("") || '<tr><td colspan="4"><span class="muted">暂无</span></td></tr>';
+  let list = filterMode==="available" ? connectors.filter(c=>c.available)
+    : filterMode==="downgraded" ? connectors.filter(c=>!c.available)
+    : filterMode==="off" ? connectors.filter(c=>c.enabled===false) : connectors;
+  // 搜索过滤(名称 / 分类 / 说明 / 标签)
+  const sEl = document.getElementById("connSearch");
+  const q = (sEl ? (sEl.value||"") : "").trim().toLowerCase();
+  if (q) {
+    list = list.filter(c => (c.name + " " + (c.category||"") + " " + (c.description||"")
+      + " " + (c.tags||[]).join(" ")).toLowerCase().indexOf(q) >= 0);
+  }
+  const body = document.getElementById("connBody");
+  body.innerHTML = list.map(c => {
+    const on = (c.enabled !== false);          // 用户是否启用
+    const av = !!c.available;                  // env 是否具备
+    const miss = (c.missing_env || []).join(", ");
+    return '<div class="lmw-plugin-card' + (on ? '' : ' off') + '">' +
+      '<div class="ph"><span class="pd ' + (av ? 'ok' : 'warn') + '"></span>' +
+      '<b>' + esc(c.name) + '</b>' +
+      '<span class="pcat">' + esc(c.category || "") + '</span></div>' +
+      '<div class="pdc">' + esc(c.description || "") + '</div>' +
+      (av ? '' : '<div class="penv">缺 env: ' + esc(miss) + '</div>') +
+      '<div class="pf"><span class="pst">' + (av ? '环境可用' : '环境降级') +
+      (on ? '' : ' · 已停用') + '</span>' +
+      '<label class="lmw-plugin-toggle" title="' + (on ? '点击停用' : '点击启用') + '">' +
+      '<input type="checkbox" data-conn="' + esc(c.name) + '"' + (on ? ' checked' : '') +
+      ' onchange="toggleConn(this)"><span></span></label></div>' +
+    '</div>';
+  }).join("") || '<span class="muted">无匹配的连接器</span>';
+  const cnt = document.getElementById("connCount");
+  if (cnt) cnt.textContent = list.length + " / " + connectors.length + " 个连接器";
   document.getElementById("expList").innerHTML = experts.map(e=>
     '<div class="exp"><div class="eh"><span class="en">'+esc(e.name)+'</span>'+
     '<span><span class="tag">'+esc(e.domain)+'</span>'+(e.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("")+
@@ -134,6 +164,27 @@ function filterConn(mode, btn){
   document.querySelectorAll(".tab button").forEach(b=>b.classList.remove("active"));
   btn.classList.add("active");
   render();
+}
+async function toggleConn(cb){
+  const name = cb.dataset.conn;
+  const enabled = cb.checked;
+  cb.disabled = true;                       // 防连点导致状态错乱
+  try{
+    const j = await (await fetch("/api/plugins/connectors/toggle",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({name: name, enabled: enabled})})).json();
+    if(j.error){
+      LMW.toast("启停失败: " + j.error, false);
+      cb.checked = !enabled;                // 失败回滚 UI, 不留下假状态
+    }else{
+      LMW.toast((enabled ? "已启用 " : "已停用 ") + name, true);
+    }
+  }catch(e){
+    LMW.toast("启停失败: " + e, false);
+    cb.checked = !enabled;
+  }
+  cb.disabled = false;
+  await loadPlugins();                      // 重新拉取, 保证与服务端一致
 }
 async function doWire(){
   const note = document.getElementById("actionNote");
@@ -191,5 +242,7 @@ setInterval(loadPlugins, 5000);
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

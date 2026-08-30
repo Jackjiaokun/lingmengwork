@@ -1,1 +1,0 @@
-{"server":"fs","tool":"fs_write","arguments":{"path":"D:/lmw_closure/bad.py","content":"def f():\n    try:\n        g()\n    except:\n        pass\n"}}

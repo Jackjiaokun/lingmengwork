@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -42,8 +42,12 @@
   .toast.show{opacity:1}
   .hint{color:var(--mut);font-size:12px}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
   <header>
     <a class="btn ghost" href="/">← 返回面板</a>
     <h1>🛑 错误<span class="ac">日志</span>与汇总</h1>
@@ -75,9 +79,9 @@
   <div class="toast" id="toast"></div>
 
 <script>
-const $=(s)=>document.querySelector(s);
-function toast(m,ok=true){const t=$("#toast");t.textContent=m;t.style.borderColor=ok?"var(--ok)":"var(--fail)";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
-async function api(u,o){const r=await fetch(u,o);const d=await r.json().catch(()=>({error:"解析失败"}));if(d.error)throw new Error(d.error);return d;}
+const $ = LMW.$;
+function toast(m, ok){ return LMW.toast(m, ok); }
+async function api(u, o){ return LMW.api(u, o); }
 async function loadSummary(){
   const d=await api("/api/errors/summary");
   const g=$("#sumGrid"); g.innerHTML=
@@ -95,7 +99,7 @@ async function loadList(){
   });
   if(!(d.errors||[]).length) box.innerHTML="<div class='hint'>暂无错误记录。</div>";
 }
-function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function esc(s){ return LMW.esc(s); }
 $("#refreshSum").onclick=()=>{loadSummary();loadList();};
 $("#copyMd").onclick=async()=>{ try{await navigator.clipboard.writeText($("#sumMd").textContent);toast("已复制汇总报告");}catch(e){toast("复制失败",false);} };
 $("#recErr").onclick=async()=>{ const body={type:$("#rType").value.trim(),source:$("#rSrc").value.trim(),message:$("#rMsg").value.trim(),severity:$("#rSev").value}; if(!body.type||!body.message){toast("类型与描述必填",false);return;} try{await api("/api/errors/record",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});toast("已记录");$("#rType").value="";$("#rSrc").value="";$("#rMsg").value="";loadSummary();loadList();}catch(e){toast(e.message,false);} };
@@ -103,5 +107,7 @@ loadSummary(); loadList();
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

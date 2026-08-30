@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -38,8 +38,12 @@
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(20,27,48,.96);border:1px solid var(--line);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .25s;z-index:30;pointer-events:none}
   .toast.show{opacity:1}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
   <header>
     <a class="btn ghost" href="/">← 返回面板</a>
     <h1>🧠 记忆<span class="ac">中枢</span></h1>
@@ -88,8 +92,8 @@
   <div class="toast" id="toast"></div>
 
 <script>
-const $ = (s) => document.querySelector(s);
-function toast(m, ok=true){ const t=$("#toast"); t.textContent=m; t.style.borderColor=ok?"var(--ok)":"var(--fail)"; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2200); }
+const $ = LMW.$;
+function toast(m, ok){ return LMW.toast(m, ok); }
 async function api(url, opt){ const r=await fetch(url,opt); const d=await r.json().catch(()=>({error:"解析失败"})); if(d.error) throw new Error(d.error); return d; }
 
 async function loadMemory(){
@@ -116,5 +120,7 @@ loadMemory();
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

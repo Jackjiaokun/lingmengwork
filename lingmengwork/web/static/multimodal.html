@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -69,8 +69,12 @@ input.q:focus{border-color:rgba(139,92,246,.55)}
 .gacts{display:flex;gap:8px;margin-top:4px}
 .gempty{color:var(--muted);font-size:13px;padding:20px;text-align:center;grid-column:1/-1}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <div class="wrap">
   <h1>🎬 多模态工坊</h1>
   <p class="sub">综合超级 AGENT · 多模态基座 (Phase 24) — 统一抽象 + 可检索资产库 + 降级链不可破：图片(PNG)/音频(MP3·降级占位)/视频(文生视频·图生视频·剪辑 GIF) 真实产出即入库，跨会话复用</p>
@@ -345,5 +349,7 @@ loadGallery();
 </script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

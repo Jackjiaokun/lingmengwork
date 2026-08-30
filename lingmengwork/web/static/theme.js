@@ -6,6 +6,15 @@
   var KEY = "lmw_theme";
   function cur() { try { return localStorage.getItem(KEY) || "dark"; } catch (e) { return "dark"; } }
   function save(t) { try { localStorage.setItem(KEY, t); } catch (e) {} }
+  // 修复(Phase 82): apply() 此前被调用(line 60)却从未定义 -> 每次执行抛 ReferenceError,
+  // 导致下面的 DOMContentLoaded 注册与主题浮球注入全部不生效, 深浅色切换一直失效。
+  function apply(t) {
+    try {
+      var html = document.documentElement;
+      if (t === "light") html.setAttribute("data-theme", "light");
+      else html.removeAttribute("data-theme");
+    } catch (e) {}
+  }
 
   var CSS = [
     'html[data-theme="light"]{',

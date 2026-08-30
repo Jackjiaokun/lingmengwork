@@ -9,13 +9,18 @@ messages 为 [{role, content}], role ∈ {system, user, assistant}。
 工具结果以 user 角色文本回灌 (provider 无关, 兼容 Ollama/OpenAI/Mock)。
 """
 import json
+import logging
 import os
+import random
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
 
 from ..config import load_config
+
+_log = logging.getLogger("lmw.llm")
 
 # 触发故障转移的网络层异常集合: 连接/超时/HTTP 错误均视为"模型未响应"。
 _FAIL_EXC = (
@@ -27,9 +32,89 @@ _FAIL_EXC = (
     OSError,
 )
 
+# 触发"退避重试"的瞬时 HTTP 状态: 限流/网关/过载。这类应先重试, 多次失败才降级故障转移。
+_TRANSIENT_HTTP = frozenset({429, 500, 502, 503, 504, 529})
+
 
 def _brief_err(e):
     return str(e) or type(e).__name__
+
+
+def _backoff_sleep(attempt, base=0.5, cap=8.0, retry_after=None):
+    """指数退避 + 全抖动; 服务端返回 Retry-After(秒) 时优先采用。"""
+    if retry_after is not None:
+        try:
+            s = float(retry_after)
+            if s >= 0:
+                time.sleep(min(cap, s))
+                return
+        except (TypeError, ValueError):
+            pass
+    t = min(cap, base * (2 ** attempt))
+    time.sleep(t / 2 + random.random() * t / 2)
+
+
+class _Breaker:
+    """单提供者的轻量断路器: 连续失败达阈值即开路(快速失败, 不拖垮整体),
+    冷却后进入半开探测, 一次成功即复位。"""
+
+    def __init__(self, threshold=5, cooldown=30.0):
+        self.threshold = threshold
+        self.cooldown = cooldown
+        self.failures = 0
+        self.opened_at = 0.0
+
+    def allow(self):
+        if self.failures < self.threshold:
+            return True
+        return time.time() - self.opened_at >= self.cooldown  # 半开探测
+
+    def record_fail(self):
+        self.failures += 1
+        if self.failures >= self.threshold:
+            self.opened_at = time.time()
+
+    def record_ok(self):
+        self.failures = 0
+
+
+def _http_post(url, data, headers, *, timeout=120, max_retries=2, backoff_base=0.5, breaker=None):
+    """带重试/退避/Retry-After/断路器的 POST。
+
+    返回已建立的响应对象(调用方负责读取与关闭)。
+    - 非瞬时异常(如 400/401)直接抛出;
+    - 瞬时异常(429/5xx/网络层)按 max_retries 退避重试, 且每次失败都累记断路器;
+    - 断路器开路时抛 URLError, 让外层 FailoverClient 快速切到健康提供者。
+    """
+    if breaker is not None and not breaker.allow():
+        raise urllib.error.URLError("circuit open: provider cooling down")
+    last = None
+    for attempt in range(max_retries + 1):
+        try:
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            r = urllib.request.urlopen(req, timeout=timeout)
+            if breaker is not None:
+                breaker.record_ok()
+            return r
+        except urllib.error.HTTPError as e:
+            last = e
+            if breaker is not None:
+                breaker.record_fail()
+            if e.code in _TRANSIENT_HTTP and attempt < max_retries:
+                _log.warning("LLM 瞬时 HTTP %s, 第%d次退避重试", e.code, attempt + 1)
+                _backoff_sleep(attempt, backoff_base, retry_after=e.headers.get("Retry-After"))
+                continue
+            raise
+        except _FAIL_EXC as e:
+            last = e
+            if breaker is not None:
+                breaker.record_fail()
+            if attempt < max_retries:
+                _log.warning("LLM 网络异常 %s, 第%d次退避重试", _brief_err(e), attempt + 1)
+                _backoff_sleep(attempt, backoff_base)
+                continue
+            raise
+    raise last or RuntimeError("LLM request failed")
 
 
 class LLMClient:
@@ -53,9 +138,12 @@ class LLMClient:
 
 
 class OllamaClient(LLMClient):
-    def __init__(self, base_url="http://127.0.0.1:11434", model="qwen2.5:7b"):
+    def __init__(self, base_url="http://127.0.0.1:11434", model="qwen2.5:7b", max_retries=2, backoff_base=0.5):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self._breaker = _Breaker()
 
     def is_available(self):
         try:
@@ -74,18 +162,20 @@ class OllamaClient(LLMClient):
         }
         if stream:
             return self._stream_ollama(url, payload, timeout=timeout)
-        with self._post(url, payload, timeout=timeout) as r:
+        r = _http_post(url, json.dumps(payload).encode(),
+                       {"Content-Type": "application/json"},
+                       timeout=timeout, max_retries=self.max_retries,
+                       backoff_base=self.backoff_base, breaker=self._breaker)
+        with r:
             obj = json.loads(r.read().decode())
         return obj.get("message", {}).get("content", "")
 
     def _stream_ollama(self, url, payload, timeout=120):
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        r = _http_post(url, json.dumps(payload).encode(),
+                       {"Content-Type": "application/json"},
+                       timeout=timeout, max_retries=self.max_retries,
+                       backoff_base=self.backoff_base, breaker=self._breaker)
+        with r:
             for raw in r:
                 line = raw.strip()
                 if not line:
@@ -102,10 +192,13 @@ class OllamaClient(LLMClient):
 
 
 class OpenAIClient(LLMClient):
-    def __init__(self, base_url, model, api_key=""):
+    def __init__(self, base_url, model, api_key="", max_retries=2, backoff_base=0.5):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self._breaker = _Breaker()
 
     def is_available(self):
         try:
@@ -136,8 +229,9 @@ class OpenAIClient(LLMClient):
             headers["Authorization"] = f"Bearer {self.api_key}"
         if stream:
             return self._stream_openai(url, payload, headers, timeout=timeout)
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        r = _http_post(url, json.dumps(payload).encode(), headers, timeout=timeout,
+                       max_retries=self.max_retries, backoff_base=self.backoff_base, breaker=self._breaker)
+        with r:
             obj = json.loads(r.read().decode())
         choices = obj.get("choices") or []
         if not choices:
@@ -145,8 +239,9 @@ class OpenAIClient(LLMClient):
         return choices[0].get("message", {}).get("content", "") or ""
 
     def _stream_openai(self, url, payload, headers, timeout=120):
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        r = _http_post(url, json.dumps(payload).encode(), headers, timeout=timeout,
+                       max_retries=self.max_retries, backoff_base=self.backoff_base, breaker=self._breaker)
+        with r:
             for raw in r:
                 line = raw.decode().strip()
                 if not line or not line.startswith("data:"):

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html data-lmw-nonav lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -67,8 +67,12 @@
   .empty{color:var(--mut);font-size:13px;text-align:center;padding:24px 0}
   .tag{font-size:10px;padding:1px 7px;border-radius:6px;background:rgba(124,92,255,.16);color:#b9a8ff;border:1px solid rgba(124,92,255,.35);font-weight:600}
 </style>
+<link rel="stylesheet" href="/static/ds.css">
+<script src="/static/sidebar.js"></script>
+  <script src="/static/common.js"></script>
 </head>
 <body>
+<div class="lmw-shell"><aside class="sidebar" id="lmw-sidebar"></aside><div class="lmw-content">
 <header>
   <h1>🧠 专家 · 技能 · 提示词增强</h1>
   <span class="path">prompts_enhance.json</span>
@@ -129,8 +133,7 @@
 
 <script>
 const state = { experts: [], skills: [] };
-const $ = s => document.querySelector(s);
-
+const $ = LMW.$;
 function showResult(msg, ok){
   const el = $("#result"); el.textContent = msg; el.className = "result " + (ok ? "ok" : "err");
   if(msg){ el.style.display = "block"; } else { el.style.display = "none"; }
@@ -167,8 +170,7 @@ function renderList(kind, flagKey, flagLabel){
     </div>`).join("");
 }
 
-function esc(s){ return (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
-
+function esc(s){ return LMW.esc(s); }
 // 开关切换
 document.addEventListener("change", e => {
   const t = e.target;
@@ -269,5 +271,7 @@ load();
   <script src="/static/subnav.js"></script>
   <script src="/static/nav.js"></script>
   <script src="/static/theme.js"></script>
+</div></div>
+  <script src="/static/commands.js"></script>
 </body>
 </html>

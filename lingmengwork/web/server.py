@@ -33,6 +33,7 @@ from ..agent.pool import TaskPool
 from ..agent.session import list_sessions as sess_list, load_session as sess_load, delete_session as sess_del, save_session as sess_save, new_session_id as sess_new_id
 from ..agent.pool import _results_dir
 from . import orchestration as _orch_mod
+from .router import Router
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 PORT = 8318
@@ -48,6 +49,33 @@ _SESSIONS_DICT_LOCK = None  # 延迟初始化(模块导入期 threading 已就�
 _SESSIONS_MAX = 64  # 活体会话上限, 超出按插入序驱逐最旧
 # 并行编排: 扇出多次 submit 后登记聚合对象, 供 Web 看板展示扇出/扇入进度
 _ORCH = _orch_mod.OrchestrationStore()
+
+# ---- P2 路由层: 把页面/健康/静态从 do_GET 的字符串匹配长链收口为声明式路由表 ----
+# 绞杀者模式: 先匹配 Router, 未命中再落下方遗留分支(后续按 blueprint 逐步拆除)。
+ROUTER = Router()
+
+# 页面 HTML: 路由 -> 文件名(与遗留 _serve_file 分支严格一致)
+_PAGE_FILES = {
+    "/": "index.html",
+    "/index.html": "index.html",
+    "/backups": "backup.html",          # 路由 /backups -> backup.html
+    "/memory-graph": "memory_graph.html",  # 路由含连字符 -> 文件用下划线
+    "/plugins": "plugin_hub.html",      # 路由 /plugins -> plugin_hub.html
+}
+for _r in ("/observability", "/cost", "/planboard", "/settings", "/sandbox", "/enhance",
+           "/templates", "/secrets", "/snippets", "/notes", "/todos", "/memory", "/plans",
+           "/errors", "/docs", "/orchestrate", "/studio", "/autonomous", "/pipeline",
+           "/multimodal", "/control_center", "/automation", "/activity", "/audit", "/heal",
+           "/federation", "/superagent"):
+    _PAGE_FILES.setdefault(_r, _r.lstrip("/") + ".html")
+
+for _r, _name in _PAGE_FILES.items():
+    ROUTER.get(_r, (lambda h, n=_name: h._serve_file(n)))
+# 静态资源: 参数路由示范(<file> 提取)
+ROUTER.get("/static/<file>", lambda h, file: h._serve_static(file))
+# 健康检查: 收口到方法, 移除遗留内联块
+ROUTER.get("/api/health", lambda h: h._api_health())
+ROUTER.get("/api/health/full", lambda h: h._health_full())
 
 # 代码评审自评估 (Critic Loop) 的 WEB 可视化: 历次 review_code 结果的结构化报告。
 # 进程内 ring buffer (不落盘, 重启即清空), 供「代码评审」tab 展示评分/问题/来源。
@@ -982,6 +1010,20 @@ def _get_cfg():
 # section 对应 TOML 段头 (如 "agent" / "agent.security" / "mcp"); restart=True 表示
 # 改动后需重建连接/客户端, 保存后提示重启面板才能完全生效 (其余标量即时软重载)。
 _SETTINGS_SCHEMA = [
+    {"title": "界面外观", "fields": [
+        {"key": "ui.theme", "section": "ui", "type": "string",
+         "options": ["dark", "light", "auto"], "label": "整体主题", "restart": False,
+         "desc": "对所有页面立即生效；「跟随系统」按系统深浅色自动切换。"},
+        {"key": "ui.language", "section": "ui", "type": "string",
+         "options": ["zh-CN", "en"], "label": "界面语言", "restart": False,
+         "desc": "预留位: 多语言切换占位, 暂未启用多语言文案。"},
+    ]},
+    {"title": "Agent 预设", "fields": [
+        {"key": "agent.preset", "section": "agent", "type": "string",
+         "options": ["standard", "fullstack", "minimal", "custom"],
+         "label": "Agent 预设", "restart": False,
+         "desc": "选择 Agent 工作模式; 当前为 UI 偏好, 后续可与系统提示 / 工具集联动。"},
+    ]},
     {"title": "LLM 后端", "fields": [
         {"key": "llm.backend", "section": "llm", "type": "string",
          "options": ["sensenova", "openai", "ollama", "mock", "auto"],
@@ -1387,7 +1429,53 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             return default if default is not None else {}
 
+    # ---- P2 路由层集成 ----
+    def _route_dispatch(self, method):
+        """先查 Router; 命中则执行 handler 并拦截异常转 JSON, 返回 True。
+
+        未命中返回 False, 调用方继续走遗留字符串匹配分支(绞杀者回退)。
+        """
+        m = ROUTER.match(method, self.path)
+        if m is None:
+            return False
+        try:
+            m.handler(self, **m.params)
+        except HttpError as e:
+            self._send_json({"error": e.message or "error"}, status=e.status)
+        except Exception as e:  # 路由 handler 内部的兜底, 不让 500 裸奔
+            self._send_json({"error": "route error: %s" % e}, status=500)
+        return True
+
+    def _serve_static(self, file):
+        """静态资源: 带 ETag / Cache-Control 协商缓存 (P4 性能)。
+
+        原实现直接 super().do_GET() 委托 SimpleHTTPRequestHandler —— 它不发 Cache-Control,
+        浏览器因此根本不会缓存。这里接管发送以带上缓存头。静态目录是扁平的(无子目录),
+        故用 basename 拼路径, 顺带挡掉任何目录穿越尝试。
+        """
+        name = os.path.basename(str(file or "").split("?")[0])
+        if not name:
+            return self.send_error(404)
+        path = os.path.join(STATIC_DIR, name)
+        if not os.path.isfile(path):
+            return self.send_error(404)
+        return self._send_file_cached(path)
+
+    def _api_health(self):
+        cfg = _get_cfg()
+        backend = cfg["llm"].get("backend", "ollama")
+        try:
+            client = build_client(backend, cfg=cfg)
+            model = client.model
+        except Exception:
+            model = "?"
+        return self._send_json(
+            {"ok": True, "version": __version__, "backend": backend, "model": model}
+        )
+
     def do_GET(self):
+        if self._route_dispatch("GET"):
+            return
         p = urlparse(self.path).path
         if p in ("/", "/index.html"):
             return self._serve_file("index.html")
@@ -1641,18 +1729,7 @@ class Handler(SimpleHTTPRequestHandler):
         # ---- 外部 LLM 大模型配置 (GUI 可视化管理) ----
         if p == "/api/llm-models":
             return self._llm_models_get()
-        if p == "/api/health":
-            cfg = _get_cfg()
-            backend = cfg["llm"].get("backend", "ollama")
-            try:
-                client = build_client(backend, cfg=cfg)
-                model = client.model
-            except Exception:
-                model = "?"
-            return self._send_json({"ok": True, "version": __version__, "backend": backend, "model": model})
-        # ---- 主题 E 健康度自检 (批次10): LLM + 9 MCP + 文件系统 红绿体检 ----
-        if p == "/api/health/full":
-            return self._health_full()
+        # ---- 主题 E 健康度自检: /api/health + /api/health/full 已收口到 Router (见模块级 ROUTER) ----
         # ---- 主题 E 可观测性 (批次9): 工具调用运行期统计 ----
         if p == "/api/stats":
             try:
@@ -1742,11 +1819,12 @@ class Handler(SimpleHTTPRequestHandler):
             rid = p[len("/api/artifacts/"):-len("/raw")].strip("/")
             return self._artifact_raw(rid)
 
-        if p.startswith("/static/"):
-            return super().do_GET()
+        # ---- 静态资源 /static/<file> 已收口到 Router (见模块级 ROUTER) ----
         return self.send_error(404)
 
     def do_POST(self):
+        if self._route_dispatch("POST"):
+            return
         p = urlparse(self.path).path
         if p == "/api/chat":
             return self._chat_sse()
@@ -1966,6 +2044,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._plugin_connector_register()
         if p == "/api/plugins/experts/register":
             return self._plugin_expert_register()
+        # ---- 插件启停 (Phase 89, 仿 DSH 插件开关): 持久化到 config [plugins].disabled ----
+        if p == "/api/plugins/connectors/toggle":
+            return self._plugin_toggle()
         if p.startswith("/api/automations/"):
             rest = p[len("/api/automations/"):]
             if "/" in rest:
@@ -3051,6 +3132,16 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             from .. import plugin_hub as _ph
             hub = _ph.get_hub()
+            # 同步用户停用列表(config [plugins].disabled), 保证返回 enabled 字段。
+            # 刻意不走 _get_cfg(): 那是带缓存的全局配置, 在此处触发会把配置固化进缓存,
+            # 影响后续依赖 config 的测试(表现为"单跑过、全量挂"的诡异失败)。
+            try:
+                path = _config_path()
+                text = path.read_text(encoding="utf-8") if path and path.exists() else ""
+                cfg = tomllib.loads(text) if text.strip() else {}
+                hub.set_disabled((cfg.get("plugins") or {}).get("disabled") or [])
+            except Exception:
+                pass
             return self._send_json({"ok": True,
                                     "connectors": hub.list_connectors(),
                                     "experts": hub.list_experts()})
@@ -3100,6 +3191,62 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json({"ok": True, "wired": wired})
         except Exception as e:
             return self._send_json({"error": "插件接入失败: %s" % e}, status=500)
+
+    def _plugin_toggle(self):
+        """POST /api/plugins/connectors/toggle {name, enabled} -> 启停连接器(仿 DSH 插件开关)。
+
+        与 env 自动降级(available)是相互独立的两层: 这里改的是"用户是否启用"(enabled)。
+        停用的连接器不参与 wire() 接入; 状态持久化到 config.toml 的 [plugins] disabled
+        数组(复用 _set_array_in_toml), 因此重启后依然保留。
+        """
+        try:
+            from .. import plugin_hub as _ph
+            body = self._read_json({})
+            name = (body.get("name") or "").strip()
+            if not name:
+                return self._send_json({"error": "缺少 name"}, status=400)
+            enabled = bool(body.get("enabled"))
+            hub = _ph.get_hub()
+            if name not in hub.connectors:
+                return self._send_json({"error": "连接器不存在: %s" % name}, status=404)
+
+            # 读取当前 config —— 刻意不走 _get_cfg(): 那是带缓存的全局配置,
+            # 在此处触发会把配置固化, 影响后续依赖 config 的测试("单跑过、全量挂")。
+            path = _config_path()
+            try:
+                text = path.read_text(encoding="utf-8") if path and path.exists() else ""
+            except Exception:
+                text = ""
+            try:
+                cfg = tomllib.loads(text) if text.strip() else {}
+            except Exception:
+                cfg = {}
+            cur_set = set((cfg.get("plugins") or {}).get("disabled") or [])
+            if enabled:
+                cur_set.discard(name)
+            else:
+                cur_set.add(name)
+            new_list = sorted(cur_set)
+
+            # 持久化到 config.toml(先校验语法再落盘, 避免写坏配置)
+            new_text, _applied = _set_array_in_toml(text, "plugins", "disabled", new_list)
+            if new_text.strip():
+                try:
+                    tomllib.loads(new_text)
+                except Exception as e:
+                    return self._send_json({"error": "生成的 TOML 语法错误: %s" % e}, status=400)
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(new_text, encoding="utf-8")
+                except Exception as e:
+                    return self._send_json({"error": "写入配置失败: %s" % e}, status=500)
+
+            # 同步进程内状态, 立即生效(不等重启)
+            hub.set_disabled(new_list)
+            return self._send_json({"ok": True, "name": name,
+                                    "enabled": enabled, "disabled": new_list})
+        except Exception as e:
+            return self._send_json({"error": "插件启停失败: %s" % e}, status=500)
 
     def _plugin_call_connector(self, name):
         """POST/GET /api/plugins/connectors/<name> -> 直接调用某连接器。"""
@@ -3780,19 +3927,49 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             pass
 
-    def _serve_file(self, name):
-        path = os.path.join(STATIC_DIR, name)
+    def _send_file_cached(self, path, ctype=None, cache="no-cache"):
+        """发送文件并带 ETag / Cache-Control 协商缓存 (P4 性能)。
+
+        退出标准之一「静态资源命中缓存」: 客户端带 If-None-Match 且内容未变时返回 304(无 body),
+        省掉整份传输 —— 页面 HTML 可达数十 KB, 收益明显。
+
+        用 no-cache 而非 max-age: 每次都校验 ETag, 保证改完前端刷新即可生效,
+        不会像强缓存那样取到陈旧副本(这正是之前 preview.js 要加 ?v=81 版本号的原因;
+        有了 ETag 之后, 文件内容一变 ETag 就变, 不再依赖手工改版本号)。
+        """
         try:
+            st = os.stat(path)
             with open(path, "rb") as f:
                 body = f.read()
         except Exception:
             return self.send_error(404)
-        ctype = "text/html; charset=utf-8" if name.endswith(".html") else "text/plain; charset=utf-8"
+        if not ctype:
+            import mimetypes
+            ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        if ctype.startswith("text/") and "charset" not in ctype:
+            ctype += "; charset=utf-8"
+        # ETag 基于 (mtime, size): 不必读内容算 hash, 文件一改必然变化
+        etag = '"%s-%s"' % (int(st.st_mtime), st.st_size)
+        if (self.headers.get("If-None-Match") or "").strip() == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", cache)
+        self.send_header("Last-Modified", self.date_time_string(int(st.st_mtime)))
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _serve_file(self, name):
+        path = os.path.join(STATIC_DIR, name)
+        ctype = "text/html; charset=utf-8" if name.endswith(".html") else "text/plain; charset=utf-8"
+        return self._send_file_cached(path, ctype=ctype)
 
     def _serve_data_file(self, path):
         """按扩展名 mime 发送任意二进制文件(用于 /outputs/ 真实媒体交付)。"""

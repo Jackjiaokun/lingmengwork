@@ -1,0 +1,227 @@
+/* 灵梦work · 统一设计系统 (ds.css) — Phase 79 全站统一化单一事实源
+ * 职责: 统一 :root 变量(新命名 + 旧批次变量别名兼容) / 基础组件 / 左侧栏 shell / 滚动条
+ * 引入: <link rel="stylesheet" href="/static/ds.css">  (置于 <head> 末尾, 覆盖旧页同名定义)
+ * 设计语言: 紫青极光 · 毛玻璃 · 深色 (与 superagent/cost/observability 目标态一致)
+ */
+:root{
+  /* 新命名 (Phase 74 设计系统) */
+  --bg0:#070a13; --bg1:#0c101d; --bg2:#121829;
+  --panel:rgba(17,23,42,.66); --panel2:rgba(30,39,68,.55);
+  --bd:rgba(140,150,210,.14); --bd2:rgba(140,150,210,.28);
+  --tx:#eef1fb; --sub:#a3abce; --mut:#6c7499;
+  --accent:#8b5cf6; --accent2:#22d3ee; --grad:linear-gradient(135deg,#8b5cf6,#22d3ee);
+  --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+  --r-lg:16px; --r-md:12px; --r-sm:9px;
+  /* 旧批次页面变量别名兼容 (settings/planboard/... 使用 --bg/--card/--line/--txt/--mut/--acc/--ok/--fail/--warn/--brand2) */
+  --bg:var(--bg0); --card:var(--panel); --card2:var(--panel2);
+  --line:var(--bd); --txt:var(--tx); --acc:var(--accent);
+  --ok:var(--good); --fail:var(--bad); --brand2:var(--accent2);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;color:var(--tx);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:
+    radial-gradient(900px 520px at 85% -10%,rgba(139,92,246,.13),transparent 60%),
+    radial-gradient(700px 420px at -10% 30%,rgba(34,211,238,.08),transparent 55%),
+    var(--bg0)}
+
+/* ============ 全站 shell: 左侧栏 + 内容区 ============ */
+.lmw-shell{display:flex;min-height:100vh;align-items:stretch}
+.sidebar,.sb{width:216px;flex:0 0 216px;display:flex;flex-direction:column;gap:14px;
+  padding:18px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;
+  background:rgba(9,12,22,.86);border-right:1px solid var(--bd);backdrop-filter:blur(14px)}
+.sb-brand{display:flex;align-items:center;gap:10px;padding:2px 6px 10px;border-bottom:1px solid var(--bd)}
+.sb-brand .logo{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:16px;color:#fff;background:var(--grad);box-shadow:0 4px 14px rgba(139,92,246,.4)}
+.sb-brand b{display:block;font-size:14px;letter-spacing:.4px}
+.sb-brand i{display:block;font-style:normal;color:var(--mut);font-size:10.5px}
+.sb-grp{color:var(--mut);font-size:10px;letter-spacing:.7px;padding:10px 13px 3px;text-transform:uppercase}
+.sb-nav{display:flex;flex-direction:column;gap:3px}
+.sb-item{position:relative;text-align:left;background:transparent;border:none;color:var(--sub);
+  padding:9px 13px;border-radius:10px;font:600 13.5px/1.4 inherit;font-family:inherit;cursor:pointer;
+  box-shadow:none;transition:background .15s,color .15s;text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-item:hover{color:var(--tx);background:var(--panel2)}
+.sb-item.on{color:var(--tx);background:var(--panel2)}
+.sb-item.on::before{content:"";position:absolute;left:-14px;top:8px;bottom:8px;width:3px;
+  border-radius:2px;background:var(--grad)}
+.sb-ext{display:flex;flex-wrap:wrap;gap:2px;padding-top:10px;border-top:1px solid var(--bd);margin-top:auto}
+.sb-ext a{color:var(--mut);font-size:11.5px;text-decoration:none;padding:4px 8px;border-radius:8px}
+.sb-ext a:hover{color:var(--tx);background:var(--panel2)}
+.lmw-content{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+.sb-main{flex:1;min-width:0;max-width:1060px;width:100%;margin:0 auto;padding:26px 30px 70px}
+.pane-head{margin:2px 0 18px}
+.pane-head h2{margin:0 0 4px;font-size:21px;font-weight:700;letter-spacing:.3px;
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;display:inline-block}
+.pane-head p{margin:0;color:var(--mut);font-size:12.5px}
+
+/* ============ 卡片 / 网格 ============ */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:960px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:var(--r-lg);padding:18px;
+  backdrop-filter:blur(10px);transition:border-color .18s,box-shadow .18s}
+.card:hover{border-color:var(--bd2);box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.card h3{margin:0 0 12px;font-size:13.5px;color:var(--tx);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card h3 .dot{width:7px;height:7px;border-radius:2px;background:var(--grad);box-shadow:0 0 8px rgba(139,92,246,.55)}
+
+/* ============ 表单 ============ */
+textarea,input{width:100%;background:var(--bg1);border:1px solid var(--bd);color:var(--tx);
+  border-radius:var(--r-md);padding:10px 13px;font:inherit;resize:vertical;outline:none;
+  transition:border-color .15s,box-shadow .15s}
+textarea{min-height:64px}
+textarea:focus,input:focus{border-color:rgba(139,92,246,.55);box-shadow:0 0 0 3px rgba(139,92,246,.16)}
+input::placeholder,textarea::placeholder{color:var(--mut)}
+.row{display:flex;gap:10px;align-items:center;margin-top:10px}
+
+/* ============ 按钮体系 (主渐变 + .btn2 次要描边; .ghost 兼容旧页) ============ */
+button{cursor:pointer;border:none;border-radius:var(--r-md);padding:9px 18px;font-weight:600;
+  color:#fff;background:var(--grad);box-shadow:0 4px 16px rgba(139,92,246,.32);font-size:13px;
+  font-family:inherit;transition:filter .15s,transform .1s}
+button:hover{filter:brightness(1.1)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.btn2,button.ghost{background:transparent;border:1px solid var(--bd2);box-shadow:none;color:var(--sub)}
+.btn2:hover,button.ghost:hover{background:var(--panel2);color:var(--tx);border-color:var(--bd2)}
+
+/* ============ 数据展示 ============ */
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;
+  background:var(--panel2);border:1px solid var(--bd);color:var(--sub);margin:2px 4px 2px 0}
+.tag.ok{color:var(--good);border-color:rgba(52,211,153,.4)}
+.tag.err{color:var(--bad);border-color:rgba(248,113,113,.4)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+  font-size:12px;background:var(--panel2);border:1px solid var(--bd);color:var(--sub)}
+.pill b{color:var(--tx)}
+.muted{color:var(--mut);font-size:12px}
+.hidden{display:none}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg1);border:1px solid var(--bd);
+  border-radius:var(--r-md);padding:12px;font-size:12px;color:var(--sub);max-height:240px;overflow:auto}
+
+/* ============ 二级标签 ============ */
+.rtabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--bd);margin-bottom:14px}
+.rtab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--mut);
+  padding:7px 15px;border-radius:10px 10px 0 0;font:600 12.5px/1.4 inherit;font-family:inherit;box-shadow:none}
+.rtab:hover{color:var(--tx)}
+.rtab.on{color:var(--tx);background:var(--panel2);border-color:var(--bd)}
+
+/* ============ 轻提示 toast (common.js 动态创建时的兜底样式) ============ */
+.lmw-toast{position:fixed;left:50%;bottom:34px;transform:translate(-50%,14px);z-index:100001;
+  padding:9px 16px;border-radius:var(--r-md);background:var(--panel);border:1px solid var(--ok);
+  color:var(--tx);font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.35);
+  opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;backdrop-filter:blur(10px)}
+.lmw-toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ============ 命令面板 (Cmd+K / Ctrl+K) — Phase 82 ============ */
+.lmw-cmdk{position:fixed;inset:0;z-index:100000;display:flex;align-items:flex-start;justify-content:center;padding:12vh 16px 16px}
+.lmw-cmdk[hidden]{display:none}
+.lmw-cmdk-bg{position:absolute;inset:0;background:rgba(4,6,12,.62);backdrop-filter:blur(3px)}
+.lmw-cmdk-panel{position:relative;width:100%;max-width:580px;max-height:64vh;display:flex;flex-direction:column;
+  background:var(--panel);backdrop-filter:blur(18px);border:1px solid var(--bd2);border-radius:var(--r-lg);
+  box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden}
+.lmw-cmdk-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--bd)}
+.lmw-cmdk-input{flex:1;background:transparent;border:none;box-shadow:none;border-radius:0;color:var(--tx);
+  font-size:14.5px;padding:4px 2px}
+.lmw-cmdk-input:focus{outline:none;border:none;box-shadow:none}
+.lmw-cmdk-kbd{flex:0 0 auto;font-size:10.5px;color:var(--mut);border:1px solid var(--bd2);border-radius:6px;padding:2px 6px}
+.lmw-cmdk-list{flex:1;overflow-y:auto;padding:8px}
+.lmw-cmdk-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;
+  border:1px solid transparent;box-shadow:none;color:var(--sub);padding:9px 10px;border-radius:var(--r-md);
+  font:inherit;font-size:13px}
+.lmw-cmdk-item:hover{background:var(--panel2);color:var(--tx)}
+.lmw-cmdk-item.on{background:var(--panel2);border-color:rgba(139,92,246,.5);color:var(--tx)}
+.lmw-cmdk-ico{flex:0 0 20px;text-align:center;font-size:15px}
+.lmw-cmdk-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.lmw-cmdk-txt b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lmw-cmdk-txt i{font-style:normal;color:var(--mut);font-size:11px}
+.lmw-cmdk-txt mark{background:transparent;color:var(--accent2);font-weight:700}
+.lmw-cmdk-grp{flex:0 0 auto;font-size:10.5px;color:var(--mut)}
+.lmw-cmdk-empty{padding:26px 10px;text-align:center;color:var(--mut);font-size:13px}
+.lmw-cmdk-hint{padding:8px 14px;border-top:1px solid var(--bd);color:var(--mut);font-size:11px;text-align:center}
+
+/* ============ 滚动条 ============ */
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(140,150,210,.22);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:rgba(140,150,210,.36)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ============ trae 风输入区(目标入口) + ⌘K 搜索栏 — Phase 86 ============ */
+.trae-search{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 14px;background:var(--panel2);border:1px solid var(--bd);border-radius:var(--r-md);color:var(--mut);cursor:pointer;transition:.15s;user-select:none}
+.trae-search:hover{border-color:var(--bd2);background:var(--panel);color:var(--tx)}
+.trae-search .ph{flex:1;font-size:13px}
+.trae-search .kbd{flex:0 0 auto;font-size:10.5px;color:var(--mut);border:1px solid var(--bd2);border-radius:6px;padding:2px 7px;background:var(--bg1);font-family:inherit}
+
+.trae-compose{border:1px solid var(--bd);border-radius:var(--r-lg);background:var(--bg1);padding:0;overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.trae-compose:focus-within{border-color:rgba(139,92,246,.55);box-shadow:0 0 0 3px rgba(139,92,246,.16)}
+.trae-compose-toolbar{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--bd);background:rgba(9,12,22,.45)}
+.trae-tool{background:transparent;border:1px solid transparent;color:var(--sub);font:600 12px/1 inherit;font-family:inherit;padding:6px 10px;border-radius:var(--r-sm);cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.trae-tool:hover{color:var(--tx);background:var(--panel2);border-color:var(--bd2)}
+.trae-spacer{flex:1}
+.trae-compose textarea#goalInput{width:100%;background:transparent;border:none;box-shadow:none;border-radius:0;color:var(--tx);font-size:14px;padding:14px 14px 12px;line-height:1.55;font-family:inherit;resize:vertical;min-height:96px;outline:none;display:block}
+.trae-compose textarea#goalInput:focus{outline:none;border:none;box-shadow:none}
+.trae-compose textarea#goalInput::placeholder{color:var(--mut)}
+.trae-compose-actions{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--bd);background:rgba(9,12,22,.45)}
+.trae-compose-actions .muted{font-size:12px}
+.trae-send{width:36px;height:36px;border-radius:50%;background:var(--grad);color:#fff;border:none;font-size:18px;font-weight:700;line-height:1;cursor:pointer;box-shadow:0 4px 16px rgba(139,92,246,.4);transition:filter .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;padding:0;flex:0 0 auto}
+.trae-send:hover{filter:brightness(1.1)}
+.trae-send:active{transform:translateY(1px)}
+.trae-send:disabled{opacity:.45;cursor:not-allowed;filter:none}
+
+/* ============ Agent 预设卡片网格 (trae 风) — Phase 87 ============ */
+.lmw-preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}
+@media (max-width: 640px){.lmw-preset-grid{grid-template-columns:1fr}}
+.lmw-preset-card{position:relative;display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--panel2);border:1px solid var(--bd);border-radius:var(--r-md);color:var(--tx);text-align:left;cursor:pointer;font:inherit;transition:.15s;min-height:130px}
+.lmw-preset-card:hover{border-color:var(--bd2);background:var(--panel);transform:translateY(-1px)}
+.lmw-preset-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 24px rgba(139,92,246,.22)}
+.lmw-preset-card .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lmw-preset-card .ti{font-size:18px;line-height:1}
+.lmw-preset-card .hd b{font-size:14px;font-weight:700}
+.lmw-preset-card .tg{font-size:10.5px;color:var(--accent);background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.4);border-radius:6px;padding:1px 7px;font-weight:600;letter-spacing:.3px}
+.lmw-preset-card .dc{font-size:12px;color:var(--sub);line-height:1.55;flex:1}
+.lmw-preset-card.on::after{content:"";position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(139,92,246,.22)}
+
+.lmw-preset-create{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px;margin-top:10px;background:transparent;border:1px dashed var(--bd2);border-radius:var(--r-md);color:var(--sub);font:600 13px/1 inherit;font-family:inherit;cursor:pointer;transition:.15s}
+.lmw-preset-create:hover{color:var(--tx);border-color:var(--accent);background:rgba(139,92,246,.06)}
+.lmw-preset-create .ci{font-size:16px;color:var(--mut)}
+.lmw-preset-create:hover .ci{color:var(--accent)}
+
+/* ============ LLM 提供方卡片列表 (trae 模型页范式) — Phase 88 ============ */
+.lmw-provider-list{display:flex;flex-direction:column;gap:9px;margin-top:8px}
+.lmw-provider-card{position:relative;display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:var(--panel2);border:1px solid var(--bd);border-radius:var(--r-md);color:var(--tx);text-align:left;cursor:pointer;font:inherit;transition:.15s;width:100%}
+.lmw-provider-card:hover{border-color:var(--bd2);background:var(--panel)}
+.lmw-provider-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 20px rgba(139,92,246,.2)}
+.lmw-provider-card .dot{width:8px;height:8px;border-radius:50%;background:var(--mut);margin-top:6px;flex:0 0 auto;transition:.15s}
+.lmw-provider-card.on .dot{background:var(--good);box-shadow:0 0 0 3px rgba(52,211,153,.22)}
+.lmw-provider-card .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.lmw-provider-card .body b{font-size:13.5px;font-weight:600}
+.lmw-provider-card .body .dc{font-size:12px;color:var(--sub);line-height:1.5}
+
+.lmw-provider-add{display:flex;gap:10px;margin-top:10px}
+.lmw-provider-add button{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:transparent;border:1px dashed var(--bd2);border-radius:var(--r-md);color:var(--sub);font:600 12.5px/1 inherit;font-family:inherit;cursor:pointer;transition:.15s}
+.lmw-provider-add button:hover{color:var(--tx);border-color:var(--accent);background:rgba(139,92,246,.06)}
+.lmw-provider-add button .ci{color:var(--mut);font-size:14px}
+.lmw-provider-add button:hover .ci{color:var(--accent)}
+@media (max-width: 640px){.lmw-provider-add{flex-direction:column}}
+
+/* ============ 插件清单卡片网格 (trae / DSH 风) — Phase 89 ============ */
+.lmw-plugin-search{width:100%;background:var(--bg1);border:1px solid var(--bd);color:var(--tx);border-radius:var(--r-sm);padding:7px 11px;font:inherit;font-size:12.5px;margin:8px 0 10px;outline:none;transition:border-color .15s,box-shadow .15s}
+.lmw-plugin-search:focus{border-color:rgba(139,92,246,.55);box-shadow:0 0 0 3px rgba(139,92,246,.16)}
+.lmw-plugin-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width: 720px){.lmw-plugin-grid{grid-template-columns:1fr}}
+.lmw-plugin-card{display:flex;flex-direction:column;gap:7px;padding:12px 14px;background:var(--panel2);border:1px solid var(--bd);border-radius:var(--r-md);transition:.15s}
+.lmw-plugin-card:hover{border-color:var(--bd2);background:var(--panel)}
+.lmw-plugin-card.off{opacity:.6}
+.lmw-plugin-card .ph{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lmw-plugin-card .ph b{font-size:13.5px}
+.lmw-plugin-card .pd{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.lmw-plugin-card .pd.ok{background:var(--good);box-shadow:0 0 0 3px rgba(52,211,153,.2)}
+.lmw-plugin-card .pd.warn{background:var(--warn);box-shadow:0 0 0 3px rgba(251,191,36,.18)}
+.lmw-plugin-card .pcat{font-size:10.5px;color:var(--mut);background:var(--bg1);border:1px solid var(--bd);border-radius:6px;padding:1px 7px}
+.lmw-plugin-card .pdc{font-size:12px;color:var(--sub);line-height:1.5}
+.lmw-plugin-card .penv{font-size:11px;color:var(--warn)}
+.lmw-plugin-card .pf{display:flex;align-items:center;justify-content:space-between;margin-top:2px;padding-top:8px;border-top:1px dashed var(--bd)}
+.lmw-plugin-card .pst{font-size:11.5px;color:var(--mut)}
+.lmw-plugin-toggle{position:relative;display:inline-block;width:38px;height:22px;flex:0 0 auto}
+.lmw-plugin-toggle input{opacity:0;width:0;height:0}
+.lmw-plugin-toggle span{position:absolute;inset:0;background:var(--bg1);border:1px solid var(--bd2);border-radius:22px;transition:.2s}
+.lmw-plugin-toggle span:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:2px;background:var(--mut);border-radius:50%;transition:.2s}
+.lmw-plugin-toggle input:checked+span{background:rgba(52,211,153,.28);border-color:var(--good)}
+.lmw-plugin-toggle input:checked+span:before{transform:translateX(16px);background:var(--good)}

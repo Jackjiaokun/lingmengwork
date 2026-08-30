@@ -41,6 +41,117 @@
     .enhance-foot{padding:12px 18px;border-top:1px solid rgba(126,146,210,.16);display:flex;align-items:center;gap:10px}
     .enhance-hint{font-size:11px;color:#828caa}
     .btn-sm{padding:6px 16px;font-size:12px}
+
+    /* ==========================================================
+       界面重做 (2026-08-30) — 信息密度治理 + 层次强化
+       原则: 保留全部 ID/类名与功能, 只重构呈现与默认折叠状态
+       ========================================================== */
+
+    /* 1) 侧栏底部清单默认收起 (原 200+ 个工具 chip 全铺 = 最大乱源) */
+    .side-explorer{flex:0 0 auto;overflow:visible;display:block}
+    .side-explorer[open]{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+    .side-explorer-head{
+      display:flex;align-items:center;gap:7px;padding:9px 12px;cursor:pointer;user-select:none;
+      border:1px solid var(--border);border-radius:var(--r-sm);background:var(--glass);
+      font-size:11.5px;color:var(--muted);transition:all .18s ease;list-style:none}
+    .side-explorer-head::-webkit-details-marker{display:none}
+    .side-explorer-head:hover{color:var(--text);border-color:var(--border-glow);background:var(--brand-soft)}
+    .side-explorer-head .se-ico{font-size:13px}
+    .side-explorer-head .se-label{flex:1;font-weight:700;letter-spacing:.5px}
+    .side-explorer-head .se-count{font-size:10.5px;color:var(--muted-soft);font-family:var(--mono)}
+    .side-explorer-head .se-chev{font-size:10px;color:var(--muted);transition:transform .2s ease}
+    .side-explorer[open] .se-chev{transform:rotate(180deg)}
+    .side-explorer[open] .explorer-cols{margin-top:10px}
+    .side-explorer .side-title{display:none}
+
+    /* 2) 顶栏收敛: 主题切换改为下拉菜单 */
+    .topbar-right{gap:7px;flex-wrap:nowrap}
+    .theme-switcher{position:relative;padding:0;border:1px solid var(--border);
+      border-radius:var(--r-sm);background:var(--glass)}
+    .ts-summary{display:inline-flex;align-items:center;gap:3px;padding:6px 8px;
+      cursor:pointer;list-style:none;border-radius:var(--r-sm)}
+    .ts-summary::-webkit-details-marker{display:none}
+    .ts-summary:hover{background:var(--brand-soft)}
+    .ts-caret{font-size:9px;color:var(--muted);transition:transform .18s ease}
+    .theme-switcher[open] .ts-caret{transform:rotate(180deg)}
+    .ts-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:80;min-width:96px;padding:5px;
+      display:flex;flex-direction:column;gap:3px;background:var(--glass-strong);
+      border:1px solid var(--border);border-radius:var(--r-sm);
+      box-shadow:var(--shadow);backdrop-filter:blur(14px)}
+    .ts-menu .theme-btn{text-align:left;padding:7px 10px;border-radius:8px;font-size:12px;width:100%}
+
+    /* 3) 仪表盘紧凑化 */
+    .dashboard{gap:6px;padding:8px 16px}
+    .dash-item{padding:6px 12px}
+    .dash-num{font-size:15px}
+    .dash-label{font-size:10px}
+
+    /* 4) Tab 溢出可横向滚动, 不换行堆叠 */
+    .tabs{overflow-x:auto;scrollbar-width:none}
+    .tabs::-webkit-scrollbar{display:none}
+    .tab{white-space:nowrap}
+
+    /* 5) 侧栏导航层次强化 */
+    .nav-group{border:1px solid transparent;border-radius:var(--r-sm)}
+    .nav-group:not(.collapsed){border-color:var(--border);background:rgba(255,255,255,.015)}
+    .nav-group-body{padding:2px 6px 8px}
+    .nav-item{font-size:12.5px;padding:7px 9px}
+    .nav-item .nav-ico{font-size:13px}
+
+    /* 6) 精简: 低频能力收进下拉 (后端路由/能力保留, 前端不常驻展示) */
+    .nav-more{margin-top:4px}
+    .nav-more-head{display:flex;align-items:center;gap:6px;padding:6px 9px;cursor:pointer;
+      list-style:none;border-radius:8px;font-size:11.5px;color:var(--muted);
+      border:1px dashed var(--border);transition:all .18s ease}
+    .nav-more-head::-webkit-details-marker{display:none}
+    .nav-more-head:hover{color:var(--text);border-color:var(--border-glow);background:var(--brand-soft)}
+    .nav-more-head .nm-chev{font-size:9px;transition:transform .2s ease}
+    .nav-more[open] .nm-chev{transform:rotate(180deg)}
+    .nav-more-head .nm-label{flex:1;font-weight:600}
+    .nav-more-head .nm-count{font-size:10px;color:var(--muted-soft);font-family:var(--mono)}
+    .nav-more-body{display:flex;flex-direction:column;gap:2px;padding:5px 0 2px 6px;
+      border-left:1px solid var(--border);margin-left:10px}
+
+    /* 编辑器工具栏「更多」 */
+    .tb-more{position:relative;flex:0 0 auto}
+    .tb-more-head{display:inline-flex;align-items:center;gap:2px;padding:6px 9px;cursor:pointer;
+      list-style:none;border:1px solid var(--border);border-radius:8px;background:var(--glass);
+      color:var(--muted);font-size:12px}
+    .tb-more-head::-webkit-details-marker{display:none}
+    .tb-more-head:hover{color:var(--text);border-color:var(--border-glow);background:var(--brand-soft)}
+    .tb-more-head .tb-caret{font-size:8px;transition:transform .18s ease}
+    .tb-more[open] .tb-caret{transform:rotate(180deg)}
+    .tb-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:70;min-width:170px;padding:6px;
+      display:flex;flex-direction:column;gap:4px;background:var(--glass-strong);
+      border:1px solid var(--border);border-radius:var(--r-sm);box-shadow:var(--shadow);
+      backdrop-filter:blur(14px)}
+    .tb-menu .btn-ghost{text-align:left;width:100%;justify-content:flex-start}
+
+    /* Tab「更多」 */
+    .tabs-more{position:relative;flex:0 0 auto}
+    .tabs-more-head{display:inline-flex;align-items:center;gap:4px;padding:7px 11px;cursor:pointer;
+      list-style:none;border-radius:9px;font-size:12.5px;color:var(--muted)}
+    .tabs-more-head::-webkit-details-marker{display:none}
+    .tabs-more-head:hover{color:var(--text);background:rgba(255,255,255,.03)}
+    .tabs-more-head .tm-caret{font-size:9px;transition:transform .18s ease}
+    .tabs-more[open] .tm-caret{transform:rotate(180deg)}
+    .tabs-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:70;min-width:150px;padding:6px;
+      display:flex;flex-direction:column;gap:3px;background:var(--glass-strong);
+      border:1px solid var(--border);border-radius:var(--r-sm);box-shadow:var(--shadow);
+      backdrop-filter:blur(14px)}
+    .tabs-menu .tab{width:100%;text-align:left;justify-content:flex-start;border-radius:8px}
+
+    /* 7) 仪表盘次要指标收起 */
+    .dash-more{position:relative;flex:0 0 auto}
+    .dash-more-head{display:inline-flex;align-items:center;justify-content:center;
+      width:26px;height:26px;cursor:pointer;list-style:none;border-radius:7px;
+      color:var(--muted-soft);border:1px dashed var(--border);font-size:13px;line-height:1}
+    .dash-more-head::-webkit-details-marker{display:none}
+    .dash-more-head:hover{color:var(--text);border-color:var(--border-glow);background:var(--brand-soft)}
+    .dash-more-body{position:absolute;right:0;top:calc(100% + 6px);z-index:70;padding:6px;
+      display:flex;flex-direction:column;gap:5px;background:var(--glass-strong);
+      border:1px solid var(--border);border-radius:var(--r-sm);box-shadow:var(--shadow);
+      backdrop-filter:blur(14px)}
   </style>
   <script src="/static/common.js"></script>
 </head>
@@ -76,26 +187,36 @@
             <span class="ng-label">智能工作区</span>
           </button>
           <div class="nav-group-body">
+            <!-- 第一级: 高频核心, 常驻可见 -->
             <a class="nav-item" href="/superagent"><span class="nav-ico">🚀</span><span class="nav-label">超级 AGENT 工作台</span></a>
             <a class="nav-item" href="/notes"><span class="nav-ico">📝</span><span class="nav-label">笔记</span></a>
             <a class="nav-item" href="/todos"><span class="nav-ico">✅</span><span class="nav-label">待办清单</span></a>
             <a class="nav-item" href="/memory"><span class="nav-ico">🧠</span><span class="nav-label">记忆中枢</span></a>
-            <a class="nav-item" href="/memory-graph"><span class="nav-ico">🕸️</span><span class="nav-label">记忆图谱</span></a>
             <a class="nav-item" href="/plans"><span class="nav-ico">📐</span><span class="nav-label">计划书·任务</span></a>
             <a class="nav-item" href="/docs"><span class="nav-ico">📚</span><span class="nav-label">技术文档</span></a>
-            <a class="nav-item" href="/orchestrate"><span class="nav-ico">🧭</span><span class="nav-label">编排中枢</span></a>
-            <a class="nav-item" href="/studio"><span class="nav-ico">🎨</span><span class="nav-label">创作工作台</span></a>
-            <a class="nav-item" href="/autonomous"><span class="nav-ico">🤖</span><span class="nav-label">自主模式</span></a>
-            <a class="nav-item" href="/pipeline"><span class="nav-ico">🌊</span><span class="nav-label">目标流水线</span></a>
-            <a class="nav-item" href="/multimodal"><span class="nav-ico">🎬</span><span class="nav-label">多模态实验室</span></a>
-            <a class="nav-item" href="/control-center"><span class="nav-ico">🛰️</span><span class="nav-label">统一总控台</span></a>
-            <a class="nav-item" href="/automation"><span class="nav-ico">⏰</span><span class="nav-label">自动化调度</span></a>
-            <a class="nav-item" href="/activity"><span class="nav-ico">📡</span><span class="nav-label">实时活动</span></a>
-            <a class="nav-item" href="/audit"><span class="nav-ico">🛡️</span><span class="nav-label">操作审计</span></a>
-            <a class="nav-item" href="/heal"><span class="nav-ico">🧬</span><span class="nav-label">自主进化</span></a>
-            <a class="nav-item" href="/snippets"><span class="nav-ico">📎</span><span class="nav-label">代码片段</span></a>
-            <a class="nav-item" href="/templates"><span class="nav-ico">📋</span><span class="nav-label">提示词模板</span></a>
-            <a class="nav-item" href="/enhance"><span class="nav-ico">🧠</span><span class="nav-label">专家·技能</span></a>
+            <!-- 第二级: 低频能力, 收进下拉 (路由与后端能力保留) -->
+            <details class="nav-more">
+              <summary class="nav-more-head" title="展开低频/高级功能">
+                <span class="nm-chev" aria-hidden="true">▾</span>
+                <span class="nm-label">更多功能</span>
+                <span class="nm-count">11</span>
+              </summary>
+              <div class="nav-more-body">
+                <a class="nav-item" href="/studio"><span class="nav-ico">🎨</span><span class="nav-label">创作工作台</span></a>
+                <a class="nav-item" href="/snippets"><span class="nav-ico">📎</span><span class="nav-label">代码片段</span></a>
+                <a class="nav-item" href="/templates"><span class="nav-ico">📋</span><span class="nav-label">提示词模板</span></a>
+                <a class="nav-item" href="/orchestrate"><span class="nav-ico">🧭</span><span class="nav-label">编排中枢</span></a>
+                <a class="nav-item" href="/autonomous"><span class="nav-ico">🤖</span><span class="nav-label">自主模式</span></a>
+                <a class="nav-item" href="/pipeline"><span class="nav-ico">🌊</span><span class="nav-label">目标流水线</span></a>
+                <a class="nav-item" href="/multimodal"><span class="nav-ico">🎬</span><span class="nav-label">多模态实验室</span></a>
+                <a class="nav-item" href="/automation"><span class="nav-ico">⏰</span><span class="nav-label">自动化调度</span></a>
+                <a class="nav-item" href="/audit"><span class="nav-ico">🛡️</span><span class="nav-label">操作审计</span></a>
+                <a class="nav-item" href="/heal"><span class="nav-ico">🧬</span><span class="nav-label">自主进化</span></a>
+                <a class="nav-item" href="/enhance"><span class="nav-ico">🧠</span><span class="nav-label">专家·技能</span></a>
+              </div>
+            </details>
+            <!-- 第三级: 与常驻项功能重叠, 移除导航入口, 路由仍可直达
+                 (记忆图谱→记忆中枢 / 统一总控台+实时活动→可观测仪表盘) -->
           </div>
         </div>
 
@@ -107,11 +228,20 @@
             <span class="ng-label">安全与系统</span>
           </button>
           <div class="nav-group-body">
-            <a class="nav-item" href="/secrets"><span class="nav-ico">🔐</span><span class="nav-label">密钥保险箱</span></a>
-            <a class="nav-item" href="/backups"><span class="nav-ico">📦</span><span class="nav-label">备份与回滚</span></a>
-            <a class="nav-item" href="/sandbox"><span class="nav-ico">🛡️</span><span class="nav-label">工作区沙箱</span></a>
             <a class="nav-item" href="/settings"><span class="nav-ico">⚙️</span><span class="nav-label">设置中心</span></a>
-            <a class="nav-item" href="/plugins"><span class="nav-ico">🔌</span><span class="nav-label">插件中枢</span></a>
+            <details class="nav-more">
+              <summary class="nav-more-head" title="展开低频系统功能">
+                <span class="nm-chev" aria-hidden="true">▾</span>
+                <span class="nm-label">更多</span>
+                <span class="nm-count">4</span>
+              </summary>
+              <div class="nav-more-body">
+                <a class="nav-item" href="/secrets"><span class="nav-ico">🔐</span><span class="nav-label">密钥保险箱</span></a>
+                <a class="nav-item" href="/backups"><span class="nav-ico">📦</span><span class="nav-label">备份与回滚</span></a>
+                <a class="nav-item" href="/sandbox"><span class="nav-ico">🛡️</span><span class="nav-label">工作区沙箱</span></a>
+                <a class="nav-item" href="/plugins"><span class="nav-ico">🔌</span><span class="nav-label">插件中枢</span></a>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -124,15 +254,29 @@
           </button>
           <div class="nav-group-body">
             <a class="nav-item" href="/observability"><span class="nav-ico">📊</span><span class="nav-label">可观测仪表盘</span></a>
-            <a class="nav-item" href="/cost"><span class="nav-ico">💰</span><span class="nav-label">成本看板</span></a>
-            <a class="nav-item" href="/planboard"><span class="nav-ico">🗂️</span><span class="nav-label">计划看板</span></a>
-            <a class="nav-item" href="/errors"><span class="nav-ico">🛑</span><span class="nav-label">错误日志</span></a>
+            <details class="nav-more">
+              <summary class="nav-more-head" title="展开其他看板">
+                <span class="nm-chev" aria-hidden="true">▾</span>
+                <span class="nm-label">更多</span>
+                <span class="nm-count">2</span>
+              </summary>
+              <div class="nav-more-body">
+                <a class="nav-item" href="/cost"><span class="nav-ico">💰</span><span class="nav-label">成本看板</span></a>
+                <a class="nav-item" href="/planboard"><span class="nav-ico">🗂️</span><span class="nav-label">计划看板</span></a>
+              </div>
+            </details>
+            <!-- 错误日志已并入可观测仪表盘, 入口移除, 路由 /errors 保留 -->
           </div>
         </div>
       </nav>
 
-      <div class="side-explorer">
-        <div class="side-title">通道 · 工具 · 外部中枢</div>
+      <details class="side-explorer" id="side-explorer">
+        <summary class="side-explorer-head" title="展开/收起 通道·工具·外部中枢 清单">
+          <span class="se-ico">🧰</span>
+          <span class="se-label">通道 · 工具 · 外部中枢</span>
+          <span class="se-count" id="explorer-count"></span>
+          <span class="se-chev" aria-hidden="true">▾</span>
+        </summary>
         <div class="explorer-cols">
           <div class="explorer-col">
             <div class="mini-title">通道</div>
@@ -147,7 +291,7 @@
             <ul id="mcp-list" class="chip-list"></ul>
           </div>
         </div>
-      </div>
+      </details>
 
       <div class="side-foot">
         <button id="btn-clear" class="btn-ghost btn-block">清空对话</button>
@@ -165,13 +309,18 @@
           <span class="topbar-sub">本地优先 · 多通道 · 全链路可观测</span>
         </div>
       <div class="topbar-right">
-        <div class="theme-switcher" id="theme-switcher" title="主题切换">
-          <span class="ts-ico">🎨</span>
-          <button class="theme-btn" data-theme="code" title="编码主题 (紫青)">编码</button>
-          <button class="theme-btn" data-theme="audio" title="音频主题 (青绿)">音频</button>
-          <button class="theme-btn" data-theme="image" title="图片主题 (粉橙)">图片</button>
-          <button class="theme-btn" data-theme="video" title="视频主题 (蓝紫)">视频</button>
-        </div>
+        <details class="theme-switcher" id="theme-switcher" title="主题切换">
+          <summary class="ts-summary" title="主题切换">
+            <span class="ts-ico">🎨</span>
+            <span class="ts-caret" aria-hidden="true">▾</span>
+          </summary>
+          <div class="ts-menu">
+            <button class="theme-btn" data-theme="code" title="编码主题 (紫青)">编码</button>
+            <button class="theme-btn" data-theme="audio" title="音频主题 (青绿)">音频</button>
+            <button class="theme-btn" data-theme="image" title="图片主题 (粉橙)">图片</button>
+            <button class="theme-btn" data-theme="video" title="视频主题 (蓝紫)">视频</button>
+          </div>
+        </details>
         <span id="sandbox-chip" class="sandbox-chip" title="工作区沙箱状态">🛡️ 沙箱 …</span>
         <button id="btn-stars" class="btn-ghost btn-icon" title="收藏夹 (跨会话)">⭐ 收藏</button>
         <button id="btn-cmd" class="btn-ghost btn-icon" title="命令面板 (⌘K / Ctrl+K)">⌘K</button>
@@ -192,21 +341,35 @@
         <div class="dash-item"><span class="dash-num" id="dash-tasks">0</span><span class="dash-label">任务</span></div>
         <div class="dash-item"><span class="dash-num" id="dash-running">0</span><span class="dash-label">运行中</span></div>
         <div class="dash-item"><span class="dash-num" id="dash-providers">0/0</span><span class="dash-label">在线通道</span></div>
-        <div class="dash-item"><span class="dash-num" id="dash-tokens">0</span><span class="dash-label">累计 Token</span></div>
         <div class="dash-item"><span class="dash-num" id="dash-cost">¥0</span><span class="dash-label">累计成本</span></div>
-        <div class="dash-item"><span class="dash-num" id="dash-results">0</span><span class="dash-label">已落盘</span></div>
+        <!-- 次要指标收起 (ID 保留, 后端仍会更新数值) -->
+        <details class="dash-more">
+          <summary class="dash-more-head" title="更多指标">⋯</summary>
+          <div class="dash-more-body">
+            <div class="dash-item"><span class="dash-num" id="dash-tokens">0</span><span class="dash-label">累计 Token</span></div>
+            <div class="dash-item"><span class="dash-num" id="dash-results">0</span><span class="dash-label">已落盘</span></div>
+          </div>
+        </details>
       </div>
 
       <div class="tabs">
         <button class="tab active" data-tab="chat">对话</button>
-        <button class="tab" data-tab="results">结果回看</button>
         <button class="tab" data-tab="files">文件树</button>
         <button class="tab" data-tab="terminal">终端</button>
-        <button class="tab" data-tab="sessions">会话历史</button>
-        <button class="tab" data-tab="reviews">代码评审 <span id="review-count" class="badge">0</span></button>
-        <button class="tab" data-tab="mcp">外部工具 <span id="mcp-count" class="badge">0</span></button>
+        <button class="tab" data-tab="results">结果回看</button>
         <button class="tab" data-tab="deliver">交付中心</button>
-        <button class="tab" data-tab="artifacts">成果 <span id="artifact-count" class="badge">0</span></button>
+        <!-- 低频面板: 后端能力保留, 前端收进下拉 -->
+        <details class="tabs-more">
+          <summary class="tabs-more-head" title="更多面板">
+            <span class="tm-label">更多</span><span class="tm-caret" aria-hidden="true">▾</span>
+          </summary>
+          <div class="tabs-menu">
+            <button class="tab" data-tab="sessions">会话历史</button>
+            <button class="tab" data-tab="reviews">代码评审 <span id="review-count" class="badge">0</span></button>
+            <button class="tab" data-tab="mcp">外部工具 <span id="mcp-count" class="badge">0</span></button>
+            <button class="tab" data-tab="artifacts">成果 <span id="artifact-count" class="badge">0</span></button>
+          </div>
+        </details>
       </div>
 
       <section id="panel-chat" class="panel active">
@@ -298,22 +461,30 @@
           <div class="editor-toolbar">
             <span id="editor-file" class="editor-file"></span>
             <span class="editor-spacer"></span>
-            <button id="editor-wrap-toggle" class="btn-ghost" title="自动换行切换 (Alt+Z)">⤡ 换行</button>
-            <button id="editor-font-dec" class="btn-ghost" title="缩小字号">A−</button>
-            <button id="editor-font-inc" class="btn-ghost" title="放大字号">A+</button>
-            <button id="editor-outline-btn" class="btn-ghost" title="符号大纲 / 转到符号">{} 符号</button>
-            <button id="editor-goto-btn" class="btn-ghost" title="转到行 (Ctrl+G)"># 行</button>
-            <button id="editor-find-btn" class="btn-ghost" title="查找 (Ctrl+F) / 替换 (Ctrl+H)">🔍 查找</button>
             <button id="editor-save" class="btn-primary">💾 保存</button>
-            <button id="editor-reload" class="btn-ghost">↻ 重载</button>
-            <button id="editor-copy" class="btn-ghost">⧉ 复制</button>
+            <button id="editor-find-btn" class="btn-ghost" title="查找 (Ctrl+F) / 替换 (Ctrl+H)">🔍 查找</button>
             <button id="editor-deliver" class="btn-accent">🚀 交付自检</button>
-            <button id="editor-export" class="btn-ghost">📄 导出报告</button>
-            <button id="editor-review-changed" class="btn-ghost">📋 评审改动</button>
-            <button id="editor-pr" class="btn-ghost">📝 PR 草稿</button>
-            <button id="editor-review-report" class="btn-ghost">📊 评审报告</button>
             <input id="deliver-note" class="deliver-note" placeholder="变更说明(可选，写进交付报告/PR)" />
             <span id="deliver-badge" class="deliver-badge" style="display:none;"></span>
+            <!-- 低频编辑器操作: 后端能力保留, 前端收进下拉 -->
+            <details class="tb-more">
+              <summary class="tb-more-head" title="更多编辑器操作">
+                <span class="tb-ico">⋯</span><span class="tb-caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="tb-menu">
+                <button id="editor-wrap-toggle" class="btn-ghost" title="自动换行切换 (Alt+Z)">⤡ 换行</button>
+                <button id="editor-font-dec" class="btn-ghost" title="缩小字号">A−</button>
+                <button id="editor-font-inc" class="btn-ghost" title="放大字号">A+</button>
+                <button id="editor-outline-btn" class="btn-ghost" title="符号大纲 / 转到符号">{} 符号</button>
+                <button id="editor-goto-btn" class="btn-ghost" title="转到行 (Ctrl+G)"># 行</button>
+                <button id="editor-reload" class="btn-ghost">↻ 重载</button>
+                <button id="editor-copy" class="btn-ghost">⧉ 复制</button>
+                <button id="editor-export" class="btn-ghost">📄 导出报告</button>
+                <button id="editor-review-changed" class="btn-ghost">📋 评审改动</button>
+                <button id="editor-pr" class="btn-ghost">📝 PR 草稿</button>
+                <button id="editor-review-report" class="btn-ghost">📊 评审报告</button>
+              </div>
+            </details>
             <span id="editor-hint" class="editor-hint">Ctrl/Cmd+S 保存</span>
           </div>
           <div id="editor-findbar" class="findbar" hidden>
@@ -536,5 +707,36 @@
   <script src="/static/app.js"></script>
   <script src="/static/theme.js"></script>
   <script src="/static/commands.js"></script>
+  <script>
+    /* 界面重做 (2026-08-30): 侧栏清单计数 + 折叠状态持久化 (默认收起) */
+    (function () {
+      var KEY = "lmw_explorer_open";
+      var box = document.getElementById("side-explorer");
+      if (box) {
+        try {
+          var saved = localStorage.getItem(KEY);
+          box.open = saved === null ? false : saved === "1";
+        } catch (e) { box.open = false; }
+        box.addEventListener("toggle", function () {
+          try { localStorage.setItem(KEY, box.open ? "1" : "0"); } catch (e) {}
+        });
+      }
+      function count(id) { var x = document.getElementById(id); return x ? x.children.length : 0; }
+      function upd() {
+        var el = document.getElementById("explorer-count");
+        if (!el) return;
+        el.textContent = count("provider-list") + " · " + count("tool-list") + " · " + count("mcp-list");
+      }
+      if (window.MutationObserver) {
+        ["provider-list", "tool-list", "mcp-list"].forEach(function (id) {
+          var node = document.getElementById(id);
+          if (node) { new MutationObserver(upd).observe(node, { childList: true }); }
+        });
+      }
+      upd();
+      setTimeout(upd, 1200);
+      setTimeout(upd, 4000);
+    })();
+  </script>
 </body>
 </html>
